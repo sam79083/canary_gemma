@@ -83,8 +83,15 @@ export default function Home() {
     }
     void refreshSessions();
     void (async () => {
-      const ok = await model.supported();
-      if (!ok) {
+      const avail = await model.supported();
+      if (avail === "unavailable" || avail === "unsupported") {
+        setMessages(stored);
+        hydratedRef.current = true;
+        return;
+      }
+      if (avail === "downloading" || avail === "downloadable") {
+        // Chrome requires a user click to start the model download, so don't
+        // auto-create here — the "Enable Gemma 4" button in the sidebar does it.
         setMessages(stored);
         hydratedRef.current = true;
         return;
@@ -112,8 +119,11 @@ export default function Home() {
     model.destroy();
     localStorage.removeItem(HISTORY_KEY);
     setMessages([]);
-    void model.supported().then((ok) => {
-      if (ok) void model.createSession();
+    void model.supported().then((avail) => {
+      // Clicking "New chat" counts as the user gesture, so creating is allowed
+      // even when the model still needs downloading.
+      if (avail !== "unavailable" && avail !== "unsupported")
+        void model.createSession();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -180,6 +190,18 @@ export default function Home() {
           />
           Gemma 4 (on-device)
         </div>
+
+        {!model.ready &&
+        (model.availability === "downloading" ||
+          model.availability === "downloadable") ? (
+          <button
+            className="sidebar-btn"
+            id="enable-model-btn"
+            onClick={() => void model.createSession()}
+          >
+            ⬇ Enable Gemma 4
+          </button>
+        ) : null}
 
         <button className="sidebar-btn" id="new-chat-btn" onClick={handleNewChat} disabled={!model.ready}>
           + New chat

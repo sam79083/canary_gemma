@@ -24,27 +24,35 @@ export function useLanguageModel() {
   const [status, setStatus] = useState("Checking availability…");
   const [online, setOnline] = useState(false);
   const [ready, setReady] = useState(false);
+  const [availability, setAvailability] = useState<string | null>(null);
   const [download, setDownload] = useState<DownloadState>({
     show: false,
     pct: 0,
     label: "",
   });
 
-  const supported = useCallback(async (): Promise<boolean> => {
+  // Returns the raw availability string ("available" | "downloading" |
+  // "downloadable" | "unavailable" | "unsupported"). Callers must check it:
+  // Chrome throws "Requires a user gesture" if create() runs without a click
+  // while availability is "downloading" or "downloadable".
+  const supported = useCallback(async (): Promise<string> => {
     if (typeof LanguageModel === "undefined") {
       setStatus("Not supported — use Chrome 148+ / Canary");
       setOnline(false);
-      return false;
+      setAvailability("unsupported");
+      return "unsupported";
     }
     try {
       const availability = await LanguageModel.availability();
+      setAvailability(availability);
       setStatus(`Available: ${availability}`);
       setOnline(availability !== "unavailable");
-      return availability !== "unavailable";
+      return availability;
     } catch (e) {
       setStatus(`Error: ${e instanceof Error ? e.message : String(e)}`);
       setOnline(false);
-      return false;
+      setAvailability("unavailable");
+      return "unavailable";
     }
   }, []);
 
@@ -152,6 +160,7 @@ export function useLanguageModel() {
     online,
     setOnline,
     ready,
+    availability,
     download,
     supported,
     createSession,
