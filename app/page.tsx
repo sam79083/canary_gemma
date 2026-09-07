@@ -1,0 +1,273 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import Chat from "@/components/Chat";
+import FileEditor from "@/components/FileEditor";
+import FileTree from "@/components/FileTree";
+import { useLanguageModel } from "@/hooks/useLanguageModel";
+import { listSessions, loadSession, saveSession } from "@/lib/api";
+import type { ChatMessage, SessionInfo } from "@/lib/types";
+
+const HISTORY_KEY = "gemma4-chat-history";
+const THEME_KEY = "theme";
+
+function titleFor(messages: ChatMessage[]): string {
+  const first = messages.find((m) => m.role === "user");
+  if (!first) return "New conversation";
+  const text = first.content.slice(0, 50);
+  return text.length >= 50 ? text + "…" : text;
+}
+
+export default function Home() {
+  const model = useLanguageModel();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [dark, setDark] = useState(false);
+  const [sessionList, setSessionList] = useState<SessionInfo[]>([]);
+  const [editorPath, setEditorPath] = useState<string | null>(null);
+  const [treeVersion, setTreeVersion] = useState(0);
+
+  const messagesRef = useRef<ChatMessage[]>([]);
+  messagesRef.current = messages;
+  const hydratedRef = useRef(false);
+  const startedRef = useRef(false);
+
+  // Theme: load once, apply to body
+  useEffect(() => {
+    setDark(localStorage.getItem(THEME_KEY) === "dark");
+  }, []);
+  useEffect(() => {
+    document.body.classList.toggle("dark", dark);
+  }, [dark]);
+
+  const pushMessage = useCallback((role: ChatMessage["role"], content: string) => {
+    setMessages((prev) => [...prev, { role, content }]);
+  }, []);
+
+  // Persist chat to localStorage on every change (after initial hydration)
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(messagesRef.current));
+    } catch (e) {
+      console.error("Failed to save history:", e);
+    }
+  }, [messages]);
+
+  const persistChat = useCallback(() => {
+    const msgs = messagesRef.current;
+    if (msgs.length === 0) return;
+    void saveSession(titleFor(msgs), msgs).catch((e) =>
+      console.error("Auto-save to server failed:", e),
+    );
+  }, []);
+
+  const refreshSessions = useCallback(async () => {
+    try {
+      setSessionList(await listSessions());
+    } catch (e) {
+      console.error("Failed to load sessions:", e);
+    }
+  }, []);
+
+  // Startup: history + model session
+  useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    let stored: ChatMessage[] = [];
+    try {
+      stored = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+      if (!Array.isArray(stored)) stored = [];
+    } catch {
+      stored = [];
+    }
+    void refreshSessions();
+    void (async () => {
+      const ok = await model.supported();
+      if (!ok) {
+        setMessages(stored);
+        hydratedRef.current = true;
+        return;
+      }
+      if (stored.length > 0) {
+        if (confirm(`Found a previous conversation (${stored.length} messages). Restore it?`)) {
+          setMessages(stored);
+          hydratedRef.current = true;
+          await model.restoreSession(stored);
+        } else {
+          localStorage.removeItem(HISTORY_KEY);
+          setMessages([]);
+          hydratedRef.current = true;
+          await model.createSession();
+        }
+      } else {
+        hydratedRef.current = true;
+        await model.createSession();
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleNewChat = useCallback(() => {
+    model.destroy();
+    localStorage.removeItem(HISTORY_KEY);
+    setMessages([]);
+    void model.supported().then((ok) => {
+      if (ok) void model.createSession();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleLoadSessionFile = useCallback(
+    async (filename: string) => {
+      if (!filename) return;
+      try {
+        const msgs = await loadSession(filename);
+        setMessages(msgs);
+        model.destroy();
+        await model.restoreSession(msgs);
+      } catch (e) {
+        console.error("Failed to load session:", e);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const appendInput = useCallback((text: string) => {
+    setInput((prev) => (prev.trim() ? prev.trimEnd() + "\n\n" + text : text));
+  }, []);
+
+  const readInput = useCallback(() => input, [input]);
+
+  const closeEditor = useCallback((focusChat = false) => {
+    setEditorPath(null);
+    if (focusChat) {
+      setTimeout(
+        () => document.getElementById("prompt-input")?.focus(),
+        0,
+      );
+    }
+  }, []);
+
+  return (
+    <>
+      {model.download.show ? (
+        <div id="download-overlay" className="download-overlay">
+          <div className="download-card">
+            <h3>Downloading Gemma 4</h3>
+            <p id="download-status">{model.download.label || "Preparing model download…"}</p>
+            <div className="download-bar-container">
+              <div
+                id="download-bar"
+                className="download-bar"
+                style={{ width: model.download.pct + "%" }}
+              />
+            </div>
+            <p id="download-pct" className="download-pct">
+              {Math.round(model.download.pct)}%
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="sidebar">
+        <div className="model-header">
+          <span
+            className="dot"
+            id="model-dot"
+            style={{ background: model.online ? "#2e7d32" : "#ccc" }}
+          />
+          Gemma 4 (on-device)
+        </div>
+
+        <button className="sidebar-btn" id="new-chat-btn" onClick={handleNewChat} disabled={!model.ready}>
+          + New chat
+        </button>
+
+        <select
+          className="sidebar-btn small"
+          id="session-select"
+          defaultValue=""
+          onChange={(e) => {
+            void handleLoadSessionFile(e.target.value);
+            e.target.value = "";
+          }}
+        >
+          <option value="">
+            {sessionList.length > 0 ? "💬 Load session…" : "No saved sessions"}
+          </option>
+          {sessionList.map((s) => (
+            <option key={s.filename} value={s.filename}>
+              {s.title} ({new Date(s.timestamp).toLocaleString()})
+            </option>
+          ))}
+        </select>
+
+        <FileTree
+          onOpenFile={setEditorPath}
+          version={treeVersion}
+          onMutated={() => setTreeVersion((v) => v + 1)}
+        />
+
+        <div className="note">
+          Requires Chrome 148+ or Chrome Canary with Gemma 4 built-in AI flags enabled.
+        </div>
+        <div className="status" id="sidebar-status">
+          {model.status}
+        </div>
+      </div>
+
+      <div className="main">
+        <div className="model-bar">
+          <span className="gemma-badge">Gemma 4</span>
+          <span id="model-status">{model.status}</span>
+          <button
+            className="theme-toggle"
+            title="Toggle dark/light mode"
+            onClick={() => {
+              setDark((d) => {
+                localStorage.setItem(THEME_KEY, d ? "light" : "dark");
+                return !d;
+              });
+            }}
+          >
+            {dark ? "☀️" : "🌙"}
+          </button>
+        </div>
+
+        <Chat
+          messages={messages}
+          input={input}
+          setInput={setInput}
+          sessionRef={model.sessionRef}
+          busyRef={model.busyRef}
+          modelReady={model.ready}
+          setModelStatus={(s, online) => {
+            model.setStatus(s);
+            model.setOnline(online);
+          }}
+          pushMessage={pushMessage}
+          persistChat={persistChat}
+        />
+      </div>
+
+      {editorPath ? (
+        <FileEditor
+          path={editorPath}
+          onClose={() => closeEditor(false)}
+          onSaved={() => setTreeVersion((v) => v + 1)}
+          sessionRef={model.sessionRef}
+          busyRef={model.busyRef}
+          pushMessage={pushMessage}
+          appendInput={(text) => {
+            appendInput(text);
+            closeEditor(true);
+          }}
+          readInput={readInput}
+          persistChat={persistChat}
+        />
+      ) : null}
+    </>
+  );
+}

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemma 4 Chat — Chrome Prompt API</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💎</text></svg>">
+</head>
+<body>
+    <!-- Download Overlay -->
+    <div id="download-overlay" class="download-overlay hidden">
+        <div class="download-card">
+            <h3>Downloading Gemma 4</h3>
+            <p id="download-status">Preparing model download…</p>
+            <div class="download-bar-container">
+                <div id="download-bar" class="download-bar"></div>
+            </div>
+            <p id="download-pct" class="download-pct">0%</p>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="model-header">
+            <span class="dot" id="model-dot"></span>
+            Gemma 4 (on-device)
+        </div>
+
+        <button class="sidebar-btn" id="new-chat-btn">+ New chat</button>
+
+        <select class="sidebar-btn small" id="session-select">
+            <option value="">💬 Load session…</option>
+        </select>
+
+        <div id="file-tree" class="file-tree" style="flex: 1; min-height: 150px;"></div>
+
+        <div class="note">
+            Requires Chrome 148+ or Chrome Canary with Gemma 4 built-in AI flags enabled.
+        </div>
+        <div class="status" id="sidebar-status">Checking availability…</div>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+        <div class="model-bar">
+            <span class="gemma-badge">Gemma 4</span>
+            <span id="model-status">Ready</span>
+            <button class="theme-toggle" id="theme-toggle" title="Toggle dark/light mode">🌙</button>
+        </div>
+
+        <div class="messages" id="messages">
+            <div class="message assistant">
+                <div class="avatar">G</div>
+                <div class="content">Hello! I'm Gemma 4, a Large Language Model developed by Google DeepMind. I'm ready to assist you locally in Chrome Canary. How can I help you today?</div>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <div class="input-container">
+                <textarea id="prompt-input" placeholder="Ask Gemma 4 anything…" rows="1" disabled></textarea>
+                <button class="send-btn secondary" id="search-btn" disabled title="Search the web & ask">🔍</button>
+                <button class="send-btn" id="send-btn" disabled>➤</button>
+            </div>
+            <div class="quota-box input-quota" title="SerpAPI searches remaining this month">
+                <span id="quota-text">🔍 Checking searches left…</span>
+                <button class="quota-refresh" id="quota-refresh-btn" title="Refresh quota">↻</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+
+    <!-- Full-screen File Editor -->
+    <div id="editor-overlay" class="editor-overlay hidden">
+        <div id="editor-toast" class="editor-toast hidden"></div>
+        <div class="editor-container">
+            <div class="editor-header">
+                <div class="editor-title">
+                    <span>📄</span>
+                    <span id="editor-path">untitled</span>
+                    <span id="editor-dirty" class="editor-dirty hidden">● unsaved</span>
+                </div>
+                <div class="editor-header-actions">
+                    <span id="editor-status" class="editor-status"></span>
+                    <button class="editor-btn" id="editor-close-btn" title="Close (Esc)">✕ Close</button>
+                </div>
+            </div>
+            <textarea id="editor-textarea" spellcheck="false" placeholder="File contents…"></textarea>
+            <div class="editor-ai-bar">
+                <input id="editor-instruction" type="text" placeholder="Tell AI what to change… e.g fix the bug, add comments, refactor to async/await" />
+                <button class="editor-btn ai" id="editor-ai-btn" title="Let the model read the file and rewrite it">✨ AI Edit</button>
+            </div>
+            <div class="editor-footer">
+                <div class="editor-hint">Ctrl+S to save &nbsp;•&nbsp; Esc to close &nbsp;•&nbsp; <span id="editor-count"></span></div>
+                <div class="editor-actions">
+                    <button class="editor-btn" id="editor-cancel-btn">Cancel</button>
+                    <button class="editor-btn primary" id="editor-save-btn">💾 Save</button>
+                    <button class="editor-btn accent" id="editor-send-btn" title="Insert file contents into chat so the model can see it">📤 Send to Model</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
