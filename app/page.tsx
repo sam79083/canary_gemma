@@ -5,7 +5,12 @@ import Chat from "@/components/Chat";
 import FileEditor from "@/components/FileEditor";
 import FileTree from "@/components/FileTree";
 import { useLanguageModel } from "@/hooks/useLanguageModel";
-import { listSessions, loadSession, saveSession } from "@/lib/api";
+import { useWorkspace } from "@/hooks/useWorkspace";
+import {
+  listLocalSessions,
+  loadLocalSession,
+  saveLocalSession,
+} from "@/lib/sessions-local";
 import type { ChatMessage, SessionInfo } from "@/lib/types";
 
 const HISTORY_KEY = "gemma4-chat-history";
@@ -20,6 +25,7 @@ function titleFor(messages: ChatMessage[]): string {
 
 export default function Home() {
   const model = useLanguageModel();
+  const workspace = useWorkspace();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [dark, setDark] = useState(false);
@@ -31,6 +37,9 @@ export default function Home() {
   messagesRef.current = messages;
   const hydratedRef = useRef(false);
   const startedRef = useRef(false);
+  // One local file per conversation — overwritten on every reply so a long
+  // chat doesn't spam 50 files (the old server API created one per save).
+  const currentSessionFileRef = useRef<string | null>(null);
 
   // Theme: load once, apply to body
   useEffect(() => {
@@ -57,14 +66,21 @@ export default function Home() {
   const persistChat = useCallback(() => {
     const msgs = messagesRef.current;
     if (msgs.length === 0) return;
-    void saveSession(titleFor(msgs), msgs).catch((e) =>
-      console.error("Auto-save to server failed:", e),
-    );
+    const existing = currentSessionFileRef.current;
+    void saveLocalSession(titleFor(msgs), msgs, existing)
+      .then((filename) => {
+        currentSessionFileRef.current = filename;
+        // Refresh the dropdown so the new/updated session shows immediately.
+        void listLocalSessions()
+          .then(setSessionList)
+          .catch((e) => console.error("Failed to load sessions:", e));
+      })
+      .catch((e) => console.error("Auto-save session failed:", e));
   }, []);
 
   const refreshSessions = useCallback(async () => {
     try {
-      setSessionList(await listSessions());
+      setSessionList(await listLocalSessions());
     } catch (e) {
       console.error("Failed to load sessions:", e);
     }
@@ -118,6 +134,7 @@ export default function Home() {
   const handleNewChat = useCallback(() => {
     model.destroy();
     localStorage.removeItem(HISTORY_KEY);
+    currentSessionFileRef.current = null;
     setMessages([]);
     void model.supported().then((avail) => {
       // Clicking "New chat" counts as the user gesture, so creating is allowed
@@ -132,7 +149,8 @@ export default function Home() {
     async (filename: string) => {
       if (!filename) return;
       try {
-        const msgs = await loadSession(filename);
+        const msgs = await loadLocalSession(filename);
+        currentSessionFileRef.current = filename;
         setMessages(msgs);
         model.destroy();
         await model.restoreSession(msgs);
@@ -226,10 +244,72 @@ export default function Home() {
           ))}
         </select>
 
+        <div className="workspace-box" id="workspace-box">
+          {workspace.supported ? (
+            workspace.connected ? (
+              <>
+                <div className="workspace-name" title={workspace.rootName ?? ""}>
+                  📂 {workspace.rootName}
+                </div>
+                <div className="workspace-actions">
+                  <button
+                    className="sidebar-btn small"
+                    onClick={() => {
+                      void workspace.pick().then((ok) => {
+                        if (ok) {
+                          setEditorPath(null);
+                          setTreeVersion((v) => v + 1);
+                        }
+                      });
+                    }}
+                  >
+                    Change
+                  </button>
+                  <button
+                    className="sidebar-btn small"
+                    onClick={() => {
+                      workspace.disconnect();
+                      setEditorPath(null);
+                      setTreeVersion((v) => v + 1);
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </>
+            ) : (
+              <button
+                className="sidebar-btn"
+                id="workspace-pick-btn"
+                onClick={() => {
+                  void workspace.pick().then((ok) => {
+                    if (ok) setTreeVersion((v) => v + 1);
+                  });
+                }}
+              >
+                📂 Set workspace
+              </button>
+            )
+          ) : (
+            <div className="workspace-unsupported">
+              Local workspace not supported — using server files.
+            </div>
+          )}
+          {workspace.error ? (
+            <div className="workspace-error">{workspace.error}</div>
+          ) : null}
+          {workspace.supported && !workspace.connected ? (
+            <div className="workspace-hint">
+              Files stay on this PC — nothing is uploaded to Render.
+            </div>
+          ) : null}
+        </div>
+
         <FileTree
           onOpenFile={setEditorPath}
           version={treeVersion}
           onMutated={() => setTreeVersion((v) => v + 1)}
+          workspace={workspace}
         />
 
         <div className="note">
@@ -279,6 +359,7 @@ export default function Home() {
           path={editorPath}
           onClose={() => closeEditor(false)}
           onSaved={() => setTreeVersion((v) => v + 1)}
+          workspace={workspace}
           sessionRef={model.sessionRef}
           busyRef={model.busyRef}
           pushMessage={pushMessage}

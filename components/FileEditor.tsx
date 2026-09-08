@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
-import { readFile, writeFile } from "@/lib/api";
+import { readFile as serverReadFile, writeFile as serverWriteFile } from "@/lib/api";
+import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import { stripCodeFences, summarizeDiff } from "@/lib/diff";
 import type { LanguageModelSession } from "@/lib/prompt-api.d";
 import type { BusyKind } from "@/hooks/useLanguageModel";
@@ -12,6 +13,7 @@ interface Props {
   path: string;
   onClose: () => void;
   onSaved: () => void;
+  workspace: WorkspaceApi;
   sessionRef: RefObject<LanguageModelSession | null>;
   busyRef: RefObject<BusyKind>;
   pushMessage: (role: ChatMessage["role"], content: string) => void;
@@ -24,6 +26,7 @@ export default function FileEditor({
   path,
   onClose,
   onSaved,
+  workspace,
   sessionRef,
   busyRef,
   pushMessage,
@@ -56,6 +59,18 @@ export default function FileEditor({
     };
   }, []);
 
+  const localMode = workspace.supported;
+  const readActive = useCallback(
+    (p: string): Promise<string> =>
+      localMode ? workspace.readFile(p) : serverReadFile(p),
+    [localMode, workspace],
+  );
+  const writeActive = useCallback(
+    (p: string, c: string): Promise<void> =>
+      localMode ? workspace.writeFile(p, c) : serverWriteFile(p, c),
+    [localMode, workspace],
+  );
+
   // Load file on open
   useEffect(() => {
     let cancelled = false;
@@ -65,7 +80,7 @@ export default function FileEditor({
       setStatus("Loading…");
       setStatusOk(false);
       try {
-        const text = await readFile(path);
+        const text = await readActive(path);
         if (cancelled) return;
         setContent(text);
         setOriginal(text);
@@ -79,26 +94,27 @@ export default function FileEditor({
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [path, readActive]);
 
   const save = useCallback(async (): Promise<boolean | "unchanged"> => {
     if (content === original) {
       setStatus("No changes — file already up to date ✓");
       setStatusOk(false);
       showToast("No changes to save");
-      console.log("[Save] no changes, skipping POST");
+      console.log("[Save] no changes, skipping write");
       return "unchanged";
     }
     setStatus("Saving…");
     setStatusOk(false);
-    console.log("[Save] POST /api/file", path, content.length + " chars");
+    console.log("[Save]", localMode ? "local workspace" : "POST /api/file", path, content.length + " chars");
     try {
-      await writeFile(path, content);
+      await writeActive(path, content);
       try {
-        const verify = await readFile(path);
+        const verify = await readActive(path);
         if (verify === content) {
           setOriginal(content);
-          const msg = `Saved ✓ ${path} (${lines} lines, ${content.length} chars) — verified on disk at ${new Date().toLocaleTimeString()}`;
+          const where = localMode ? "local workspace" : "disk";
+          const msg = `Saved ✓ ${path} (${lines} lines, ${content.length} chars) — verified in ${where} at ${new Date().toLocaleTimeString()}`;
           setStatus(msg);
           setStatusOk(true);
           showToast(`Saved ✓ ${path}`);
@@ -106,7 +122,7 @@ export default function FileEditor({
           console.log("[Save] verified OK");
           return true;
         }
-        setStatus("Save sent but verify mismatch — disk differs!");
+        setStatus("Save sent but verify mismatch — file differs!");
         showToast("Save sent but verify mismatch", true);
         return false;
       } catch (ve) {
@@ -125,7 +141,7 @@ export default function FileEditor({
       return false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [content, original, path, lines, onSaved, showToast]);
+  }, [content, original, path, lines, onSaved, showToast, readActive, writeActive, localMode]);
 
   const close = useCallback(() => {
     if (content !== original) {
@@ -198,17 +214,18 @@ export default function FileEditor({
         // inline save of the new content to keep verify logic in one place
         setStatus("Saving…");
         try {
-          await writeFile(path, result);
-          const verify = await readFile(path);
+          await writeActive(path, result);
+          const verify = await readActive(path);
           if (verify === result) {
             setOriginal(result);
-            const msg = `Saved ✓ ${path} — verified on disk at ${new Date().toLocaleTimeString()}`;
+            const where = localMode ? "local workspace" : "disk";
+            const msg = `Saved ✓ ${path} — verified in ${where} at ${new Date().toLocaleTimeString()}`;
             setStatus(msg);
             setStatusOk(true);
             onSaved();
             return true as const;
           }
-          setStatus("Save sent but verify mismatch — disk differs!");
+          setStatus("Save sent but verify mismatch — file differs!");
           return false as const;
         } catch (e) {
           setStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -219,7 +236,7 @@ export default function FileEditor({
       pushMessage(
         "assistant",
         `Edited ${path} (${diff.oldCount}→${diff.newCount} lines, +${diff.added}/-${diff.removed}). ` +
-          (saveOk === true ? "Saved ✓ verified on disk." : "Save FAILED — see editor status.") +
+          (saveOk === true ? "Saved ✓ verified." : "Save FAILED — see editor status.") +
           `\n\n${diff.preview}`,
       );
       persistChat();
@@ -232,7 +249,7 @@ export default function FileEditor({
       busyRef.current = null;
       setAiBusy(false);
     }
-  }, [aiBusy, instruction, readInput, sessionRef, busyRef, content, path, onSaved, pushMessage, persistChat, showToast]);
+  }, [aiBusy, instruction, readInput, sessionRef, busyRef, content, path, onSaved, pushMessage, persistChat, showToast, readActive, writeActive, localMode]);
 
   // Ctrl+S / Esc (not while typing the AI instruction)
   useEffect(() => {

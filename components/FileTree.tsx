@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  deletePath,
-  listFiles,
-  makeDir,
-  writeFile,
+  deletePath as serverDeletePath,
+  listFiles as serverListFiles,
+  makeDir as serverMakeDir,
+  writeFile as serverWriteFile,
 } from "@/lib/api";
+import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { FileEntry } from "@/lib/types";
 
 interface MenuState {
@@ -27,9 +28,10 @@ interface NodeProps {
   parentPath: string;
   onOpenFile: (path: string) => void;
   showMenu: (m: MenuState, reload: () => void) => void;
+  loadEntries: (path: string) => Promise<FileEntry[]>;
 }
 
-function FolderNode({ entry, fullPath, parentPath, onOpenFile, showMenu }: NodeProps) {
+function FolderNode({ entry, fullPath, parentPath, onOpenFile, showMenu, loadEntries }: NodeProps) {
   const [open, setOpen] = useState(false);
   const [children, setChildren] = useState<FileEntry[] | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error" | "empty">("idle");
@@ -37,14 +39,14 @@ function FolderNode({ entry, fullPath, parentPath, onOpenFile, showMenu }: NodeP
   const load = useCallback(async () => {
     setState("loading");
     try {
-      const entries = await listFiles(fullPath);
+      const entries = await loadEntries(fullPath);
       setChildren(entries);
       setState(entries.length === 0 ? "empty" : "idle");
     } catch (e) {
       console.error("Failed to load subdirectory:", e);
       setState("error");
     }
-  }, [fullPath]);
+  }, [fullPath, loadEntries]);
 
   const toggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -98,6 +100,7 @@ function FolderNode({ entry, fullPath, parentPath, onOpenFile, showMenu }: NodeP
                   parentPath={fullPath}
                   onOpenFile={onOpenFile}
                   showMenu={showMenu}
+                  loadEntries={loadEntries}
                 />
               ) : (
                 <FileNode
@@ -107,6 +110,7 @@ function FolderNode({ entry, fullPath, parentPath, onOpenFile, showMenu }: NodeP
                   parentPath={fullPath}
                   onOpenFile={onOpenFile}
                   showMenu={showMenu}
+                  loadEntries={loadEntries}
                 />
               );
             })
@@ -142,25 +146,59 @@ export default function FileTree({
   onOpenFile,
   version,
   onMutated,
+  workspace,
 }: {
   onOpenFile: (path: string) => void;
   version: number;
   onMutated: () => void;
+  workspace: WorkspaceApi;
 }) {
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const menuReload = useRef<() => void>(() => {});
 
+  // When the browser supports File System Access, the workspace is purely
+  // local — Render never sees the files. Server API is only a fallback for
+  // browsers without showDirectoryPicker (e.g. Firefox).
+  const localMode = workspace.supported;
+  const connected = workspace.connected;
+
+  const loadEntries = useCallback(
+    (p: string): Promise<FileEntry[]> =>
+      localMode ? workspace.list(p) : serverListFiles(p),
+    [localMode, workspace],
+  );
+  const createFile = useCallback(
+    (p: string, content: string): Promise<void> =>
+      localMode ? workspace.writeFile(p, content) : serverWriteFile(p, content),
+    [localMode, workspace],
+  );
+  const createDir = useCallback(
+    (p: string): Promise<void> =>
+      localMode ? workspace.makeDir(p) : serverMakeDir(p),
+    [localMode, workspace],
+  );
+  const removeEntry = useCallback(
+    (p: string): Promise<void> =>
+      localMode ? workspace.deletePath(p) : serverDeletePath(p),
+    [localMode, workspace],
+  );
+
   const loadRoot = useCallback(async () => {
+    if (localMode && !connected) {
+      setEntries([]);
+      setError(null);
+      return;
+    }
     try {
-      setEntries(await listFiles(""));
+      setEntries(await loadEntries(""));
       setError(null);
     } catch (e) {
       console.error("Failed to load files:", e);
       setError("Failed to load files");
     }
-  }, []);
+  }, [loadEntries, localMode, connected]);
 
   useEffect(() => {
     void loadRoot();
@@ -187,8 +225,28 @@ export default function FileTree({
 
   const runAction = async (fn: () => Promise<void>) => {
     setMenu(null);
-    await fn();
+    try {
+      await fn();
+    } catch (e) {
+      console.error("File action failed:", e);
+      alert(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   };
+
+  if (localMode && !connected) {
+    return (
+      <div
+        className="file-tree"
+        style={{ flex: 1, minHeight: 150, padding: 12, fontSize: 13 }}
+      >
+        <div style={{ marginBottom: 8 }}>📂 No workspace selected</div>
+        <div style={{ color: "var(--status-text)", fontSize: 12 }}>
+          Click “Set workspace” above to pick a folder on this PC. Files stay
+          local — nothing is uploaded to Render.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -218,6 +276,7 @@ export default function FileTree({
                 parentPath=""
                 onOpenFile={onOpenFile}
                 showMenu={showMenu}
+                loadEntries={loadEntries}
               />
             ) : (
               <FileNode
@@ -227,6 +286,7 @@ export default function FileTree({
                 parentPath=""
                 onOpenFile={onOpenFile}
                 showMenu={showMenu}
+                loadEntries={loadEntries}
               />
             );
           })
@@ -258,7 +318,7 @@ export default function FileTree({
                     const fname = prompt("File name:");
                     if (!fname) return;
                     const p = joinPath(menu.fullPath, fname);
-                    await writeFile(p, "");
+                    await createFile(p, "");
                     refreshAfter();
                     onOpenFile(p);
                   })
@@ -270,7 +330,7 @@ export default function FileTree({
                   runAction(async () => {
                     const fname = prompt("Folder name:");
                     if (!fname) return;
-                    await makeDir(joinPath(menu.fullPath, fname));
+                    await createDir(joinPath(menu.fullPath, fname));
                     refreshAfter();
                   })
                 }
@@ -295,7 +355,7 @@ export default function FileTree({
                 runAction(async () => {
                   const name = menu.fullPath.split("/").pop();
                   if (!confirm(`Delete ${name}?`)) return;
-                  await deletePath(menu.fullPath);
+                  await removeEntry(menu.fullPath);
                   refreshAfter();
                 })
               }
