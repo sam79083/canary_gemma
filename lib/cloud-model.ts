@@ -104,6 +104,8 @@ export class GeminiSession implements LanguageModelSession {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const req: any = {
       contents: [...this.history, { role: "user", parts: [{ text: prompt }] }],
+      // Cooler + capped: less rambling and thinking-out-loud, same smarts.
+      generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
     };
     if (this.system) req.systemInstruction = { parts: [{ text: this.system }] };
     return JSON.stringify(req);
