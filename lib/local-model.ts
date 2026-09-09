@@ -8,13 +8,14 @@
 // NOTE: browsers block cross-origin requests unless the server allows them.
 // For Ollama, start it with e.g. OLLAMA_ORIGINS="*" (or the app's origin).
 
-import type { LanguageModelSession } from "./prompt-api.d";
+import type { LanguageModelSession, PromptImage } from "./prompt-api.d";
 
 export const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 
 interface ChatMsg {
   role: "system" | "user" | "assistant";
   content: string;
+  images?: string[];
 }
 
 async function fetchJson(url: string, init?: RequestInit, timeoutMs = 8000): Promise<unknown> {
@@ -71,17 +72,27 @@ export class OllamaSession implements LanguageModelSession {
 
   async prompt(prompt: string): Promise<string> {
     let full = "";
-    for await (const chunk of this.stream(prompt)) full += chunk;
+    for await (const chunk of this.stream([{ role: "user", content: prompt }])) full += chunk;
     return full;
   }
 
   async *promptStreaming(prompt: string): AsyncIterable<string> {
-    yield* this.stream(prompt);
+    yield* this.stream([{ role: "user", content: prompt }]);
   }
 
-  private async *stream(prompt: string): AsyncIterable<string> {
+  async *promptWithImages(prompt: string, images: PromptImage[]): AsyncIterable<string> {
+    yield* this.stream([
+      {
+        role: "user",
+        content: prompt,
+        images: images.map((i) => i.data),
+      },
+    ]);
+  }
+
+  private async *stream(extra: ChatMsg[]): AsyncIterable<string> {
     if (this.destroyed) throw new Error("Session destroyed");
-    const messages: ChatMsg[] = [...this.history, { role: "user", content: prompt }];
+    const messages: ChatMsg[] = [...this.history, ...extra];
     const res = await fetch(`${this.base}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -124,7 +135,8 @@ export class OllamaSession implements LanguageModelSession {
     } finally {
       reader.releaseLock();
     }
-    this.history.push({ role: "user", content: prompt });
+    // History keeps text only — base64 would explode future requests.
+    for (const m of extra) this.history.push({ role: m.role, content: m.content });
     this.history.push({ role: "assistant", content: full });
   }
 

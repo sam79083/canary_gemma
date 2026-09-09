@@ -41,4 +41,11 @@ export interface PendingReview {
   newText: string;
 }
 
-export type ReviewFn = (r: PendingReview) => Promise<boolean>;
+/** Keep = apply (possibly edited) text; Undo = discard. */
+export interface ReviewResult {
+  ok: boolean;
+  /** Final content to write (write only; defaults to the proposal). */
+  text: string;
+}
+
+export type ReviewFn = (r: PendingReview) => Promise<ReviewResult>;

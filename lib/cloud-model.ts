@@ -9,7 +9,7 @@
 // Implements the app's LanguageModelSession shape, so chat/file tools work
 // unchanged whichever provider is active.
 
-import type { LanguageModelSession } from "./prompt-api.d";
+import type { LanguageModelSession, PromptImage } from "./prompt-api.d";
 
 export const DEFAULT_GEMINI_MODEL = "gemma-4-26b-a4b-it";
 export const FALLBACK_GEMINI_MODEL = "gemma-4-31b-it";
@@ -142,13 +142,32 @@ export class GeminiSession implements LanguageModelSession {
   }
 
   async *promptStreaming(prompt: string): AsyncIterable<string> {
+    yield* this.runStream(this.body(prompt), prompt);
+  }
+
+  async *promptWithImages(prompt: string, images: PromptImage[]): AsyncIterable<string> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parts: any[] = [{ text: prompt }];
+    for (const img of images) {
+      parts.push({ inline_data: { mime_type: img.mime, data: img.data } });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const req: any = {
+      contents: [...this.history, { role: "user", parts }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+    };
+    if (this.system) req.systemInstruction = { parts: [{ text: this.system }] };
+    yield* this.runStream(JSON.stringify(req), prompt);
+  }
+
+  private async *runStream(body: string, prompt: string): AsyncIterable<string> {
     if (this.destroyed) throw new Error("Session destroyed");
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(this.key)}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: this.body(prompt),
+        body,
       },
     );
     if (res.status === 400 || res.status === 403) throw new Error("bad-key");
