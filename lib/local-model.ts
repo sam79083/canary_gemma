@@ -12,6 +12,14 @@ import type { LanguageModelSession, PromptImage } from "./prompt-api.d";
 
 export const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 
+/**
+ * Same philosophy as the cloud adapter: bound what gets re-sent every turn
+ * (Ollama re-reads it all, on CPU when VRAM spills) and cap the KV cache.
+ * 30 exchanges cover any single task; distant marathon chatter is trimmed.
+ */
+export const OLLAMA_HISTORY_TAIL = 30;
+export const OLLAMA_NUM_CTX = 16384;
+
 interface ChatMsg {
   role: "system" | "user" | "assistant";
   content: string;
@@ -90,13 +98,24 @@ export class OllamaSession implements LanguageModelSession {
     ]);
   }
 
+  private tail(): ChatMsg[] {
+    return this.history.length > OLLAMA_HISTORY_TAIL
+      ? this.history.slice(-OLLAMA_HISTORY_TAIL)
+      : this.history;
+  }
+
   private async *stream(extra: ChatMsg[]): AsyncIterable<string> {
     if (this.destroyed) throw new Error("Session destroyed");
-    const messages: ChatMsg[] = [...this.history, ...extra];
+    const messages: ChatMsg[] = [...this.tail(), ...extra];
     const res = await fetch(`${this.base}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: this.model, messages, stream: true }),
+      body: JSON.stringify({
+        model: this.model,
+        messages,
+        stream: true,
+        options: { num_ctx: OLLAMA_NUM_CTX },
+      }),
     });
     if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
     const reader = res.body.getReader();

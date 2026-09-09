@@ -18,6 +18,7 @@ import type { ChatMessage, ReviewFn } from "@/lib/types";
 import { replySuffix, type Lang, type TFn } from "@/lib/i18n";
 import { recordUsage } from "@/lib/usage";
 import { renderMarkdown } from "@/lib/markdown";
+import { sanitizeAnswer } from "@/lib/sanitize";
 import {
   AGENT_MAX_STEPS,
   buildAgentPreamble,
@@ -43,6 +44,8 @@ interface Props {
   onOpenFile: (path: string) => void;
   reviewChange: ReviewFn;
   provider: Provider;
+  /** Native multimodal session for built-in Gemma photo turns (null = N/A). */
+  ensureVision: () => Promise<LanguageModelSession | null>;
   /** Model id for usage tracking (e.g. gemma-4-26b-a4b-it). Empty = don't track. */
   usageModel: string;
   t: TFn;
@@ -156,6 +159,7 @@ export default function Chat({
   onOpenFile,
   reviewChange,
   provider,
+  ensureVision,
   usageModel,
   t,
   lang,
@@ -289,12 +293,40 @@ export default function Chat({
   const MAX_PHOTO = 4 * 1024 * 1024;
   const PHOTO_MIMES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-  function readAsDataUrl(f: File): Promise<string> {
+  /**
+   * Phone photos are 3–12MB; image tokens scale with pixels. Downscale to
+   * max 1024px JPEG before sending — same understanding, ~10x fewer tokens.
+   */
+  function downscalePhoto(f: File, maxDim = 1024, quality = 0.82): Promise<{ mime: string; data: string }> {
     return new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(String(r.result ?? ""));
-      r.onerror = () => reject(new Error("read"));
-      r.readAsDataURL(f);
+      const url = URL.createObjectURL(f);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) throw new Error("no-2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(url);
+          const out = canvas.toDataURL("image/jpeg", quality);
+          const data = out.split(",").slice(1).join(",");
+          if (!data) throw new Error("encode");
+          resolve({ mime: "image/jpeg", data });
+        } catch (e) {
+          URL.revokeObjectURL(url);
+          reject(e);
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("decode"));
+      };
+      img.src = url;
     });
   }
 
@@ -302,20 +334,21 @@ export default function Chat({
     async (files: FileList | null) => {
       if (!files || files.length === 0) return;
       for (const f of Array.from(files).slice(0, 5)) {
-        // Photos go straight to the model, not the workspace.
-        if (PHOTO_MIMES.includes(f.type)) {
+        // Photos go straight to the model (downscaled), not the workspace.
+        // Match by MIME or extension — some phones report an empty MIME type.
+        const looksLikePhoto =
+          PHOTO_MIMES.includes(f.type) || /\.(png|jpe?g|webp|gif|bmp)$/i.test(f.name);
+        if (looksLikePhoto) {
           if (f.size > MAX_PHOTO) {
             pushMessage("assistant", t("imgTooBig", { name: f.name }));
             continue;
           }
           try {
-            const url = await readAsDataUrl(f);
-            const data = url.split(",").slice(1).join(",");
-            if (!data) throw new Error("read");
+            const small = await downscalePhoto(f);
             setPhotos((prev) =>
               prev.length >= 3
                 ? prev
-                : [...prev, { name: f.name || "photo", mime: f.type, data }],
+                : [...prev, { name: f.name || "photo", ...small }],
             );
             pushMessage("assistant", t("imgAttached", { name: f.name || "photo" }));
           } catch {
@@ -450,40 +483,96 @@ export default function Chat({
       const imgs: PromptImage[] = photos.map((p) => ({ mime: p.mime, data: p.data }));
       const names = photos.map((p) => p.name).join(", ");
       setPhotos([]);
-      if (!session.promptWithImages) {
+      if (session?.promptWithImages) {
+        busyRef.current = "chat";
+        setStreaming(true);
         setInput("");
         pushMessage("user", `${prompt}\n\n📷 ${names}`);
-        pushMessage("assistant", t("imgUnsupported"));
-        persistChat();
-        return;
-      }
-      busyRef.current = "chat";
-      setStreaming(true);
-      setInput("");
-      pushMessage("user", `${prompt}\n\n📷 ${names}`);
-      setStreamText("");
-      try {
-        let full = "";
-        const stream = session.promptWithImages(prompt + replyIn, imgs);
-        for await (const chunk of stream) {
-          full += chunk;
-          setStreamText(full);
-        }
-        collectUsage();
-        if (stripToolCalls(full).trim()) {
-          pushMessage("assistant", stripToolCalls(full).trim());
+        setStreamText("");
+        try {
+          let full = "";
+          const stream = session.promptWithImages(prompt + replyIn, imgs);
+          for await (const chunk of stream) {
+            full += chunk;
+            setStreamText(full);
+          }
+          collectUsage();
+          const photoClean = sanitizeAnswer(stripToolCalls(full).trim());
+          if (photoClean) {
+            pushMessage("assistant", photoClean);
+            persistChat();
+          }
+        } catch (e) {
+          pushMessage("assistant", friendlyError(t, e));
+        } finally {
+          busyRef.current = null;
+          setStreaming(false);
+          setStreamText(null);
+          focusInput();
+          setModelStatus(t("stReadyOk"), true);
           persistChat();
         }
-      } catch (e) {
-        pushMessage("assistant", friendlyError(t, e));
-      } finally {
-        busyRef.current = null;
-        setStreaming(false);
-        setStreamText(null);
-        focusInput();
-        setModelStatus(t("stReadyOk"), true);
-        persistChat();
+        return;
       }
+      // Built-in Gemma: dedicated multimodal session via the Prompt API.
+      if (provider === "gemma" && session) {
+        busyRef.current = "chat";
+        setStreaming(true);
+        setInput("");
+        pushMessage("user", `${prompt}\n\n📷 ${names}`);
+        setStreamText("");
+        try {
+          const vs = await ensureVision();
+          if (!vs) {
+            pushMessage("assistant", t("imgUnsupported"));
+            return;
+          }
+          const blobs = await Promise.all(
+            imgs.map(async (im) =>
+              (await fetch(`data:${im.mime};base64,${im.data}`)).blob(),
+            ),
+          );
+          let full = "";
+          const stream = vs.promptStreaming([
+            {
+              role: "user",
+              content: [
+                { type: "text", value: prompt + replyIn },
+                ...blobs.map((b) => ({ type: "image" as const, value: b })),
+              ],
+            },
+          ]);
+          for await (const chunk of stream) {
+            full += chunk;
+            setStreamText(full);
+          }
+          const photoClean = sanitizeAnswer(stripToolCalls(full).trim());
+          if (photoClean) {
+            pushMessage("assistant", photoClean);
+            try {
+              await vs.append(`User: ${prompt}\n[photos attached: ${names}]\n`);
+              await vs.append(`Assistant: ${photoClean}\n`);
+            } catch {
+              // history note optional — answer already delivered
+            }
+            persistChat();
+          }
+        } catch (e) {
+          pushMessage("assistant", friendlyError(t, e));
+        } finally {
+          busyRef.current = null;
+          setStreaming(false);
+          setStreamText(null);
+          focusInput();
+          setModelStatus(t("stReadyOk"), true);
+          persistChat();
+        }
+        return;
+      }
+      setInput("");
+      pushMessage("user", prompt);
+      pushMessage("assistant", t("imgUnsupported"));
+      persistChat();
       return;
     }
     busyRef.current = "chat";
@@ -497,8 +586,9 @@ export default function Chat({
       let full = "";
       try {
         full = await runModelTurn(prompt + replyIn, setStreamText);
-        if (stripToolCalls(full).trim()) {
-          pushMessage("assistant", stripToolCalls(full).trim());
+        const clean = sanitizeAnswer(stripToolCalls(full).trim());
+        if (clean) {
+          pushMessage("assistant", clean);
           persistChat();
         }
       } catch (e) {
@@ -622,7 +712,7 @@ export default function Chat({
             `Otherwise just answer the question directly.\n\n${buildUserTurn(prompt)}${replyIn}`,
           setStreamText,
         );
-        const clean = stripToolCalls(full).trim();
+        const clean = sanitizeAnswer(stripToolCalls(full).trim());
         if (clean) pushMessage("assistant", clean);
         return;
       }
@@ -667,7 +757,7 @@ export default function Chat({
             setStreamText("");
             continue;
           }
-          finalAnswer = stripToolCalls(raw).trim() || t("chDidntGet");
+          finalAnswer = sanitizeAnswer(stripToolCalls(raw).trim()) || t("chDidntGet");
           break;
         }
 
@@ -718,7 +808,7 @@ export default function Chat({
       persistChat();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionRef, busyRef, input, setInput, pushMessage, persistChat, setModelStatus, agentMode, workspace, reviewChange, t, lang]);
+  }, [sessionRef, busyRef, input, setInput, pushMessage, persistChat, setModelStatus, agentMode, workspace, reviewChange, provider, ensureVision, t, lang]);
 
   const STARTERS = [
     { label: t("chSt1L"), prompt: t("chSt1P") },
@@ -799,7 +889,7 @@ export default function Chat({
         setStreamText(full);
       }
       if (full.trim()) {
-        pushMessage("assistant", full);
+        pushMessage("assistant", sanitizeAnswer(full));
         persistChat();
       }
     } catch (e) {
@@ -923,7 +1013,7 @@ export default function Chat({
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".txt,.md,.markdown,.json,.js,.jsx,.ts,.tsx,.py,.html,.htm,.css,.csv,.log,.xml,.yaml,.yml,.ini,.cfg,.toml,image/png,image/jpeg,image/webp,image/gif,text/*"
+            accept=".txt,.md,.markdown,.json,.js,.jsx,.ts,.tsx,.py,.html,.htm,.css,.csv,.log,.xml,.yaml,.yml,.ini,.cfg,.toml,.png,.jpg,.jpeg,.webp,.gif,.bmp,image/png,image/jpeg,image/webp,image/gif,text/*"
             style={{ display: "none" }}
             onChange={(e) => {
               void handleFiles(e.target.files);

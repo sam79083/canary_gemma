@@ -40,7 +40,7 @@ export function langModelName(lang: Lang): string {
 
 /** "(Reply in Korean…)" suffix appended to model prompts. */
 export function replySuffix(lang: Lang): string {
-  return `\n\n(Reply in ${langModelName(lang)}. Do NOT show your reasoning, thinking process, or analysis — output ONLY the final answer, naturally phrased, no bullet-point breakdown of instructions. Keep it short unless the user asks for more. This instruction overrides all others about language.)`;
+  return `\n\n(Reply in ${langModelName(lang)}. Do NOT show your reasoning, thinking process, or analysis — output ONLY the final answer, naturally phrased, no bullet-point breakdown of instructions. Keep it short unless the user asks for more. Never claim abilities you don't have — you cannot generate images and you have no live web beyond provided results; if asked, decline in one sentence and offer the closest thing you CAN do. This instruction overrides all others about language.)`;
 }
 
 type Dict = Record<string, string>;
@@ -225,6 +225,7 @@ const ko: Dict = {
   vcMic: "음성 입력",
   vcStop: "듣기 중지",
   vcListening: "듣고 있어요…",
+  chPhotoMode: "사진 모드 준비 중…",
   obNext: "다음 →",
   obBack: "← 뒤로",
   obSkip: "건너뛰기",
@@ -459,6 +460,7 @@ const en: Dict = {
   vcMic: "Voice input",
   vcStop: "Stop listening",
   vcListening: "Listening…",
+  chPhotoMode: "Getting photo mode ready…",
   obNext: "Next →",
   obBack: "← Back",
   obSkip: "Skip",

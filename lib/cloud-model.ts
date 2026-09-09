@@ -15,6 +15,13 @@ export const DEFAULT_GEMINI_MODEL = "gemma-4-26b-a4b-it";
 export const FALLBACK_GEMINI_MODEL = "gemma-4-31b-it";
 export const GEMINI_KEY_URL = "https://aistudio.google.com/apikey";
 
+/**
+ * History tail kept per request. Long chats otherwise resend everything
+ * every turn (an agent loop alone appends ~12 entries) — unbounded growth
+ * that burns TPM for zero benefit. 30 entries cover any single task.
+ */
+export const HISTORY_TAIL = 30;
+
 interface Part {
   text: string;
 }
@@ -100,10 +107,16 @@ export class GeminiSession implements LanguageModelSession {
     this.system = system;
   }
 
+  private tail(): Content[] {
+    return this.history.length > HISTORY_TAIL
+      ? this.history.slice(-HISTORY_TAIL)
+      : this.history;
+  }
+
   private body(prompt: string): string {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const req: any = {
-      contents: [...this.history, { role: "user", parts: [{ text: prompt }] }],
+      contents: [...this.tail(), { role: "user", parts: [{ text: prompt }] }],
       // Cooler + capped: less rambling and thinking-out-loud, same smarts.
       generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
     };
@@ -153,7 +166,7 @@ export class GeminiSession implements LanguageModelSession {
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const req: any = {
-      contents: [...this.history, { role: "user", parts }],
+      contents: [...this.tail(), { role: "user", parts }],
       generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
     };
     if (this.system) req.systemInstruction = { parts: [{ text: this.system }] };

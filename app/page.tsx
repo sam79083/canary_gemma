@@ -1128,6 +1128,7 @@ export default function Home() {
           onOpenFile={openFileAndCloseDrawer}
           reviewChange={reviewChange}
           provider={model.provider}
+          ensureVision={model.ensureVisionSession}
           usageModel={
             model.provider === "cloud"
               ? model.geminiModel

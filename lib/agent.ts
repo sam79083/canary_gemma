@@ -168,6 +168,8 @@ export function buildAgentPreamble(rootListing: string | null): string {
     `- When acting, output ONLY the toolcall block — no explanation text around it.\n` +
     `- After the TOOL RESULT arrives, either call the next tool or reply to the user in plain friendly text (no toolcall), briefly saying what you did.\n` +
     `- For "create file X with ...": writeFile X with the requested content, then confirm.\n` +
+    `- Do, don't announce: never say you will act in a later message — either output the toolcall in THIS reply or answer directly now.\n` +
+    `- You cannot generate images. If asked to create a picture, say so briefly and offer to write a detailed description as a text file instead.\n` +
     (rootListing !== null
       ? `\nWorkspace root contains:\n${rootListing}\n`
       : `\nNo workspace is connected — if the user asks about files, tell them in one short sentence to pick a folder or attach a file with 📎.\n`)

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LanguageModelSession } from "@/lib/prompt-api.d";
+import type { ExpectedInput } from "@/lib/prompt-api.d";
 import type { Lang, TFn } from "@/lib/i18n";
 import {
   DEFAULT_OLLAMA_URL,
@@ -532,6 +533,8 @@ export function useLanguageModel(lang: Lang, t: TFn) {
   const destroy = useCallback(() => {
     sessionRef.current?.destroy();
     sessionRef.current = null;
+    visionSessionRef.current?.destroy();
+    visionSessionRef.current = null;
     setStatus(t("stChatCleared"));
     setOnline(false);
     setReady(false);
@@ -547,6 +550,60 @@ export function useLanguageModel(lang: Lang, t: TFn) {
     if (avail === "unavailable" || avail === "unsupported") return false;
     return createSession();
   }, [supported, createSession]);
+
+  const visionSessionRef = useRef<LanguageModelSession | null>(null);
+
+  /**
+   * Lazily create a multimodal (text+image) Gemma session for photo turns.
+   * Returns null where the platform can't do it — callers fall back to text.
+   */
+  const ensureVisionSession = useCallback(async (): Promise<LanguageModelSession | null> => {
+    if (providerRef.current !== "gemma" || typeof LanguageModel === "undefined")
+      return null;
+    if (visionSessionRef.current) return visionSessionRef.current;
+    try {
+      setStatus(t("chPhotoMode"));
+      const outputLanguage = outputLangFor(lang);
+      const expectedInputs: ExpectedInput[] = [
+        { type: "text", ...(outputLanguage ? { languages: [outputLanguage] } : {}) },
+        { type: "image" },
+      ];
+      const avail = await LanguageModel.availability({
+        expectedInputs,
+        expectedOutputs: [{ type: "text" }],
+      });
+      if (avail === "unavailable") {
+        setStatus(t("stReadyOk"));
+        return null;
+      }
+      const vs = await LanguageModel.create({
+        ...(outputLanguage ? { outputLanguage } : null),
+        expectedInputs,
+        expectedOutputs: [{ type: "text" }],
+        monitor(m) {
+          m.addEventListener("downloadprogress", (ev: Event) => {
+            const loaded = (ev as unknown as { loaded?: number }).loaded ?? 0;
+            const pct = loaded * 100;
+            setDownload({
+              show: true,
+              pct,
+              label: t("stGettingPct", { pct: Math.round(pct) }),
+            });
+            setStatus(t("stGettingPct", { pct: Math.round(pct) }));
+          });
+        },
+      });
+      setDownload((d) => ({ ...d, show: false }));
+      visionSessionRef.current = vs;
+      setStatus(t("stReadyOk"));
+      return vs;
+    } catch {
+      setDownload((d) => ({ ...d, show: false }));
+      setStatus(t("stReadyOk"));
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return {
     sessionRef,
@@ -581,6 +638,7 @@ export function useLanguageModel(lang: Lang, t: TFn) {
     geminiChecking,
     geminiError,
     refreshGeminiModels,
+    ensureVisionSession,
     hydrated,
   };
 }
