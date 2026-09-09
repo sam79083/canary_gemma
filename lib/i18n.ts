@@ -38,9 +38,9 @@ export function langModelName(lang: Lang): string {
   return LANGS.find((l) => l.code === lang)?.modelName ?? "Korean";
 }
 
-/** "(Reply in Korean.)" suffix appended to model prompts. */
+/** "(Reply in Korean…)" suffix appended to model prompts. */
 export function replySuffix(lang: Lang): string {
-  return `\n\n(Reply in ${langModelName(lang)}. This instruction overrides all others about language.)`;
+  return `\n\n(Reply in ${langModelName(lang)}. Do NOT show your reasoning, thinking process, or analysis — output ONLY the final answer, naturally phrased, no bullet-point breakdown of instructions. Keep it short unless the user asks for more. This instruction overrides all others about language.)`;
 }
 
 type Dict = Record<string, string>;
@@ -247,6 +247,8 @@ const ko: Dict = {
   stCloudChecking: "클라우드 모델 확인 중…",
   stCloudReady: "준비됨 ✓ ({m})",
   stCloudFail: "클라우드 모델에 연결하지 못했어요",
+  sysIdentityCloud: "You are Canary, a friendly AI assistant powered by Google's Gemma 4. Be concise and natural.",
+  sysIdentityLocal: "You are Canary, a friendly AI assistant running locally on the user's own machine. Be concise and natural.",
   upAttach: "파일 첨부",
   upUploaded: "“{name}”을(를) 올렸어요 ✓ — 이제 그것에 대해 물어보세요.",
   upTooBig: "“{name}”은(는) 너무 커요 (500KB 이하만 돼요).",
@@ -465,6 +467,8 @@ const en: Dict = {
   stCloudChecking: "Checking cloud model…",
   stCloudReady: "Ready ✓ ({m})",
   stCloudFail: "Couldn't connect to the cloud model",
+  sysIdentityCloud: "You are Canary, a friendly AI assistant powered by Google's Gemma 4. Be concise and natural.",
+  sysIdentityLocal: "You are Canary, a friendly AI assistant running locally on the user's own machine. Be concise and natural.",
   upAttach: "Attach a file",
   upUploaded: "Uploaded “{name}” ✓ — now ask me about it.",
   upTooBig: "“{name}” is too big (500KB max).",

@@ -325,6 +325,7 @@ export function useLanguageModel(lang: Lang, t: TFn) {
         sessionRef.current = new GeminiSession(
           geminiKeyRef.current,
           geminiModelRef.current,
+          t("sysIdentityCloud"),
         );
         setStatus(t("stCloudReady", { m: geminiModelRef.current }));
         setOnline(true);
@@ -356,6 +357,7 @@ export function useLanguageModel(lang: Lang, t: TFn) {
         sessionRef.current = new OllamaSession(
           ollamaUrlRef.current,
           ollamaModelRef.current,
+          t("sysIdentityLocal"),
         );
         setStatus(t("stOllamaReady", { m: ollamaModelRef.current }));
         setOnline(true);
@@ -430,6 +432,7 @@ export function useLanguageModel(lang: Lang, t: TFn) {
           const s = new GeminiSession(
             geminiKeyRef.current,
             geminiModelRef.current,
+            t("sysIdentityCloud"),
           );
           for (const msg of history) {
             await s.append(
@@ -460,6 +463,7 @@ export function useLanguageModel(lang: Lang, t: TFn) {
           const s = new OllamaSession(
             ollamaUrlRef.current,
             ollamaModelRef.current,
+            t("sysIdentityLocal"),
           );
           for (const msg of history) {
             await s.append(

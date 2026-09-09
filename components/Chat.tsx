@@ -419,10 +419,13 @@ export default function Chat({
     let lastTouched: string | null = null;
     try {
       if (!canTouchFiles) {
-        // No folder yet — still answer, but tell the model to ask for it.
+        // No folder: answer normally. Mention the folder ONLY if the user
+        // actually asked for a file operation — never nag on plain questions
+        // (phones can never pick a folder at all).
         const full = await runModelTurn(
-          `The user hasn't chosen a folder yet (there's a folder-picker button in the sidebar). ` +
-            `Explain briefly that creating/reading/updating/deleting files needs them to pick a folder first, then answer their question if possible without files.\n\n${buildUserTurn(prompt)}${replyIn}`,
+          `No folder is connected, so you cannot read, write, list, or delete files. ` +
+            `If and only if the user asks about files or folders, say in one short sentence that they can pick a folder with the sidebar button or attach a file with 📎. ` +
+            `Otherwise just answer the question directly.\n\n${buildUserTurn(prompt)}${replyIn}`,
           setStreamText,
         );
         const clean = stripToolCalls(full).trim();

@@ -92,10 +92,21 @@ export class GeminiSession implements LanguageModelSession {
   private destroyed = false;
   /** Tokens used by the most recent request (null until first call). */
   lastUsage: TokenUsage | null = null;
+  private system?: string;
 
-  constructor(apiKey: string, model: string) {
+  constructor(apiKey: string, model: string, system?: string) {
     this.key = apiKey;
     this.model = model;
+    this.system = system;
+  }
+
+  private body(prompt: string): string {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const req: any = {
+      contents: [...this.history, { role: "user", parts: [{ text: prompt }] }],
+    };
+    if (this.system) req.systemInstruction = { parts: [{ text: this.system }] };
+    return JSON.stringify(req);
   }
 
   /** Restore "User: …" / "Assistant: …" lines (the app's history format). */
@@ -117,9 +128,7 @@ export class GeminiSession implements LanguageModelSession {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [...this.history, { role: "user", parts: [{ text: prompt }] }],
-        }),
+        body: this.body(prompt),
       },
       60000,
     );
@@ -137,9 +146,7 @@ export class GeminiSession implements LanguageModelSession {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [...this.history, { role: "user", parts: [{ text: prompt }] }],
-        }),
+        body: this.body(prompt),
       },
     );
     if (res.status === 400 || res.status === 403) throw new Error("bad-key");
