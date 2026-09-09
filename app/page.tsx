@@ -15,16 +15,20 @@ import { summarizeDiff } from "@/lib/diff";
 import { fetchQuota } from "@/lib/api";
 import { folderCapLine, getFolderCap } from "@/lib/capabilities";
 import {
+  deleteLocalSession,
   listLocalSessions,
   loadLocalSession,
+  renameLocalSession,
   saveLocalSession,
 } from "@/lib/sessions-local";
 import {
+  deleteWorkspaceSession,
   listWorkspaceSessions,
   loadWorkspaceSession,
+  renameWorkspaceSession,
   saveWorkspaceSession,
 } from "@/lib/sessions-workspace";
-import type { ChatMessage, PendingReview, ReviewFn, SessionInfo } from "@/lib/types";
+import type { ChatMessage, PendingReview, ReviewFn, ReviewResult, SessionInfo } from "@/lib/types";
 
 const HISTORY_KEY = "gemma4-chat-history";
 const THEME_KEY = "theme";
@@ -37,8 +41,67 @@ function titleFor(messages: ChatMessage[], t: TFn): string {
   return text.length >= 50 ? text + "…" : text;
 }
 
-function CheckRow({ label, ok, bad }: { label: string; ok: boolean; bad: boolean }) {
+/** Keep/Undo modal. For writes the proposal is editable — Keep applies
+ *  the edited text, so the reviewer becomes the editor. */
+function ReviewCard({
+  review,
+  t,
+  onSettle,
+}: {
+  review: PendingReview;
+  t: TFn;
+  onSettle: (ok: boolean, text?: string) => void;
+}) {
+  const [edited, setEdited] = useState(review.newText);
+  useEffect(() => {
+    setEdited(review.newText);
+  }, [review]);
+
+  const diffPreview =
+    review.oldText === "" && edited === review.newText
+      ? `+++ ${t("rvNewFile")} +++\n` +
+        edited.slice(0, 2000) +
+        (edited.length > 2000 ? "\n…" : "")
+      : summarizeDiff(review.oldText, edited).preview;
+
   return (
+    <div className="review-overlay" id="review-overlay">
+      <div className="review-card">
+        <h3>{t("rvTitle")}</h3>
+        <div className="review-path">📄 {review.path}</div>
+        {review.kind === "delete" ? (
+          <div className="review-note">{t("rvDeleteNote")}</div>
+        ) : (
+          <>
+            <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>
+              {t("rvEditHint")}
+            </div>
+            <textarea
+              className="review-edit"
+              value={edited}
+              onChange={(e) => setEdited(e.target.value)}
+              spellCheck={false}
+            />
+            <pre className="review-diff">{diffPreview}</pre>
+          </>
+        )}
+        <div className="review-actions">
+          <button className="editor-btn" onClick={() => onSettle(false)}>
+            {t("rvUndo")}
+          </button>
+          <button
+            className="editor-btn primary"
+            onClick={() => onSettle(true, review.kind === "write" ? edited : undefined)}
+          >
+            {t("rvKeep")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CheckRow({ label, ok, bad }: { label: string; ok: boolean; bad: boolean }) {  return (
     <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
       <span style={{ color: ok ? "#2e7d32" : bad ? "#c62828" : "#999", fontWeight: 700 }}>
         {ok ? "✓" : bad ? "✗" : "○"}
@@ -71,32 +134,37 @@ export default function Home() {
     setGeminiKeyDraft(model.geminiKey);
   }, [model.geminiKey]);
   const [review, setReview] = useState<PendingReview | null>(null);
-  const reviewResolve = useRef<((ok: boolean) => void) | null>(null);
+  const reviewResolve = useRef<((r: ReviewResult) => void) | null>(null);
   const [onboardOpen, setOnboardOpen] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [showKeyHelp, setShowKeyHelp] = useState(false);
-  const [showSetup, setShowSetup] = useState(false);
   const [searchOk, setSearchOk] = useState<boolean | null>(null);
   const [capLine, setCapLine] = useState("…");
+  const setupRef = useRef<HTMLDetailsElement>(null);
+  // Mirror of currentSessionFileRef for rendering (rename/delete row).
+  const [currentFile, setCurrentFile] = useState<string | null>(null);
 
-  /** Ask the user to Keep/Undo a file change. Resolves true = apply it. */
+  /** Ask the user to Keep/Undo a file change. Resolves with the verdict. */
   const reviewChange: ReviewFn = useCallback((r: PendingReview) => {
-    return new Promise<boolean>((resolve) => {
+    return new Promise<ReviewResult>((resolve) => {
       reviewResolve.current = resolve;
       setReview(r);
     });
   }, []);
 
-  const settleReview = useCallback((ok: boolean) => {
-    reviewResolve.current?.(ok);
-    reviewResolve.current = null;
-    setReview(null);
-  }, []);
+  const settleReview = useCallback(
+    (ok: boolean, text?: string) => {
+      reviewResolve.current?.({ ok, text: text ?? review?.newText ?? "" });
+      reviewResolve.current = null;
+      setReview(null);
+    },
+    [review],
+  );
 
   /** Never leave the agent loop hanging if the chat is reset mid-review. */
   const cancelPendingReview = useCallback(() => {
     if (reviewResolve.current) {
-      reviewResolve.current(false);
+      reviewResolve.current({ ok: false, text: "" });
       reviewResolve.current = null;
       setReview(null);
     }
@@ -129,13 +197,14 @@ export default function Home() {
     })();
   }, []);
 
-  // Auto-open the checklist when the AI can't run — that's when it's needed.
+  // Auto-open the Setup section when the AI can't run — that's when it's needed.
   useEffect(() => {
     if (
-      model.availability === "unsupported" ||
-      model.availability === "unavailable"
+      (model.availability === "unsupported" ||
+        model.availability === "unavailable") &&
+      setupRef.current
     )
-      setShowSetup(true);
+      setupRef.current.open = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model.availability]);
 
@@ -207,6 +276,7 @@ export default function Home() {
       void saveWorkspaceSession(workspace, title, msgs, existing)
         .then((filename) => {
           currentSessionFileRef.current = filename;
+          setCurrentFile(filename);
           refresh();
         })
         .catch((e) => console.error("Auto-save session failed:", e));
@@ -214,6 +284,7 @@ export default function Home() {
       void saveLocalSession(title, msgs, existing)
         .then((filename) => {
           currentSessionFileRef.current = filename;
+          setCurrentFile(filename);
           refresh();
         })
         .catch((e) => console.error("Auto-save session failed:", e));
@@ -239,6 +310,7 @@ export default function Home() {
   // sessions into the folder once so nothing is lost.
   useEffect(() => {
     currentSessionFileRef.current = null;
+    setCurrentFile(null);
     if (!workspace.connected) {
       void listLocalSessions()
         .then(setSessionList)
@@ -297,16 +369,10 @@ export default function Home() {
         return;
       }
       if (stored.length > 0) {
-        if (confirm(t("pgRestore", { n: stored.length }))) {
-          setMessages(stored);
-          hydratedRef.current = true;
-          await model.restoreSession(stored);
-        } else {
-          localStorage.removeItem(HISTORY_KEY);
-          setMessages([]);
-          hydratedRef.current = true;
-          await model.createSession();
-        }
+        // Auto-restore, no popup: last chat comes back as-is.
+        setMessages(stored);
+        hydratedRef.current = true;
+        if (!(await model.restoreSession(stored))) await model.createSession();
       } else {
         hydratedRef.current = true;
         await model.createSession();
@@ -320,6 +386,7 @@ export default function Home() {
     model.destroy();
     localStorage.removeItem(HISTORY_KEY);
     currentSessionFileRef.current = null;
+    setCurrentFile(null);
     setMessages([]);
     void model.supported().then((avail) => {
       // Clicking "New chat" counts as the user gesture, so creating is allowed
@@ -354,6 +421,7 @@ export default function Home() {
           ? await loadWorkspaceSession(workspace, filename)
           : await loadLocalSession(filename);
         currentSessionFileRef.current = filename;
+        setCurrentFile(filename);
         setMessages(msgs);
         model.destroy();
         await model.restoreSession(msgs);
@@ -364,6 +432,43 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [workspace.connected],
   );
+
+  const handleRenameChat = useCallback(async () => {
+    const filename = currentSessionFileRef.current;
+    if (!filename) return;
+    const current =
+      sessionList.find((s) => s.filename === filename)?.title ?? "";
+    const next = prompt(t("ssRename"), current);
+    if (!next || !next.trim() || next.trim() === current) return;
+    try {
+      if (workspace.connected)
+        await renameWorkspaceSession(workspace, filename, next);
+      else await renameLocalSession(filename, next);
+      setSessionList(
+        workspace.connected
+          ? await listWorkspaceSessions(workspace)
+          : await listLocalSessions(),
+      );
+    } catch (e) {
+      console.error("Rename failed:", e);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace.connected, sessionList, t]);
+
+  const handleDeleteChat = useCallback(async () => {
+    const filename = currentSessionFileRef.current;
+    if (!filename) return;
+    if (!confirm(t("ssDelete"))) return;
+    try {
+      if (workspace.connected)
+        await deleteWorkspaceSession(workspace, filename);
+      else await deleteLocalSession(filename);
+    } catch (e) {
+      console.error("Delete failed:", e);
+    }
+    handleNewChat();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace.connected, t, handleNewChat]);
 
   const appendInput = useCallback((text: string) => {
     setInput((prev) => (prev.trim() ? prev.trimEnd() + "\n\n" + text : text));
@@ -478,8 +583,9 @@ export default function Home() {
           {model.provider === "cloud" ? t("pgPrivacyCloud") : t("pgPrivacy")}
         </div>
 
-        <div className="workspace-box" id="model-box">
-          <div className="workspace-name">{t("pgModelTitle")}</div>
+        <details className="side-group" open>
+          <summary>{t("pgModelTitle")}</summary>
+          <div className="workspace-box" id="model-box" style={{ marginTop: 0 }}>
           <div className="workspace-actions">
             <button
               className={`sidebar-btn small${model.provider === "gemma" ? " secondary" : ""}`}
@@ -664,6 +770,7 @@ export default function Home() {
             {t("pgStartAi")}
           </button>
         ) : null}
+        </details>
 
         <button className="sidebar-btn" id="new-chat-btn" onClick={handleNewChat} disabled={!model.ready}>
           {t("pgNewChat")}
@@ -698,7 +805,53 @@ export default function Home() {
           ))}
         </select>
 
-        <div className="workspace-box" id="workspace-box">
+        {currentFile ? (
+          <div
+            style={{
+              display: "flex",
+              gap: 6,
+              alignItems: "center",
+              marginTop: 6,
+              fontSize: 12,
+            }}
+          >
+            <span
+              style={{
+                flex: 1,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                opacity: 0.8,
+              }}
+              title={
+                sessionList.find((s) => s.filename === currentFile)?.title ?? currentFile
+              }
+            >
+              💬{" "}
+              {sessionList.find((s) => s.filename === currentFile)?.title ?? currentFile}
+            </span>
+            <button
+              className="sidebar-btn small"
+              style={{ flex: "0 0 auto" }}
+              title={t("trEdit")}
+              onClick={() => void handleRenameChat()}
+            >
+              ✏️
+            </button>
+            <button
+              className="sidebar-btn small"
+              style={{ flex: "0 0 auto" }}
+              title={t("trDelete")}
+              onClick={() => void handleDeleteChat()}
+            >
+              🗑️
+            </button>
+          </div>
+        ) : null}
+
+        <details className="side-group" open>
+          <summary>{t("grpFiles")}</summary>
+          <div className="workspace-box" id="workspace-box">
           {workspace.supported ? (
             workspace.connected ? (
               <>
@@ -772,21 +925,17 @@ export default function Home() {
           workspace={workspace}
           t={t}
         />
+        </details>
 
-        <button
-          className="sidebar-btn small"
-          id="setup-btn"
-          onClick={() => setShowSetup((v) => !v)}
-          style={{ marginTop: 8 }}
-        >
-          {t("ckTitle")}
-          {model.ready &&
-          (workspace.connected || !workspace.supported) &&
-          searchOk !== false ? null : (
-            <span style={{ color: "#e65100" }}> •</span>
-          )}
-        </button>
-        {showSetup ? (
+        <details className="side-group" ref={setupRef}>
+          <summary>
+            {t("ckTitle")}
+            {model.ready &&
+            (workspace.connected || !workspace.supported) &&
+            searchOk !== false ? null : (
+              <span style={{ color: "#e65100" }}> •</span>
+            )}
+          </summary>
           <div className="note" id="setup-box" style={{ lineHeight: 1.7 }}>
             <CheckRow
               label={t("ckAi")}
@@ -816,18 +965,17 @@ export default function Home() {
               {capLine}
             </div>
           </div>
-        ) : null}
 
-        {showFlags ? (
-          <button
-            className="sidebar-btn small secondary"
-            id="enable-flags-btn"            title={t("pgFlagShow")}
-            onClick={() => setShowFlagHelp((v) => !v)}
-            style={{ marginTop: 8 }}
-          >
-            🚩 {showFlagHelp ? t("pgFlagHide") : t("pgFlagShow")}
-          </button>
-        ) : null}
+          {showFlags ? (
+            <button
+              className="sidebar-btn small secondary"
+              id="enable-flags-btn"            title={t("pgFlagShow")}
+              onClick={() => setShowFlagHelp((v) => !v)}
+              style={{ marginTop: 8 }}
+            >
+              🚩 {showFlagHelp ? t("pgFlagHide") : t("pgFlagShow")}
+            </button>
+          ) : null}
         {showFlags && showFlagHelp ? (
           <div
             className="note"
@@ -908,6 +1056,7 @@ export default function Home() {
         >
           {t("obGuide")}
         </button>
+        </details>
         <div className="status" id="sidebar-status">
           {model.status}
         </div>
@@ -1027,31 +1176,12 @@ export default function Home() {
       ) : null}
 
       {review ? (
-        <div className="review-overlay" id="review-overlay">
-          <div className="review-card">
-            <h3>{t("rvTitle")}</h3>
-            <div className="review-path">📄 {review.path}</div>
-            {review.kind === "delete" ? (
-              <div className="review-note">{t("rvDeleteNote")}</div>
-            ) : (
-              <pre className="review-diff">
-                {review.oldText === ""
-                  ? `+++ ${t("rvNewFile")} +++\n` +
-                    review.newText.slice(0, 2000) +
-                    (review.newText.length > 2000 ? "\n…" : "")
-                  : summarizeDiff(review.oldText, review.newText).preview}
-              </pre>
-            )}
-            <div className="review-actions">
-              <button className="editor-btn" onClick={() => settleReview(false)}>
-                {t("rvUndo")}
-              </button>
-              <button className="editor-btn primary" onClick={() => settleReview(true)}>
-                {t("rvKeep")}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ReviewCard
+          key={`${review.kind}:${review.path}`}
+          review={review}
+          t={t}
+          onSettle={settleReview}
+        />
       ) : null}
     </>
   );

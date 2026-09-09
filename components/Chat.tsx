@@ -11,12 +11,13 @@ import {
   webSearch,
   writeFile as serverWriteFile,
 } from "@/lib/api";
-import type { LanguageModelSession } from "@/lib/prompt-api.d";
+import type { LanguageModelSession, PromptImage } from "@/lib/prompt-api.d";
 import type { BusyKind, Provider } from "@/hooks/useLanguageModel";
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { ChatMessage, ReviewFn } from "@/lib/types";
 import { replySuffix, type Lang, type TFn } from "@/lib/i18n";
 import { recordUsage } from "@/lib/usage";
+import { renderMarkdown } from "@/lib/markdown";
 import {
   AGENT_MAX_STEPS,
   buildAgentPreamble,
@@ -107,6 +108,39 @@ function isUnsafePath(p: string): boolean {
   return false;
 }
 
+interface SpeechResultEvent {
+  resultIndex: number;
+  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+}
+
+interface SpeechRec {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  start(): void;
+  stop(): void;
+  onresult: ((ev: SpeechResultEvent) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+}
+
+type SpeechCtor = new () => SpeechRec;
+
+function speechLang(lang: Lang): string {
+  switch (lang) {
+    case "ko": return "ko-KR";
+    case "en": return "en-US";
+    case "ja": return "ja-JP";
+    case "zh": return "zh-CN";
+    case "es": return "es-ES";
+    case "fr": return "fr-FR";
+    case "de": return "de-DE";
+    case "pt": return "pt-BR";
+    case "vi": return "vi-VN";
+    case "id": return "id-ID";
+  }
+}
+
 export default function Chat({
   messages,
   input,
@@ -133,6 +167,11 @@ export default function Chat({
   const [agentMode, setAgentMode] = useState(true);
   const [tokens, setTokens] = useState(0);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [photos, setPhotos] = useState<{ name: string; mime: string; data: string }[]>([]);
+  const [speechOK, setSpeechOK] = useState(false);
+  const [listening, setListening] = useState(false);
+  const recogRef = useRef<SpeechRec | null>(null);
+  const recogBase = useRef("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -149,6 +188,73 @@ export default function Chat({
       if (copyTimer.current) clearTimeout(copyTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    // Mount-gated: window sniffing during render would hydrate-mismatch.
+    const w = window as unknown as {
+      SpeechRecognition?: SpeechCtor;
+      webkitSpeechRecognition?: SpeechCtor;
+    };
+    setSpeechOK(!!(w.SpeechRecognition || w.webkitSpeechRecognition));
+    return () => {
+      try {
+        recogRef.current?.stop();
+      } catch {
+        // already stopped
+      }
+      recogRef.current = null;
+    };
+  }, []);
+
+  const toggleVoice = useCallback(() => {
+    if (recogRef.current) {
+      try {
+        recogRef.current.stop();
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    const w = window as unknown as {
+      SpeechRecognition?: SpeechCtor;
+      webkitSpeechRecognition?: SpeechCtor;
+    };
+    const Ctor = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!Ctor || streaming) return;
+    const rec = new Ctor();
+    rec.lang = speechLang(lang);
+    rec.interimResults = true;
+    rec.continuous = false;
+    recogBase.current = input;
+    rec.onresult = (ev) => {
+      let text = recogBase.current;
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const alt = ev.results[i]?.[0];
+        if (!alt) continue;
+        text += (text && !text.endsWith(" ") ? " " : "") + alt.transcript;
+      }
+      setInput(text);
+    };
+    rec.onend = () => {
+      recogRef.current = null;
+      setListening(false);
+    };
+    rec.onerror = () => {
+      try {
+        rec.stop();
+      } catch {
+        // ignore
+      }
+    };
+    recogRef.current = rec;
+    setListening(true);
+    try {
+      rec.start();
+    } catch {
+      recogRef.current = null;
+      setListening(false);
+    }
+  }, [input, setInput, lang, streaming]);
 
   function fmtTokens(n: number): string {
     return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
@@ -180,15 +286,47 @@ export default function Chat({
   );
 
   const MAX_UPLOAD = 500 * 1024;
+  const MAX_PHOTO = 4 * 1024 * 1024;
+  const PHOTO_MIMES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+
+  function readAsDataUrl(f: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result ?? ""));
+      r.onerror = () => reject(new Error("read"));
+      r.readAsDataURL(f);
+    });
+  }
 
   const handleFiles = useCallback(
     async (files: FileList | null) => {
       if (!files || files.length === 0) return;
-      if (workspace.supported && !workspace.connected) {
-        pushMessage("assistant", t("upNoSpace"));
-        return;
-      }
       for (const f of Array.from(files).slice(0, 5)) {
+        // Photos go straight to the model, not the workspace.
+        if (PHOTO_MIMES.includes(f.type)) {
+          if (f.size > MAX_PHOTO) {
+            pushMessage("assistant", t("imgTooBig", { name: f.name }));
+            continue;
+          }
+          try {
+            const url = await readAsDataUrl(f);
+            const data = url.split(",").slice(1).join(",");
+            if (!data) throw new Error("read");
+            setPhotos((prev) =>
+              prev.length >= 3
+                ? prev
+                : [...prev, { name: f.name || "photo", mime: f.type, data }],
+            );
+            pushMessage("assistant", t("imgAttached", { name: f.name || "photo" }));
+          } catch {
+            pushMessage("assistant", t("upBinary", { name: f.name }));
+          }
+          continue;
+        }
+        if (workspace.supported && !workspace.connected) {
+          pushMessage("assistant", t("upNoSpace"));
+          return;
+        }
         const safeName =
           f.name.replace(/[\\/]/g, "_").replace(/^\.+/, "").slice(0, 100) ||
           "upload.txt";
@@ -272,12 +410,18 @@ export default function Chat({
       full = (await session.prompt(prompt)) ?? "";
       onChunk(full);
     }
+    collectUsage();
+    return full;
+  }
+
+  function collectUsage(): void {
     // Cloud sessions report token usage — accumulate for the meter and
     // record for the usage tracker.
     try {
-      const u = (
-        session as unknown as { lastUsage?: { total?: number } }
-      ).lastUsage;
+      const s = sessionRef.current as unknown as {
+        lastUsage?: { total?: number };
+      } | null;
+      const u = s?.lastUsage;
       if (u && typeof u.total === "number" && u.total > 0) {
         setTokens((prev) => prev + (u.total as number));
         if (usageModel) recordUsage(usageModel, u.total as number);
@@ -285,7 +429,6 @@ export default function Chat({
     } catch {
       // usage unavailable (e.g. on-device) — meter stays hidden
     }
-    return full;
   }
 
   const handleSend = useCallback(async () => {
@@ -298,6 +441,49 @@ export default function Chat({
       pushMessage("user", prompt);
       pushMessage("assistant", t("chNeedAi"));
       persistChat();
+      return;
+    }
+
+    // Photo turn: vision-capable sessions only, bypasses the file-agent loop.
+    if (photos.length > 0) {
+      const session = sessionRef.current;
+      const imgs: PromptImage[] = photos.map((p) => ({ mime: p.mime, data: p.data }));
+      const names = photos.map((p) => p.name).join(", ");
+      setPhotos([]);
+      if (!session.promptWithImages) {
+        setInput("");
+        pushMessage("user", `${prompt}\n\n📷 ${names}`);
+        pushMessage("assistant", t("imgUnsupported"));
+        persistChat();
+        return;
+      }
+      busyRef.current = "chat";
+      setStreaming(true);
+      setInput("");
+      pushMessage("user", `${prompt}\n\n📷 ${names}`);
+      setStreamText("");
+      try {
+        let full = "";
+        const stream = session.promptWithImages(prompt + replyIn, imgs);
+        for await (const chunk of stream) {
+          full += chunk;
+          setStreamText(full);
+        }
+        collectUsage();
+        if (stripToolCalls(full).trim()) {
+          pushMessage("assistant", stripToolCalls(full).trim());
+          persistChat();
+        }
+      } catch (e) {
+        pushMessage("assistant", friendlyError(t, e));
+      } finally {
+        busyRef.current = null;
+        setStreaming(false);
+        setStreamText(null);
+        focusInput();
+        setModelStatus(t("stReadyOk"), true);
+        persistChat();
+      }
       return;
     }
     busyRef.current = "chat";
@@ -372,26 +558,27 @@ export default function Chat({
           case "writeFile": {
             if (tc.content === undefined)
               return { ok: false, detail: t("chErrSomething"), mutated: false };
-            // Trust step: show the change, apply only on Keep.
+            // Trust step: show the change (editable), apply only on Keep.
             let oldText = "";
             try {
               oldText = await readOp(rel);
             } catch {
               oldText = "";
             }
-            const approved = await reviewChange({
+            const verdict = await reviewChange({
               kind: "write",
               path: rel,
               oldText,
               newText: tc.content,
             });
-            if (!approved)
+            if (!verdict.ok)
               return { ok: false, detail: t("rvDeclined"), mutated: false };
-            await writeOp(rel, tc.content);
+            const finalText = verdict.text;
+            await writeOp(rel, finalText);
             onFilesChanged();
             return {
               ok: true,
-              detail: `Wrote ${rel} (${tc.content.length} chars). Verified.`,
+              detail: `Wrote ${rel} (${finalText.length} chars). Verified.`,
               mutated: true,
               openPath: rel,
             };
@@ -403,13 +590,13 @@ export default function Chat({
           }
           case "deletePath": {
             // Deleting can't be undone — review modal, not a bare confirm().
-            const approved = await reviewChange({
+            const verdict = await reviewChange({
               kind: "delete",
               path: rel,
               oldText: "",
               newText: "",
             });
-            if (!approved)
+            if (!verdict.ok)
               return { ok: false, detail: t("chKept", { name: shortName(rel) }), mutated: false };
             await deleteOp(rel);
             onFilesChanged();
@@ -637,7 +824,14 @@ export default function Chat({
         {messages.map((m, i) => (
           <div key={i} className={`message ${m.role}`}>
             <div className="avatar">{m.role === "user" ? "U" : "G"}</div>
-            <div className="content">{m.content}</div>
+            {m.role === "assistant" ? (
+              <div
+                className="content md"
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
+              />
+            ) : (
+              <div className="content">{m.content}</div>
+            )}
             {m.role === "assistant" ? (
               <button
                 className="msg-share"
@@ -652,8 +846,10 @@ export default function Chat({
         {streamText !== null ? (
           <div className="message assistant">
             <div className="avatar">G</div>
-            <div className="content" id="streaming-content">
-              {streamText || (
+            <div className="content md" id="streaming-content">
+              {streamText ? (
+                <span dangerouslySetInnerHTML={{ __html: renderMarkdown(streamText) }} />
+              ) : (
                 <span className="typing-indicator">
                   <span className="typing-dot" />
                   <span className="typing-dot" />
@@ -666,6 +862,27 @@ export default function Chat({
         <div ref={bottomRef} />
       </div>
       <div className="input-area">
+        {photos.length > 0 ? (
+          <div className="task-row">
+            {photos.map((p) => (
+              <span key={p.name + p.data.length} className="task-chip" title={p.name}>
+                <img
+                  src={`data:${p.mime};base64,${p.data}`}
+                  alt={p.name}
+                  style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 6, verticalAlign: "middle" }}
+                />{" "}
+                {p.name.length > 18 ? p.name.slice(0, 18) + "…" : p.name}{" "}
+                <button
+                  className="quota-refresh"
+                  title="✕"
+                  onClick={() => setPhotos((prev) => prev.filter((x) => x !== p))}
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
         {!streaming ? (
           <div className="task-row">
             {TASKS.map((s) => (
@@ -706,7 +923,7 @@ export default function Chat({
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".txt,.md,.markdown,.json,.js,.jsx,.ts,.tsx,.py,.html,.htm,.css,.csv,.log,.xml,.yaml,.yml,.ini,.cfg,.toml,text/*"
+            accept=".txt,.md,.markdown,.json,.js,.jsx,.ts,.tsx,.py,.html,.htm,.css,.csv,.log,.xml,.yaml,.yml,.ini,.cfg,.toml,image/png,image/jpeg,image/webp,image/gif,text/*"
             style={{ display: "none" }}
             onChange={(e) => {
               void handleFiles(e.target.files);
@@ -721,10 +938,29 @@ export default function Chat({
           >
             📎
           </button>
+          {speechOK ? (
+            <button
+              className="send-btn secondary"
+              onClick={() => toggleVoice()}
+              disabled={streaming && !listening}
+              title={listening ? t("vcStop") : t("vcMic")}
+              style={listening ? { background: "#c62828" } : undefined}
+            >
+              {listening ? "⏺" : "🎤"}
+            </button>
+          ) : null}
           <textarea
             id="prompt-input"
             ref={inputRef}
-            placeholder={modelReady ? (agentMode ? t("chPhAgent") : t("chPhPlain")) : t("chSearchOnlyPh")}
+            placeholder={
+              listening
+                ? t("vcListening")
+                : modelReady
+                  ? agentMode
+                    ? t("chPhAgent")
+                    : t("chPhPlain")
+                  : t("chSearchOnlyPh")
+            }
             rows={1}
             disabled={streaming}
             value={input}

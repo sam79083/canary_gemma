@@ -108,3 +108,23 @@ export async function deleteLocalSession(filename: string): Promise<void> {
   }
   writeIndex(readIndex().filter((s) => s.filename !== filename));
 }
+
+export async function renameLocalSession(filename: string, title: string): Promise<void> {
+  const clean = title.trim().slice(0, 80);
+  if (!clean) return;
+  if (!/^[\w\-. ]+\.json$/.test(filename) || filename.includes("..")) return;
+  try {
+    const raw = localStorage.getItem(ITEM_PREFIX + filename);
+    if (!raw) return;
+    const data = JSON.parse(raw) as StoredSession;
+    data.title = clean;
+    localStorage.setItem(ITEM_PREFIX + filename, JSON.stringify(data));
+  } catch {
+    return;
+  }
+  writeIndex(
+    readIndex().map((s) =>
+      s.filename === filename ? { ...s, title: clean, timestamp: Date.now() } : s,
+    ),
+  );
+}

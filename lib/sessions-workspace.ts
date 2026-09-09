@@ -94,3 +94,17 @@ export async function deleteWorkspaceSession(
   if (!validFilename(filename)) throw new Error("Not found");
   await ws.deletePath(pathFor(filename));
 }
+
+export async function renameWorkspaceSession(
+  ws: WorkspaceApi,
+  filename: string,
+  title: string,
+): Promise<void> {
+  const clean = title.trim().slice(0, 80);
+  if (!clean || !validFilename(filename)) return;
+  const raw = await ws.readFile(pathFor(filename));
+  const data = JSON.parse(raw) as { title?: string; messages?: ChatMessage[]; timestamp?: number };
+  data.title = clean;
+  data.timestamp = Date.now();
+  await ws.writeFile(pathFor(filename), JSON.stringify(data, null, 2));
+}
