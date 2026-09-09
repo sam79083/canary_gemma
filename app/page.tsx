@@ -562,28 +562,32 @@ export default function Home() {
           ) : null}
           {model.provider === "cloud" ? (
             <>
+              <input
+                className="sidebar-btn small"
+                style={{ width: "100%", cursor: "text" }}
+                type="password"
+                autoComplete="off"
+                value={geminiKeyDraft}
+                onChange={(e) => setGeminiKeyDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    model.setGeminiKey(geminiKeyDraft.trim());
+                    void model.reconnect();
+                  }
+                }}
+                placeholder={t("pgGeminiKeyPh")}
+                title={t("pgGeminiKey")}
+              />
+              {model.geminiKey ? (
+                <div className="workspace-hint" style={{ color: "#2e7d32", fontWeight: 600 }}>
+                  {t("kgSaved", { last4: model.geminiKey.slice(-4) })}
+                </div>
+              ) : null}
               <div style={{ display: "flex", gap: 6 }}>
-                <input
-                  className="sidebar-btn small"
-                  style={{ flex: 1, cursor: "text" }}
-                  type="password"
-                  autoComplete="off"
-                  value={geminiKeyDraft}
-                  onChange={(e) => setGeminiKeyDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      model.setGeminiKey(geminiKeyDraft.trim());
-                      void model.reconnect();
-                    }
-                  }}
-                  placeholder={t("pgGeminiKeyPh")}
-                  title={t("pgGeminiKey")}
-                />
                 <button
                   className="sidebar-btn small"
-                  style={{ flex: "0 0 auto" }}
-                  title={t("pgOllamaCheck")}
+                  style={{ flex: 1, justifyContent: "center" }}
                   disabled={model.geminiChecking}
                   onClick={() => {
                     model.setGeminiKey(geminiKeyDraft.trim());
@@ -591,6 +595,13 @@ export default function Home() {
                   }}
                 >
                   {model.geminiChecking ? "⏳" : t("pgOllamaCheck")}
+                </button>
+                <button
+                  className="sidebar-btn small"
+                  style={{ flex: 1, justifyContent: "center" }}
+                  onClick={() => setShowKeyHelp((v) => !v)}
+                >
+                  {t("kgTitle")}
                 </button>
               </div>
               <div className="workspace-hint">
@@ -603,14 +614,7 @@ export default function Home() {
                 </a>
                 {" — "}{t("pgGeminiHint")}
               </div>
-              <button
-                className="sidebar-btn small"
-                style={{ justifyContent: "center" }}
-                onClick={() => setShowKeyHelp((v) => !v)}
-              >
-                {t("kgTitle")}
-              </button>
-              {showKeyHelp ? (
+              {showKeyHelp || !model.geminiKey ? (
                 <div className="workspace-hint" style={{ lineHeight: 1.6 }}>
                   <div>{t("kgS1")}</div>
                   <div>{t("kgS2")}</div>
@@ -996,6 +1000,8 @@ export default function Home() {
           setLang={setLang}
           folderChosen={workspace.connected}
           folderName={workspace.rootName}
+          folderSupported={workspace.supported}
+          folderError={workspace.error}
           onPickFolder={handleOnboardPickFolder}
           onTryTask={handleOnboardTryTask}
           onDone={closeOnboard}

@@ -9,6 +9,8 @@ interface Props {
   setLang: (l: Lang) => void;
   folderChosen: boolean;
   folderName: string | null;
+  folderSupported: boolean;
+  folderError: string | null;
   onPickFolder: () => void;
   onTryTask: (prompt: string) => void;
   onDone: () => void;
@@ -21,6 +23,8 @@ export default function Onboarding({
   setLang,
   folderChosen,
   folderName,
+  folderSupported,
+  folderError,
   onPickFolder,
   onTryTask,
   onDone,
@@ -72,9 +76,25 @@ export default function Onboarding({
             <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 10 }}>
               {t("obStep2Hint")}
             </div>
-            <button className="sidebar-btn" onClick={onPickFolder} style={{ width: "100%", justifyContent: "center" }}>
-              {folderChosen ? `📂 ${folderName} ✓` : t("pgChooseFolder")}
-            </button>
+            {!folderSupported ? (
+              <div
+                className="note"
+                style={{ marginBottom: 10, marginTop: 0 }}
+              >
+                {t("obStep2Mobile")}
+              </div>
+            ) : (
+              <>
+                <button className="sidebar-btn" onClick={onPickFolder} style={{ width: "100%", justifyContent: "center" }}>
+                  {folderChosen ? `📂 ${folderName} ✓` : t("pgChooseFolder")}
+                </button>
+                {folderError ? (
+                  <div className="workspace-error" style={{ marginTop: 6 }}>
+                    {folderError}
+                  </div>
+                ) : null}
+              </>
+            )}
           </>
         ) : null}
 
