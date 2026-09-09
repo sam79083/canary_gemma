@@ -11,6 +11,7 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { LANGS, isLang } from "@/lib/i18n";
 import type { TFn } from "@/lib/i18n";
 import { summarizeDiff } from "@/lib/diff";
+import { fetchQuota } from "@/lib/api";
 import {
   listLocalSessions,
   loadLocalSession,
@@ -34,6 +35,17 @@ function titleFor(messages: ChatMessage[], t: TFn): string {
   return text.length >= 50 ? text + "…" : text;
 }
 
+function CheckRow({ label, ok, bad }: { label: string; ok: boolean; bad: boolean }) {
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+      <span style={{ color: ok ? "#2e7d32" : bad ? "#c62828" : "#999", fontWeight: 700 }}>
+        {ok ? "✓" : bad ? "✗" : "○"}
+      </span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
 export default function Home() {
   const { lang, setLang, t } = useLanguage();
   const model = useLanguageModel(lang, t);
@@ -48,10 +60,21 @@ export default function Home() {
   const [flagCopied, setFlagCopied] = useState(false);
   const [ollamaUrlDraft, setOllamaUrlDraft] = useState(model.ollamaUrl);
   const [geminiKeyDraft, setGeminiKeyDraft] = useState(model.geminiKey);
+
+  // Keep the edit drafts in sync when stored settings finish loading.
+  useEffect(() => {
+    setOllamaUrlDraft(model.ollamaUrl);
+  }, [model.ollamaUrl]);
+  useEffect(() => {
+    setGeminiKeyDraft(model.geminiKey);
+  }, [model.geminiKey]);
   const [review, setReview] = useState<PendingReview | null>(null);
   const reviewResolve = useRef<((ok: boolean) => void) | null>(null);
   const [onboardOpen, setOnboardOpen] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
+  const [showKeyHelp, setShowKeyHelp] = useState(false);
+  const [showSetup, setShowSetup] = useState(false);
+  const [searchOk, setSearchOk] = useState<boolean | null>(null);
 
   /** Ask the user to Keep/Undo a file change. Resolves true = apply it. */
   const reviewChange: ReviewFn = useCallback((r: PendingReview) => {
@@ -88,6 +111,29 @@ export default function Home() {
   useEffect(() => {
     setDark(localStorage.getItem(THEME_KEY) === "dark");
   }, []);
+
+  // One lightweight search-health ping for the setup checklist
+  // (Chat keeps its own quota display; this is only true/false/unknown).
+  useEffect(() => {
+    void (async () => {
+      try {
+        const data = await fetchQuota();
+        setSearchOk(!data.error);
+      } catch {
+        setSearchOk(false);
+      }
+    })();
+  }, []);
+
+  // Auto-open the checklist when the AI can't run — that's when it's needed.
+  useEffect(() => {
+    if (
+      model.availability === "unsupported" ||
+      model.availability === "unavailable"
+    )
+      setShowSetup(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model.availability]);
 
   // First visit: show the 3-step guide.
   useEffect(() => {
@@ -218,8 +264,10 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.connected]);
 
-  // Startup: history + model session
+  // Startup: history + model session (waits for stored provider/key
+  // settings to load, or the wrong provider would connect).
   useEffect(() => {
+    if (!model.hydrated) return;
     if (startedRef.current) return;
     startedRef.current = true;
     let stored: ChatMessage[] = [];
@@ -261,7 +309,7 @@ export default function Home() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [model.hydrated]);
 
   const handleNewChat = useCallback(() => {
     cancelPendingReview();
@@ -555,6 +603,20 @@ export default function Home() {
                 </a>
                 {" — "}{t("pgGeminiHint")}
               </div>
+              <button
+                className="sidebar-btn small"
+                style={{ justifyContent: "center" }}
+                onClick={() => setShowKeyHelp((v) => !v)}
+              >
+                {t("kgTitle")}
+              </button>
+              {showKeyHelp ? (
+                <div className="workspace-hint" style={{ lineHeight: 1.6 }}>
+                  <div>{t("kgS1")}</div>
+                  <div>{t("kgS2")}</div>
+                  <div>{t("kgS3")}</div>
+                </div>
+              ) : null}
               {model.geminiModels.length > 0 ? (
                 <select
                   className="sidebar-btn small"
@@ -700,11 +762,52 @@ export default function Home() {
           t={t}
         />
 
+        <button
+          className="sidebar-btn small"
+          id="setup-btn"
+          onClick={() => setShowSetup((v) => !v)}
+          style={{ marginTop: 8 }}
+        >
+          {t("ckTitle")}
+          {model.ready &&
+          (workspace.connected || !workspace.supported) &&
+          searchOk !== false ? null : (
+            <span style={{ color: "#e65100" }}> •</span>
+          )}
+        </button>
+        {showSetup ? (
+          <div className="note" id="setup-box" style={{ lineHeight: 1.7 }}>
+            <CheckRow
+              label={t("ckAi")}
+              ok={model.ready}
+              bad={
+                model.availability === "unsupported" ||
+                model.availability === "unavailable"
+              }
+            />
+            <CheckRow
+              label={
+                workspace.connected && workspace.rootName
+                  ? `${t("ckFolder")} (${workspace.rootName})`
+                  : t("ckFolder")
+              }
+              ok={workspace.connected || !workspace.supported}
+              bad={false}
+            />
+            <CheckRow label={t("ckSearch")} ok={searchOk === true} bad={searchOk === false} />
+            {searchOk === false ? (
+              <div style={{ fontSize: 11, opacity: 0.8 }}>{t("ckSearchHint")}</div>
+            ) : null}
+            {model.provider === "cloud" ? (
+              <CheckRow label={t("ckKey")} ok={!!model.geminiKey} bad={false} />
+            ) : null}
+          </div>
+        ) : null}
+
         {showFlags ? (
           <button
             className="sidebar-btn small secondary"
-            id="enable-flags-btn"
-            title={t("pgFlagShow")}
+            id="enable-flags-btn"            title={t("pgFlagShow")}
             onClick={() => setShowFlagHelp((v) => !v)}
             style={{ marginTop: 8 }}
           >
@@ -861,6 +964,7 @@ export default function Home() {
           onFilesChanged={() => setTreeVersion((v) => v + 1)}
           onOpenFile={openFileAndCloseDrawer}
           reviewChange={reviewChange}
+          provider={model.provider}
           t={t}
           lang={lang}
         />

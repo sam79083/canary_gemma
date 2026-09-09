@@ -12,7 +12,7 @@ import {
   writeFile as serverWriteFile,
 } from "@/lib/api";
 import type { LanguageModelSession } from "@/lib/prompt-api.d";
-import type { BusyKind } from "@/hooks/useLanguageModel";
+import type { BusyKind, Provider } from "@/hooks/useLanguageModel";
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { ChatMessage, ReviewFn } from "@/lib/types";
 import { replySuffix, type Lang, type TFn } from "@/lib/i18n";
@@ -40,6 +40,7 @@ interface Props {
   onFilesChanged: () => void;
   onOpenFile: (path: string) => void;
   reviewChange: ReviewFn;
+  provider: Provider;
   t: TFn;
   lang: Lang;
 }
@@ -117,6 +118,7 @@ export default function Chat({
   onFilesChanged,
   onOpenFile,
   reviewChange,
+  provider,
   t,
   lang,
 }: Props) {
@@ -125,9 +127,106 @@ export default function Chat({
   const [quota, setQuota] = useState(t("chQuotaCheck"));
   const [quotaLow, setQuotaLow] = useState(false);
   const [agentMode, setAgentMode] = useState(true);
+  const [tokens, setTokens] = useState(0);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const replyIn = replySuffix(lang);
+
+  // Fresh chat → fresh token count.
+  useEffect(() => {
+    if (messages.length === 0) setTokens(0);
+  }, [messages.length]);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    };
+  }, []);
+
+  function fmtTokens(n: number): string {
+    return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
+  }
+
+  const shareMsg = useCallback(
+    async (text: string, idx: number) => {
+      try {
+        const nav = navigator as Navigator & {
+          share?: (d: { text: string }) => Promise<void>;
+        };
+        if (typeof nav.share === "function") {
+          await nav.share({ text });
+          return;
+        }
+        throw new Error("no-share");
+      } catch {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopiedIdx(idx);
+          if (copyTimer.current) clearTimeout(copyTimer.current);
+          copyTimer.current = setTimeout(() => setCopiedIdx(null), 2000);
+        } catch {
+          // clipboard unavailable — nothing more we can do
+        }
+      }
+    },
+    [],
+  );
+
+  const MAX_UPLOAD = 500 * 1024;
+
+  const handleFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0) return;
+      if (workspace.supported && !workspace.connected) {
+        pushMessage("assistant", t("upNoSpace"));
+        return;
+      }
+      for (const f of Array.from(files).slice(0, 5)) {
+        const safeName =
+          f.name.replace(/[\\/]/g, "_").replace(/^\.+/, "").slice(0, 100) ||
+          "upload.txt";
+        if (f.size > MAX_UPLOAD) {
+          pushMessage("assistant", t("upTooBig", { name: f.name }));
+          continue;
+        }
+        let text: string;
+        try {
+          text = await f.text();
+        } catch {
+          pushMessage("assistant", t("upBinary", { name: f.name }));
+          continue;
+        }
+        if (text.includes("\0")) {
+          pushMessage("assistant", t("upBinary", { name: f.name }));
+          continue;
+        }
+        const rel = `uploads/${safeName}`;
+        try {
+          if (workspace.connected) {
+            try {
+              await workspace.makeDir("uploads");
+            } catch {
+              // exists already
+            }
+            await workspace.writeFile(rel, text);
+          } else {
+            await serverWriteFile(rel, text);
+          }
+          onFilesChanged();
+          pushMessage("assistant", t("upUploaded", { name: rel }));
+          onOpenFile(rel);
+        } catch {
+          pushMessage("assistant", t("upFailed"));
+        }
+      }
+      persistChat();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workspace, pushMessage, persistChat, onFilesChanged, onOpenFile, t],
+  );
 
   const loadQuota = useCallback(async () => {
     try {
@@ -164,13 +263,22 @@ export default function Chat({
         full += chunk;
         onChunk(full);
       }
-      return full;
     } catch (streamErr) {
       console.warn("[agent] promptStreaming failed, trying prompt():", streamErr);
       full = (await session.prompt(prompt)) ?? "";
       onChunk(full);
-      return full;
     }
+    // Cloud sessions report token usage — accumulate for the meter.
+    try {
+      const u = (
+        session as unknown as { lastUsage?: { total?: number } }
+      ).lastUsage;
+      if (u && typeof u.total === "number" && u.total > 0)
+        setTokens((prev) => prev + (u.total as number));
+    } catch {
+      // usage unavailable (e.g. on-device) — meter stays hidden
+    }
+    return full;
   }
 
   const handleSend = useCallback(async () => {
@@ -520,6 +628,15 @@ export default function Chat({
           <div key={i} className={`message ${m.role}`}>
             <div className="avatar">{m.role === "user" ? "U" : "G"}</div>
             <div className="content">{m.content}</div>
+            {m.role === "assistant" ? (
+              <button
+                className="msg-share"
+                title={t("shShare")}
+                onClick={() => void shareMsg(m.content, i)}
+              >
+                {copiedIdx === i ? "✓" : "⤴"}
+              </button>
+            ) : null}
           </div>
         ))}
         {streamText !== null ? (
@@ -575,6 +692,25 @@ export default function Chat({
           </div>
         ) : null}
         <div className="input-container">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".txt,.md,.markdown,.json,.js,.jsx,.ts,.tsx,.py,.html,.htm,.css,.csv,.log,.xml,.yaml,.yml,.ini,.cfg,.toml,text/*"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              void handleFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <button
+            className="send-btn secondary"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={streaming}
+            title={t("upAttach")}
+          >
+            📎
+          </button>
           <textarea
             id="prompt-input"
             ref={inputRef}
@@ -621,6 +757,9 @@ export default function Chat({
         </div>
         <div className={`quota-box input-quota${quotaLow ? " low" : ""}`} title="SerpAPI searches remaining this month">
           <span id="quota-text">{quota}</span>
+          {provider === "cloud" && tokens > 0 ? (
+            <span className="token-meter">{t("tkTokens", { n: fmtTokens(tokens) })}</span>
+          ) : null}
           <button className="quota-refresh" onClick={() => void loadQuota()} title="Refresh quota">
             ↻
           </button>

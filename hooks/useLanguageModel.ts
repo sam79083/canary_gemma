@@ -88,29 +88,47 @@ export function useLanguageModel(lang: Lang, t: TFn) {
     label: "",
   });
 
-  const [provider, setProviderState] = useState<Provider>(() => storedProvider());
-  const providerRef = useRef<Provider>(storedProvider());
-  const [ollamaUrl, setOllamaUrlState] = useState(
-    () => stored(OLLAMA_URL_KEY) || DEFAULT_OLLAMA_URL,
-  );
-  const ollamaUrlRef = useRef(stored(OLLAMA_URL_KEY) || DEFAULT_OLLAMA_URL);
-  const [ollamaModel, setOllamaModelState] = useState(
-    () => stored(OLLAMA_MODEL_KEY) || "",
-  );
-  const ollamaModelRef = useRef(stored(OLLAMA_MODEL_KEY) || "");
+  const [provider, setProviderState] = useState<Provider>("gemma");
+  const providerRef = useRef<Provider>("gemma");
+  const [ollamaUrl, setOllamaUrlState] = useState(DEFAULT_OLLAMA_URL);
+  const ollamaUrlRef = useRef(DEFAULT_OLLAMA_URL);
+  const [ollamaModel, setOllamaModelState] = useState("");
+  const ollamaModelRef = useRef("");
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaChecking, setOllamaChecking] = useState(false);
   const [ollamaError, setOllamaError] = useState<string | null>(null);
-  const [geminiKey, setGeminiKeyState] = useState(() => stored(GEMINI_KEY) || "");
-  const geminiKeyRef = useRef(stored(GEMINI_KEY) || "");
-  const [geminiModel, setGeminiModelState] = useState(
-    () => stored(GEMINI_MODEL_KEY) || DEFAULT_GEMINI_MODEL,
-  );
-  const geminiModelRef = useRef(stored(GEMINI_MODEL_KEY) || DEFAULT_GEMINI_MODEL);
+  const [geminiKey, setGeminiKeyState] = useState("");
+  const geminiKeyRef = useRef("");
+  const [geminiModel, setGeminiModelState] = useState(DEFAULT_GEMINI_MODEL);
+  const geminiModelRef = useRef(DEFAULT_GEMINI_MODEL);
   const [geminiModels, setGeminiModels] = useState<string[]>([]);
   const [geminiChecking, setGeminiChecking] = useState(false);
   const [geminiError, setGeminiError] = useState<string | null>(null);
   const geminiErrorRef = useRef<string | null>(null);
+  // False during SSR/first paint (defaults), true once stored settings load.
+  // Screens must wait for this before starting a session — otherwise the
+  // server HTML (defaults) mismatches the client (stored values).
+  const [hydrated, setHydrated] = useState(false);
+
+  // Load persisted settings once after mount (localStorage is client-only).
+  useEffect(() => {
+    const p = storedProvider();
+    providerRef.current = p;
+    setProviderState(p);
+    const ou = stored(OLLAMA_URL_KEY) || DEFAULT_OLLAMA_URL;
+    ollamaUrlRef.current = ou;
+    setOllamaUrlState(ou);
+    const om = stored(OLLAMA_MODEL_KEY) || "";
+    ollamaModelRef.current = om;
+    setOllamaModelState(om);
+    const gk = stored(GEMINI_KEY) || "";
+    geminiKeyRef.current = gk;
+    setGeminiKeyState(gk);
+    const gm = stored(GEMINI_MODEL_KEY) || DEFAULT_GEMINI_MODEL;
+    geminiModelRef.current = gm;
+    setGeminiModelState(gm);
+    setHydrated(true);
+  }, []);
   const setGemErr = useCallback((e: string | null) => {
     geminiErrorRef.current = e;
     setGeminiError(e);
@@ -559,6 +577,7 @@ export function useLanguageModel(lang: Lang, t: TFn) {
     geminiChecking,
     geminiError,
     refreshGeminiModels,
+    hydrated,
   };
 }
 

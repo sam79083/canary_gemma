@@ -53,6 +53,26 @@ export async function listGeminiModels(apiKey: string): Promise<string[]> {
   return gemma.length > 0 ? gemma : names;
 }
 
+export interface TokenUsage {
+  in: number;
+  out: number;
+  total: number;
+}
+
+function extractUsage(obj: unknown): TokenUsage | null {
+  try {
+    const u = (obj as { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } }).usageMetadata;
+    if (!u) return null;
+    return {
+      in: u.promptTokenCount ?? 0,
+      out: u.candidatesTokenCount ?? 0,
+      total: u.totalTokenCount ?? (u.promptTokenCount ?? 0) + (u.candidatesTokenCount ?? 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function extractText(obj: unknown): string {
   try {
     const cands = (obj as { candidates?: { content?: { parts?: { text?: string }[] } }[] }).candidates ?? [];
@@ -70,6 +90,8 @@ export class GeminiSession implements LanguageModelSession {
   private model: string;
   private history: Content[] = [];
   private destroyed = false;
+  /** Tokens used by the most recent request (null until first call). */
+  lastUsage: TokenUsage | null = null;
 
   constructor(apiKey: string, model: string) {
     this.key = apiKey;
@@ -102,6 +124,7 @@ export class GeminiSession implements LanguageModelSession {
       60000,
     );
     const text = extractText(data);
+    this.lastUsage = extractUsage(data);
     this.history.push({ role: "user", parts: [{ text: prompt }] });
     this.history.push({ role: "model", parts: [{ text }] });
     return text;
@@ -139,11 +162,14 @@ export class GeminiSession implements LanguageModelSession {
             const payload = t.slice(5).trim();
             if (!payload) continue;
             try {
-              const piece = extractText(JSON.parse(payload));
+              const parsed: unknown = JSON.parse(payload);
+              const piece = extractText(parsed);
               if (piece) {
                 full += piece;
                 yield piece;
               }
+              const u = extractUsage(parsed);
+              if (u) this.lastUsage = u;
             } catch {
               // Incomplete JSON across chunks — the remainder stays in buf.
             }

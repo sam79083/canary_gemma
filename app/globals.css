@@ -405,6 +405,30 @@ body {
     white-space: pre-wrap;
 }
 
+.msg-share {
+    align-self: flex-end;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 13px;
+    opacity: 0.45;
+    padding: 2px 4px;
+    flex-shrink: 0;
+}
+
+.msg-share:hover {
+    opacity: 1;
+}
+
+.message.user .msg-share {
+    display: none;
+}
+
+.token-meter {
+    font-size: 11px;
+    color: var(--status-text);
+}
+
 .message.user .content {
     background: var(--user-msg-bg);
     border-radius: 16px 4px 16px 16px;
