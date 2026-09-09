@@ -5,6 +5,7 @@ import Chat from "@/components/Chat";
 import FileEditor from "@/components/FileEditor";
 import FileTree from "@/components/FileTree";
 import Onboarding from "@/components/Onboarding";
+import UsageBlock from "@/components/UsageBlock";
 import { useLanguageModel, type Provider } from "@/hooks/useLanguageModel";
 import { useLanguage } from "@/hooks/useLanguage";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -647,6 +648,9 @@ export default function Home() {
                   {model.geminiError === "none" ? t("pgGeminiNone") : t("stCloudFail")}
                 </div>
               ) : null}
+              {model.geminiModel ? (
+                <UsageBlock model={model.geminiModel} t={t} />
+              ) : null}
             </>
           ) : null}
         </div>
@@ -975,6 +979,13 @@ export default function Home() {
           onOpenFile={openFileAndCloseDrawer}
           reviewChange={reviewChange}
           provider={model.provider}
+          usageModel={
+            model.provider === "cloud"
+              ? model.geminiModel
+              : model.provider === "ollama"
+                ? model.ollamaModel
+                : ""
+          }
           t={t}
           lang={lang}
         />

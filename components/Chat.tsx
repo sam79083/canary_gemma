@@ -16,6 +16,7 @@ import type { BusyKind, Provider } from "@/hooks/useLanguageModel";
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { ChatMessage, ReviewFn } from "@/lib/types";
 import { replySuffix, type Lang, type TFn } from "@/lib/i18n";
+import { recordUsage } from "@/lib/usage";
 import {
   AGENT_MAX_STEPS,
   buildAgentPreamble,
@@ -41,6 +42,8 @@ interface Props {
   onOpenFile: (path: string) => void;
   reviewChange: ReviewFn;
   provider: Provider;
+  /** Model id for usage tracking (e.g. gemma-4-26b-a4b-it). Empty = don't track. */
+  usageModel: string;
   t: TFn;
   lang: Lang;
 }
@@ -119,6 +122,7 @@ export default function Chat({
   onOpenFile,
   reviewChange,
   provider,
+  usageModel,
   t,
   lang,
 }: Props) {
@@ -268,13 +272,16 @@ export default function Chat({
       full = (await session.prompt(prompt)) ?? "";
       onChunk(full);
     }
-    // Cloud sessions report token usage — accumulate for the meter.
+    // Cloud sessions report token usage — accumulate for the meter and
+    // record for the usage tracker.
     try {
       const u = (
         session as unknown as { lastUsage?: { total?: number } }
       ).lastUsage;
-      if (u && typeof u.total === "number" && u.total > 0)
+      if (u && typeof u.total === "number" && u.total > 0) {
         setTokens((prev) => prev + (u.total as number));
+        if (usageModel) recordUsage(usageModel, u.total as number);
+      }
     } catch {
       // usage unavailable (e.g. on-device) — meter stays hidden
     }
