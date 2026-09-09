@@ -99,13 +99,20 @@ export function useWorkspace(): WorkspaceApi {
   );
 
   const pick = useCallback(async (): Promise<boolean> => {
-    if (!supported || !window.showDirectoryPicker) {
-      setError("File System Access not supported — use Chrome/Edge");
+    // Computed live from window — never from the `supported` state closure,
+    // so handlers created on first paint (e.g. the onboarding guide) can't
+    // go stale and wrongly report "can't pick".
+    const showPicker =
+      typeof window !== "undefined" ? window.showDirectoryPicker : undefined;
+    if (typeof showPicker !== "function") {
+      // Phones and some browsers can't pick folders at all — this is a
+      // platform limit, not the wrong browser. Upload via 📎 instead.
+      setError("This device can't pick folders — attach files with 📎 in the chat instead");
       return false;
     }
     try {
       setError(null);
-      const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+      const handle = await showPicker({ mode: "readwrite" });
       const ok = await ensurePermission(handle);
       if (!ok) {
         setError("Workspace permission denied");
@@ -121,7 +128,7 @@ export function useWorkspace(): WorkspaceApi {
       setError(e instanceof Error ? e.message : String(e));
       return false;
     }
-  }, [supported, ensurePermission]);
+  }, [ensurePermission]);
 
   const disconnect = useCallback(() => {
     rootRef.current = null;

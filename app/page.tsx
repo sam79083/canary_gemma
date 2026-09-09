@@ -12,6 +12,7 @@ import { LANGS, isLang } from "@/lib/i18n";
 import type { TFn } from "@/lib/i18n";
 import { summarizeDiff } from "@/lib/diff";
 import { fetchQuota } from "@/lib/api";
+import { folderCapLine, getFolderCap } from "@/lib/capabilities";
 import {
   listLocalSessions,
   loadLocalSession,
@@ -75,6 +76,7 @@ export default function Home() {
   const [showKeyHelp, setShowKeyHelp] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   const [searchOk, setSearchOk] = useState<boolean | null>(null);
+  const [capLine, setCapLine] = useState("…");
 
   /** Ask the user to Keep/Undo a file change. Resolves true = apply it. */
   const reviewChange: ReviewFn = useCallback((r: PendingReview) => {
@@ -115,6 +117,7 @@ export default function Home() {
   // One lightweight search-health ping for the setup checklist
   // (Chat keeps its own quota display; this is only true/false/unknown).
   useEffect(() => {
+    setCapLine(folderCapLine(getFolderCap()));
     void (async () => {
       try {
         const data = await fetchQuota();
@@ -158,7 +161,7 @@ export default function Home() {
       if (ok) setTreeVersion((v) => v + 1);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [workspace]);
 
   const handleOnboardTryTask = useCallback(
     (prompt: string) => {
@@ -805,6 +808,9 @@ export default function Home() {
             {model.provider === "cloud" ? (
               <CheckRow label={t("ckKey")} ok={!!model.geminiKey} bad={false} />
             ) : null}
+            <div style={{ fontSize: 11, opacity: 0.7, fontFamily: "monospace" }}>
+              {capLine}
+            </div>
           </div>
         ) : null}
 
