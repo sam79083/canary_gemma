@@ -148,37 +148,68 @@ export class GeminiSession implements LanguageModelSession {
     const decoder = new TextDecoder();
     let buf = "";
     let full = "";
+    const eat = (chunk: string): void => {
+      for (const line of chunk.split("\n")) {
+        const t = line.trim();
+        if (!t.startsWith("data:")) continue;
+        const payload = t.slice(5).trim();
+        if (!payload) continue;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(payload);
+        } catch {
+          // Incomplete JSON across chunks — caller keeps it buffered.
+          throw new Error("partial");
+        }
+        const piece = extractText(parsed);
+        if (piece) full += piece;
+        const u = extractUsage(parsed);
+        if (u) this.lastUsage = u;
+      }
+    };
+    // Pieces are buffered per network chunk then yielded, so a \r\n split
+    // inside one event can't silently drop text.
+    const pieces: string[] = [];
+    const eatEmit = (chunk: string): void => {
+      const before = full.length;
+      eat(chunk);
+      if (full.length > before) pieces.push(full.slice(before));
+    };
     try {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        buf += decoder.decode(value, { stream: true });
+        // Google sends \r\n — normalize or the event split never fires.
+        buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
         const events = buf.split("\n\n");
         buf = events.pop() ?? "";
         for (const ev of events) {
-          for (const line of ev.split("\n")) {
-            const t = line.trim();
-            if (!t.startsWith("data:")) continue;
-            const payload = t.slice(5).trim();
-            if (!payload) continue;
-            try {
-              const parsed: unknown = JSON.parse(payload);
-              const piece = extractText(parsed);
-              if (piece) {
-                full += piece;
-                yield piece;
-              }
-              const u = extractUsage(parsed);
-              if (u) this.lastUsage = u;
-            } catch {
-              // Incomplete JSON across chunks — the remainder stays in buf.
-            }
+          try {
+            eatEmit(ev);
+          } catch {
+            // Partial tail (JSON split across chunks): consumed lines stay
+            // consumed, only the incomplete last line waits for more data.
+            const idx = ev.lastIndexOf("\n");
+            buf = (idx >= 0 ? ev.slice(idx + 1) : ev) + "\n\n" + buf;
+            break;
           }
         }
+        for (const p of pieces.splice(0)) yield p;
+      }
+      // Flush any trailing event without a terminator.
+      if (buf.trim()) {
+        try {
+          eatEmit(buf);
+        } catch {
+          // genuinely truncated tail — ignore
+        }
+        buf = "";
+        for (const p of pieces.splice(0)) yield p;
       }
     } finally {
       reader.releaseLock();
     }
+    if (!full) throw new Error("empty-stream");
     this.history.push({ role: "user", parts: [{ text: prompt }] });
     this.history.push({ role: "model", parts: [{ text: full }] });
   }
