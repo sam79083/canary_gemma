@@ -12,6 +12,8 @@ interface LanguageModelNamespace {
   availability(): Promise<"available" | "downloadable" | "downloading" | "unavailable">;
   create(options?: {
     monitor?: (m: LanguageModelMonitor) => void;
+    /** BCP 47 code Chrome accepts: de, en, es, fr, ja. Omit otherwise. */
+    outputLanguage?: string;
   }): Promise<LanguageModelSession>;
 }
 

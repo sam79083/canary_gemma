@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceDirHandle } from "@/lib/fs-access";
 import type { FileEntry } from "@/lib/types";
 
@@ -35,9 +35,16 @@ export interface WorkspaceApi {
  * browser/tab is (re)opened, exactly as requested for Render deployments.
  */
 export function useWorkspace(): WorkspaceApi {
-  const supported =
-    typeof window !== "undefined" &&
-    typeof window.showDirectoryPicker === "function";
+  // Mount-stable: SSR and first client render both see `false`, so the
+  // server HTML matches. The real value is set once after mount — this
+  // avoids React hydration mismatches (server has no `window`).
+  const [supported, setSupported] = useState(false);
+  useEffect(() => {
+    setSupported(
+      typeof window !== "undefined" &&
+        typeof window.showDirectoryPicker === "function",
+    );
+  }, []);
   const rootRef = useRef<WorkspaceDirHandle | null>(null);
   const [connected, setConnected] = useState(false);
   const [rootName, setRootName] = useState<string | null>(null);

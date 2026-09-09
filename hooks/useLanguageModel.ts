@@ -8,10 +8,16 @@ import {
   OllamaSession,
   listOllamaModels,
 } from "@/lib/local-model";
+import {
+  DEFAULT_GEMINI_MODEL,
+  FALLBACK_GEMINI_MODEL,
+  GeminiSession,
+  listGeminiModels,
+} from "@/lib/cloud-model";
 import type { ChatMessage } from "@/lib/types";
 
 export type BusyKind = null | "chat" | "ai";
-export type Provider = "gemma" | "ollama";
+export type Provider = "gemma" | "ollama" | "cloud";
 
 export interface DownloadState {
   show: boolean;
@@ -22,6 +28,27 @@ export interface DownloadState {
 const PROVIDER_KEY = "canary-provider";
 const OLLAMA_URL_KEY = "canary-ollama-url";
 const OLLAMA_MODEL_KEY = "canary-ollama-model";
+const GEMINI_KEY = "canary-gemini-key";
+const GEMINI_MODEL_KEY = "canary-gemini-model";
+
+function storedProvider(): Provider {
+  const v = stored(PROVIDER_KEY);
+  return v === "ollama" || v === "cloud" ? v : "gemma";
+}
+
+/**
+ * Chrome only accepts de/en/es/fr/ja as create() output languages.
+ * Anything else → omit (our prompts already carry a "Reply in X" line).
+ */
+function outputLangFor(lang: Lang): string | undefined {
+  return lang === "de" ||
+    lang === "en" ||
+    lang === "es" ||
+    lang === "fr" ||
+    lang === "ja"
+    ? lang
+    : undefined;
+}
 
 function stored(key: string): string | null {
   try {
@@ -61,12 +88,8 @@ export function useLanguageModel(lang: Lang, t: TFn) {
     label: "",
   });
 
-  const [provider, setProviderState] = useState<Provider>(() =>
-    stored(PROVIDER_KEY) === "ollama" ? "ollama" : "gemma",
-  );
-  const providerRef = useRef<Provider>(
-    stored(PROVIDER_KEY) === "ollama" ? "ollama" : "gemma",
-  );
+  const [provider, setProviderState] = useState<Provider>(() => storedProvider());
+  const providerRef = useRef<Provider>(storedProvider());
   const [ollamaUrl, setOllamaUrlState] = useState(
     () => stored(OLLAMA_URL_KEY) || DEFAULT_OLLAMA_URL,
   );
@@ -78,12 +101,28 @@ export function useLanguageModel(lang: Lang, t: TFn) {
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaChecking, setOllamaChecking] = useState(false);
   const [ollamaError, setOllamaError] = useState<string | null>(null);
+  const [geminiKey, setGeminiKeyState] = useState(() => stored(GEMINI_KEY) || "");
+  const geminiKeyRef = useRef(stored(GEMINI_KEY) || "");
+  const [geminiModel, setGeminiModelState] = useState(
+    () => stored(GEMINI_MODEL_KEY) || DEFAULT_GEMINI_MODEL,
+  );
+  const geminiModelRef = useRef(stored(GEMINI_MODEL_KEY) || DEFAULT_GEMINI_MODEL);
+  const [geminiModels, setGeminiModels] = useState<string[]>([]);
+  const [geminiChecking, setGeminiChecking] = useState(false);
+  const [geminiError, setGeminiError] = useState<string | null>(null);
+  const geminiErrorRef = useRef<string | null>(null);
+  const setGemErr = useCallback((e: string | null) => {
+    geminiErrorRef.current = e;
+    setGeminiError(e);
+  }, []);
 
   // Re-translate the "connected" status when the UI language changes.
   useEffect(() => {
     if (ready && sessionRef.current) {
       if (providerRef.current === "ollama" && ollamaModelRef.current)
         setStatus(t("stOllamaReady", { m: ollamaModelRef.current }));
+      else if (providerRef.current === "cloud" && geminiModelRef.current)
+        setStatus(t("stCloudReady", { m: geminiModelRef.current }));
       else if (providerRef.current === "gemma") setStatus(t("stReadyOk"));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -106,6 +145,55 @@ export function useLanguageModel(lang: Lang, t: TFn) {
     setOllamaModelState(m);
     store(OLLAMA_MODEL_KEY, m);
   }, []);
+
+  const setGeminiKey = useCallback((k: string) => {
+    geminiKeyRef.current = k;
+    setGeminiKeyState(k);
+    store(GEMINI_KEY, k);
+  }, []);
+
+  const setGeminiModel = useCallback((m: string) => {
+    geminiModelRef.current = m;
+    setGeminiModelState(m);
+    store(GEMINI_MODEL_KEY, m);
+  }, []);
+
+  /** Re-list Gemma models for this key; returns names (may be empty). */
+  const refreshGeminiModels = useCallback(async (): Promise<string[]> => {
+    if (!geminiKeyRef.current) {
+      setGeminiModels([]);
+      setGemErr("need-key");
+      return [];
+    }
+    setGeminiChecking(true);
+    setGemErr(null);
+    try {
+      const names = await listGeminiModels(geminiKeyRef.current);
+      setGeminiModels(names);
+      if (names.length === 0) {
+        setGemErr("none");
+      } else if (!names.includes(geminiModelRef.current)) {
+        const pick =
+          names.find((n) => n === DEFAULT_GEMINI_MODEL) ??
+          names.find((n) => n === FALLBACK_GEMINI_MODEL) ??
+          names[0];
+        geminiModelRef.current = pick;
+        setGeminiModelState(pick);
+        store(GEMINI_MODEL_KEY, pick);
+      }
+      return names;
+    } catch (e) {
+      setGeminiModels([]);
+      setGemErr(
+        String(e instanceof Error ? e.message : e).includes("bad-key")
+          ? "bad-key"
+          : "unreachable",
+      );
+      return [];
+    } finally {
+      setGeminiChecking(false);
+    }
+  }, [setGemErr]);
 
   /** Re-list models on the Ollama server; returns names (may be empty). */
   const refreshOllamaModels = useCallback(async (): Promise<string[]> => {
@@ -137,6 +225,29 @@ export function useLanguageModel(lang: Lang, t: TFn) {
   // Chrome throws "Requires a user gesture" if create() runs without a click
   // while availability is "downloading" or "downloadable".
   const supported = useCallback(async (): Promise<string> => {
+    if (providerRef.current === "cloud") {
+      if (!geminiKeyRef.current) {
+        setStatus(t("stCloudNeedKey"));
+        setOnline(false);
+        setAvailability("unavailable");
+        return "unavailable";
+      }
+      setStatus(t("stCloudChecking"));
+      setOnline(true);
+      const names = await refreshGeminiModels();
+      if (names.length === 0) {
+        setStatus(
+          geminiErrorRef.current === "bad-key" ? t("stCloudBadKey") : t("stCloudFail"),
+        );
+        setOnline(false);
+        setAvailability("unavailable");
+        return "unavailable";
+      }
+      setStatus(t("stReadyToStart"));
+      setOnline(true);
+      setAvailability("available");
+      return "available";
+    }
     if (providerRef.current === "ollama") {
       setStatus(t("stOllamaChecking"));
       setOnline(true);
@@ -178,6 +289,41 @@ export function useLanguageModel(lang: Lang, t: TFn) {
 
   const createSession = useCallback(async (): Promise<boolean> => {
     if (creatingRef.current || sessionRef.current) return false;
+    if (providerRef.current === "cloud") {
+      creatingRef.current = true;
+      setReady(false);
+      try {
+        if (!geminiKeyRef.current) {
+          setStatus(t("stCloudNeedKey"));
+          return false;
+        }
+        if (!geminiModelRef.current) {
+          const names = await refreshGeminiModels();
+          if (names.length === 0 || !geminiModelRef.current) {
+            setStatus(t("stCloudFail"));
+            return false;
+          }
+        }
+        sessionRef.current = new GeminiSession(
+          geminiKeyRef.current,
+          geminiModelRef.current,
+        );
+        setStatus(t("stCloudReady", { m: geminiModelRef.current }));
+        setOnline(true);
+        setReady(true);
+        return true;
+      } catch (e) {
+        setStatus(
+          String(e instanceof Error ? e.message : e).includes("bad-key")
+            ? t("stCloudBadKey")
+            : t("stCloudFail"),
+        );
+        sessionRef.current = null;
+        return false;
+      } finally {
+        creatingRef.current = false;
+      }
+    }
     if (providerRef.current === "ollama") {
       creatingRef.current = true;
       setReady(false);
@@ -212,7 +358,9 @@ export function useLanguageModel(lang: Lang, t: TFn) {
       setStatus(t("stGettingReady"));
       setOnline(true);
       setDownload({ show: true, pct: 0, label: t("stStartingDl") });
+      const outputLanguage = outputLangFor(lang);
       sessionRef.current = await LanguageModel.create({
+        ...(outputLanguage ? { outputLanguage } : null),
         monitor(m) {
           m.addEventListener("downloadprogress", (ev: Event) => {
             const loaded = (ev as unknown as { loaded?: number }).loaded ?? 0;
@@ -247,6 +395,40 @@ export function useLanguageModel(lang: Lang, t: TFn) {
 
   const restoreSession = useCallback(
     async (history: ChatMessage[]): Promise<boolean> => {
+      if (providerRef.current === "cloud") {
+        try {
+          if (!geminiKeyRef.current) {
+            setStatus(t("stCloudNeedKey"));
+            return false;
+          }
+          if (!geminiModelRef.current) {
+            const names = await refreshGeminiModels();
+            if (names.length === 0 || !geminiModelRef.current) {
+              setStatus(t("stCloudFail"));
+              return false;
+            }
+          }
+          setStatus(t("stPickingUp"));
+          const s = new GeminiSession(
+            geminiKeyRef.current,
+            geminiModelRef.current,
+          );
+          for (const msg of history) {
+            await s.append(
+              `${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}\n`,
+            );
+          }
+          sessionRef.current = s;
+          setStatus(t("stCloudReady", { m: geminiModelRef.current }));
+          setOnline(true);
+          setReady(true);
+          return true;
+        } catch {
+          setStatus(t("stCloudFail"));
+          sessionRef.current = null;
+          return false;
+        }
+      }
       if (providerRef.current === "ollama") {
         try {
           if (!ollamaModelRef.current) {
@@ -288,7 +470,9 @@ export function useLanguageModel(lang: Lang, t: TFn) {
           return false;
         }
         setStatus(t("stPickingUp"));
+        const restoreLang = outputLangFor(lang);
         sessionRef.current = await LanguageModel.create({
+          ...(restoreLang ? { outputLanguage: restoreLang } : null),
           monitor(m) {
             m.addEventListener("downloadprogress", (ev: Event) => {
               const loaded =
@@ -367,6 +551,14 @@ export function useLanguageModel(lang: Lang, t: TFn) {
     ollamaChecking,
     ollamaError,
     refreshOllamaModels,
+    geminiKey,
+    setGeminiKey,
+    geminiModel,
+    setGeminiModel,
+    geminiModels,
+    geminiChecking,
+    geminiError,
+    refreshGeminiModels,
   };
 }
 

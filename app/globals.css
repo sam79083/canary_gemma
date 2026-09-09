@@ -69,6 +69,13 @@ body {
     flex-direction: column;
     padding: 12px;
     transition: background 0.2s, border-color 0.2s;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+}
+
+.sidebar > *:not(.file-tree) {
+    flex-shrink: 0;
 }
 
 .sidebar .model-header {
@@ -179,7 +186,8 @@ body {
 }
 
 .sidebar .status {
-    margin-top: auto;
+    margin-top: 8px;
+    flex-shrink: 0;
     padding: 10px 12px;
     font-size: 12px;
     color: var(--status-text);
@@ -229,7 +237,8 @@ body {
 
 /* File tree */
 .file-tree {
-    flex: 1;
+    flex: 1 1 auto;
+    min-height: 120px;
     overflow-y: auto;
     margin: 8px 0;
     padding: 4px;

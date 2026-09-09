@@ -229,6 +229,22 @@ const ko: Dict = {
   svDownloaded: "채팅을 “{name}”으로 다운로드했어요 ✓",
   svEmpty: "저장할 채팅이 아직 없어요.",
   mbMenu: "메뉴",
+  chNeedAi: "AI 채팅은 내장 AI가 필요해요 — 컴퓨터의 Chrome을 이용하세요. 웹 검색(🔍)은 여기서도 돼요.",
+  chSearchOnlyPh: "웹 검색어를 입력하세요… (AI 채팅은 컴퓨터 Chrome에서)",
+  chNoAiNote: "이 기기에서는 AI 요약이 안 돼요 — 위 링크를 눌러 직접 읽어보세요.",
+  pgCloud: "☁️ 클라우드 (API 키)",
+  pgGeminiKey: "Google AI API 키",
+  pgGeminiKeyPh: "AI Studio에서 키를 붙여넣으세요…",
+  pgGeminiGetKey: "무료 키 받기 ↗",
+  pgGeminiPick: "모델 선택…",
+  pgGeminiNone: "이 키로 쓸 수 있는 모델이 없어요.",
+  pgGeminiHint: "키는 이 브라우저에만 저장되고, Google에만 전송돼요 — 저희 서버에는 절대 안 가요.",
+  pgPrivacyCloud: "☁️ 클라우드 모드 — 내 키로 Google 서버에서 답이 와요",
+  stCloudNeedKey: "먼저 API 키를 입력하세요",
+  stCloudBadKey: "이 API 키는 안 돼요 — AI Studio에서 확인하세요",
+  stCloudChecking: "클라우드 모델 확인 중…",
+  stCloudReady: "준비됨 ✓ ({m})",
+  stCloudFail: "클라우드 모델에 연결하지 못했어요",
 };
 
 const en: Dict = {
@@ -410,6 +426,22 @@ const en: Dict = {
   svDownloaded: "Downloaded the chat as “{name}” ✓",
   svEmpty: "Nothing to save yet.",
   mbMenu: "Menu",
+  chNeedAi: "AI chat needs the built-in AI — please use computer Chrome. Web search (🔍) still works here.",
+  chSearchOnlyPh: "Type to search the web… (AI chat needs computer Chrome)",
+  chNoAiNote: "AI summary isn't available on this device — open a link above to read more.",
+  pgCloud: "☁️ Cloud (API key)",
+  pgGeminiKey: "Google AI API key",
+  pgGeminiKeyPh: "Paste key from AI Studio…",
+  pgGeminiGetKey: "Get a free key ↗",
+  pgGeminiPick: "Pick a model…",
+  pgGeminiNone: "No usable models for this key.",
+  pgGeminiHint: "Your key stays in this browser — sent only to Google, never to our server.",
+  pgPrivacyCloud: "☁️ Cloud mode — answers come from Google's servers using your key",
+  stCloudNeedKey: "Paste your API key first",
+  stCloudBadKey: "This API key doesn't work — check it in AI Studio",
+  stCloudChecking: "Checking cloud model…",
+  stCloudReady: "Ready ✓ ({m})",
+  stCloudFail: "Couldn't connect to the cloud model",
 };
 
 // Other languages: main UI only — anything missing falls back to English.
@@ -478,6 +510,8 @@ const ja: Dict = {
   tk3L: "📚 勉強ヘルプ",
   svSave: "💾 チャットを保存",
   mbMenu: "メニュー",
+  pgCloud: "☁️ クラウド（APIキー）",
+  pgPrivacyCloud: "☁️ クラウドモード — あなたのキーでGoogleのサーバーから回答",
 };
 
 const zh: Dict = {
@@ -545,6 +579,8 @@ const zh: Dict = {
   tk3L: "📚 学习帮助",
   svSave: "💾 保存聊天",
   mbMenu: "菜单",
+  pgCloud: "☁️ 云端（API 密钥）",
+  pgPrivacyCloud: "☁️ 云模式 — 用您的密钥从 Google 服务器获取回答",
 };
 
 const es: Dict = {
@@ -611,6 +647,8 @@ const es: Dict = {
   tk3L: "📚 Ayuda a estudiar",
   svSave: "💾 Guardar chat",
   mbMenu: "Menú",
+  pgCloud: "☁️ Nube (clave API)",
+  pgPrivacyCloud: "☁️ Modo nube — respuestas de Google con tu clave",
 };
 
 const fr: Dict = {
@@ -677,6 +715,8 @@ const fr: Dict = {
   tk3L: "📚 Aide aux études",
   svSave: "💾 Enregistrer le chat",
   mbMenu: "Menu",
+  pgCloud: "☁️ Cloud (clé API)",
+  pgPrivacyCloud: "☁️ Mode cloud — réponses Google avec votre clé",
 };
 
 const de: Dict = {
@@ -743,6 +783,8 @@ const de: Dict = {
   tk3L: "📚 Lernhilfe",
   svSave: "💾 Chat speichern",
   mbMenu: "Menü",
+  pgCloud: "☁️ Cloud (API-Schlüssel)",
+  pgPrivacyCloud: "☁️ Cloud-Modus — Antworten von Google mit deinem Schlüssel",
 };
 
 const pt: Dict = {
@@ -809,6 +851,8 @@ const pt: Dict = {
   tk3L: "📚 Ajuda nos estudos",
   svSave: "💾 Salvar chat",
   mbMenu: "Menu",
+  pgCloud: "☁️ Nuvem (chave API)",
+  pgPrivacyCloud: "☁️ Modo nuvem — respostas do Google com sua chave",
 };
 
 const vi: Dict = {
@@ -873,6 +917,8 @@ const vi: Dict = {
   tk3L: "📚 Học tập",
   svSave: "💾 Lưu chat",
   mbMenu: "Menu",
+  pgCloud: "☁️ Đám mây (API key)",
+  pgPrivacyCloud: "☁️ Chế độ đám mây — trả lời từ Google bằng key của bạn",
 };
 
 const id: Dict = {
@@ -937,6 +983,8 @@ const id: Dict = {
   tk3L: "📚 Bantuan belajar",
   svSave: "💾 Simpan chat",
   mbMenu: "Menu",
+  pgCloud: "☁️ Cloud (kunci API)",
+  pgPrivacyCloud: "☁️ Mode cloud — jawaban dari Google dengan kuncimu",
 };
 
 const ALL: Record<Lang, Dict> = { ko, en, ja, zh, es, fr, de, pt, vi, id };

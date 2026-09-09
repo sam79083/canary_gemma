@@ -67,6 +67,7 @@ function friendlyError(t: TFn, e: unknown, path?: string): string {
   if (/permission|denied|not allowed|SecurityError|AbortError/i.test(raw))
     return t("chErrPerm", { name });
   if (/binary/i.test(raw)) return t("chErrBinary", { name });
+  if (/bad-key/i.test(raw)) return t("stCloudBadKey");
   if (/quota|limit|429/i.test(raw)) return t("chErrQuota");
   if (name) return t("chErrGeneric", { name });
   return t("chErrSomething");
@@ -173,9 +174,17 @@ export default function Chat({
   }
 
   const handleSend = useCallback(async () => {
-    if (!sessionRef.current || busyRef.current) return;
+    if (busyRef.current) return;
     const prompt = input.trim();
     if (!prompt) return;
+    // No AI session (e.g. phones without built-in AI): explain, don't die silently.
+    if (!sessionRef.current) {
+      setInput("");
+      pushMessage("user", prompt);
+      pushMessage("assistant", t("chNeedAi"));
+      persistChat();
+      return;
+    }
     busyRef.current = "chat";
     setStreaming(true);
     setInput("");
@@ -419,7 +428,7 @@ export default function Chat({
   ];
 
   const handleSearch = useCallback(async () => {
-    if (!sessionRef.current || busyRef.current) return;
+    if (busyRef.current) return;
     const prompt = input.trim();
     if (!prompt) return;
     busyRef.current = "chat";
@@ -428,6 +437,31 @@ export default function Chat({
     pushMessage("user", prompt);
     pushMessage("assistant", `${t("chLooking")} "${prompt}"…`);
     setStreamText("");
+    // No AI session (e.g. phones): show raw results, skip the AI summary.
+    if (!sessionRef.current) {
+      try {
+        const { results, error } = await webSearch(prompt);
+        if (error || results.length === 0) {
+          pushMessage("assistant", t("chSearchFail"));
+        } else {
+          pushMessage(
+            "assistant",
+            `${t("chSearchFound", { n: results.length })}\n${results.map((r, i) => `${i + 1}. ${r.title}\n${r.snippet}\n${r.url}`).join("\n\n")}\n\n${t("chNoAiNote")}`,
+          );
+        }
+        persistChat();
+      } catch (e) {
+        pushMessage("assistant", friendlyError(t, e));
+      } finally {
+        busyRef.current = null;
+        setStreaming(false);
+        setStreamText(null);
+        focusInput();
+        persistChat();
+        void loadQuota();
+      }
+      return;
+    }
     let full = "";
     try {
       setModelStatus(t("stLookingUp"), true);
@@ -476,7 +510,8 @@ export default function Chat({
     }
   }, [sessionRef, busyRef, input, setInput, pushMessage, persistChat, setModelStatus, loadQuota, t, lang]);
 
-  const disabled = !modelReady || streaming;
+  const sendDisabled = !modelReady || streaming || !input.trim();
+  const searchDisabled = streaming || !input.trim();
 
   return (
     <>
@@ -504,7 +539,7 @@ export default function Chat({
         <div ref={bottomRef} />
       </div>
       <div className="input-area">
-        {modelReady && !streaming ? (
+        {!streaming ? (
           <div className="task-row">
             {TASKS.map((s) => (
               <button
@@ -543,9 +578,9 @@ export default function Chat({
           <textarea
             id="prompt-input"
             ref={inputRef}
-            placeholder={agentMode ? t("chPhAgent") : t("chPhPlain")}
+            placeholder={modelReady ? (agentMode ? t("chPhAgent") : t("chPhPlain")) : t("chSearchOnlyPh")}
             rows={1}
-            disabled={!modelReady || streaming}
+            disabled={streaming}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -558,12 +593,12 @@ export default function Chat({
           <button
             className="send-btn secondary"
             onClick={() => void handleSearch()}
-            disabled={disabled}
+            disabled={searchDisabled}
             title={t("chLooking")}
           >
             {streaming ? "⏳" : "🔍"}
           </button>
-          <button className="send-btn" onClick={() => void handleSend()} disabled={disabled || !input.trim()}>
+          <button className="send-btn" onClick={() => void handleSend()} disabled={sendDisabled}>
             {streaming ? "●" : "➤"}
           </button>
         </div>

@@ -47,6 +47,7 @@ export default function Home() {
   const [showFlagHelp, setShowFlagHelp] = useState(false);
   const [flagCopied, setFlagCopied] = useState(false);
   const [ollamaUrlDraft, setOllamaUrlDraft] = useState(model.ollamaUrl);
+  const [geminiKeyDraft, setGeminiKeyDraft] = useState(model.geminiKey);
   const [review, setReview] = useState<PendingReview | null>(null);
   const reviewResolve = useRef<((ok: boolean) => void) | null>(null);
   const [onboardOpen, setOnboardOpen] = useState(false);
@@ -418,11 +419,11 @@ export default function Home() {
             id="model-dot"
             style={{ background: model.online ? "#2e7d32" : "#ccc" }}
           />
-          {model.provider === "gemma" ? "Gemma 4" : (model.ollamaModel || "Local")}
+          {model.provider === "gemma" ? "Gemma 4" : model.provider === "ollama" ? (model.ollamaModel || "Local") : (model.geminiModel.split("-").slice(0, 2).join("-") || "Cloud")}
         </div>
 
         <div className="privacy-badge" title="Privacy">
-          {t("pgPrivacy")}
+          {model.provider === "cloud" ? t("pgPrivacyCloud") : t("pgPrivacy")}
         </div>
 
         <div className="workspace-box" id="model-box">
@@ -441,6 +442,13 @@ export default function Home() {
               title="Ollama"
             >
               {t("pgOllama")}
+            </button>
+            <button
+              className={`sidebar-btn small${model.provider === "cloud" ? " secondary" : ""}`}
+              onClick={() => void handleProviderSwitch("cloud")}
+              title="Cloud"
+            >
+              {t("pgCloud")}
             </button>
           </div>
           {model.provider === "ollama" ? (
@@ -502,6 +510,74 @@ export default function Home() {
                       : t("pgOllamaCors")}
                 </div>
               )}
+            </>
+          ) : null}
+          {model.provider === "cloud" ? (
+            <>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  className="sidebar-btn small"
+                  style={{ flex: 1, cursor: "text" }}
+                  type="password"
+                  autoComplete="off"
+                  value={geminiKeyDraft}
+                  onChange={(e) => setGeminiKeyDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      model.setGeminiKey(geminiKeyDraft.trim());
+                      void model.reconnect();
+                    }
+                  }}
+                  placeholder={t("pgGeminiKeyPh")}
+                  title={t("pgGeminiKey")}
+                />
+                <button
+                  className="sidebar-btn small"
+                  style={{ flex: "0 0 auto" }}
+                  title={t("pgOllamaCheck")}
+                  disabled={model.geminiChecking}
+                  onClick={() => {
+                    model.setGeminiKey(geminiKeyDraft.trim());
+                    void model.reconnect();
+                  }}
+                >
+                  {model.geminiChecking ? "⏳" : t("pgOllamaCheck")}
+                </button>
+              </div>
+              <div className="workspace-hint">
+                <a
+                  href="https://aistudio.google.com/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("pgGeminiGetKey")}
+                </a>
+                {" — "}{t("pgGeminiHint")}
+              </div>
+              {model.geminiModels.length > 0 ? (
+                <select
+                  className="sidebar-btn small"
+                  id="gemini-model-select"
+                  value={model.geminiModel}
+                  onChange={(e) => {
+                    model.setGeminiModel(e.target.value);
+                    void model.reconnect();
+                  }}
+                >
+                  {model.geminiModels.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              ) : model.geminiError === "bad-key" ? (
+                <div className="workspace-error">{t("stCloudBadKey")}</div>
+              ) : model.geminiError && model.geminiError !== "need-key" ? (
+                <div className="workspace-hint">
+                  {model.geminiError === "none" ? t("pgGeminiNone") : t("stCloudFail")}
+                </div>
+              ) : null}
             </>
           ) : null}
         </div>
@@ -734,7 +810,7 @@ export default function Home() {
             ☰
           </button>
           <span className="gemma-badge">
-            {model.provider === "gemma" ? "Gemma 4" : (model.ollamaModel || "Local")}
+            {model.provider === "gemma" ? "Gemma 4" : model.provider === "ollama" ? (model.ollamaModel || "Local") : (model.geminiModel.split("-").slice(0, 2).join("-") || "Cloud")}
           </span>
           <span id="model-status">{model.status}</span>
           <span style={{ display: "flex", gap: 6, alignItems: "center" }}>

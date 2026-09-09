@@ -3,7 +3,9 @@ import { NextResponse } from "next/server";
 // GET /api/quota — SerpAPI searches-left (key never sent to the browser)
 export async function GET() {
   const key = process.env.SERPAPI_KEY;
-  if (!key) return NextResponse.json({ error: "SERPAPI_KEY not configured" }, { status: 500 });
+  // No key (e.g. local dev): 200 with an error payload, not a 500 —
+  // the client already renders this as "quota unavailable".
+  if (!key) return NextResponse.json({ error: "SERPAPI_KEY not configured" });
   try {
     const resp = await fetch(
       `https://serpapi.com/account.json?api_key=${key}`,
