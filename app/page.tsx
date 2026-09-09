@@ -14,6 +14,7 @@ import type { TFn } from "@/lib/i18n";
 import { summarizeDiff } from "@/lib/diff";
 import { fetchQuota } from "@/lib/api";
 import { folderCapLine, getFolderCap } from "@/lib/capabilities";
+import { DEFAULT_COMFY_URL, listComfyCheckpoints } from "@/lib/comfy";
 import {
   deleteLocalSession,
   listLocalSessions,
@@ -245,15 +246,20 @@ export default function Home() {
     document.body.classList.toggle("dark", dark);
   }, [dark]);
 
-  const pushMessage = useCallback((role: ChatMessage["role"], content: string) => {
-    setMessages((prev) => [...prev, { role, content }]);
-  }, []);
+  const pushMessage = useCallback(
+    (role: ChatMessage["role"], content: string, image?: ChatMessage["image"]) => {
+      setMessages((prev) => [...prev, { role, content, image }]);
+    },
+    [],
+  );
 
-  // Persist chat to localStorage on every change (after initial hydration)
+  // Persist chat to localStorage on every change (after initial hydration).
+  // Image previews are live object URLs — persist text only.
   useEffect(() => {
     if (!hydratedRef.current) return;
     try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(messagesRef.current));
+      const stored = messagesRef.current.map(({ role, content }) => ({ role, content }));
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(stored));
     } catch (e) {
       console.error("Failed to save history:", e);
     }
@@ -264,6 +270,8 @@ export default function Home() {
     if (msgs.length === 0) return;
     const existing = currentSessionFileRef.current;
     const title = titleFor(msgs, t);
+    // Image previews are live object URLs — persist text only.
+    const stored: ChatMessage[] = msgs.map(({ role, content }) => ({ role, content }));
     const refresh = () => {
       const p = workspace.connected
         ? listWorkspaceSessions(workspace)
@@ -273,7 +281,7 @@ export default function Home() {
         .catch((e) => console.error("Failed to load sessions:", e));
     };
     if (workspace.connected) {
-      void saveWorkspaceSession(workspace, title, msgs, existing)
+      void saveWorkspaceSession(workspace, title, stored, existing)
         .then((filename) => {
           currentSessionFileRef.current = filename;
           setCurrentFile(filename);
@@ -281,7 +289,7 @@ export default function Home() {
         })
         .catch((e) => console.error("Auto-save session failed:", e));
     } else {
-      void saveLocalSession(title, msgs, existing)
+      void saveLocalSession(title, stored, existing)
         .then((filename) => {
           currentSessionFileRef.current = filename;
           setCurrentFile(filename);
@@ -507,7 +515,10 @@ export default function Home() {
     const body =
       `# ${title}\n\n` +
       msgs
-        .map((m) => `${m.role === "user" ? "🧑" : "🤖"}\n\n${m.content}`)
+        .map((m) => {
+          const pic = m.image ? `\n\n![${m.image.name}](${m.image.rel})` : "";
+          return `${m.role === "user" ? "🧑" : "🤖"}\n\n${m.content}${pic}`;
+        })
         .join("\n\n---\n\n") +
       "\n";
     if (workspace.connected) {

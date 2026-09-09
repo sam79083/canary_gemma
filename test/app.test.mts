@@ -74,6 +74,34 @@ describe("answer sanitizer", () => {
     const normal = "사과가 좋아요.\n\n- 빨강\n- 파랑";
     assert.equal(sanitizeAnswer(normal), normal);
   });
+
+  it("strips prose reasoning, quoted answer, translation aside, glued repeat", () => {
+    const raw =
+      "for the cloud response, it is still not natural. The user's question " +
+      '"gemma가 아니야?" is an identity question. I must identify as ' +
+      "'gemma-4-26b-a4b-it'. The user's prompt asks me to reply in Korean.\n\n" +
+      'So, I will answer in Korean: "저는 gemma-4-26b-a4b-it입니다." ' +
+      "(I am gemma-4-26b-a4b-it.)저는 gemma-4-26b-a4b-it입니다.";
+    assert.equal(sanitizeAnswer(raw), "저는 gemma-4-26b-a4b-it입니다.");
+  });
+
+  it("drops a 'So, I will answer' lead without quotes", () => {
+    assert.equal(
+      sanitizeAnswer("So, I will answer in Korean. 저는 gemma-4-26b-a4b-it입니다."),
+      "저는 gemma-4-26b-a4b-it입니다.",
+    );
+  });
+
+  it("keeps normal English answers starting with I will", () => {
+    const normal = "I will help you write that email.";
+    assert.equal(sanitizeAnswer(normal), normal);
+  });
+
+  it("leaves code fences and decimals alone", () => {
+    const code = "```js\nconst pi = 3.14;\n```";
+    assert.equal(sanitizeAnswer(code), code);
+    assert.equal(sanitizeAnswer("3.14 is pi."), "3.14 is pi.");
+  });
 });
 
 describe("cloud SSE parser", () => {
@@ -136,8 +164,7 @@ describe("cloud SSE parser", () => {
     }
   });
 
-  it("caps sent history at HISTORY_TAIL entries", async () => {
-    let sentCount = -1;
+  it("caps sent history at HISTORY_TAIL entries", async () => {    let sentCount = -1;
     const origFetch = globalThis.fetch;
     // @ts-expect-error harness
     globalThis.fetch = async (_url: string, init?: { body?: string }) => {
@@ -158,6 +185,50 @@ describe("cloud SSE parser", () => {
       }
       await s.prompt("latest");
       assert.ok(sentCount > 0 && sentCount <= HISTORY_TAIL + 1);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it("rewriteLastModelText swaps raw reasoning for the clean answer", async () => {
+    const enc = new TextEncoder();
+    const rawReasoning =
+      "The user's question is an identity question. So, I will answer in Korean: " +
+      '"저는 m입니다." (I am m.)저는 m입니다.';
+    const sseText = `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: rawReasoning }] } }] })}\n\n`;
+    const origFetch = globalThis.fetch;
+    let lastBody = "";
+    // @ts-expect-error harness
+    globalThis.fetch = async (_url: string, init?: { body?: string }) => {
+      lastBody = String(init?.body ?? "");
+      const chunk = enc.encode(sseText);
+      let used = false;
+      return {
+        ok: true,
+        status: 200,
+        body: {
+          getReader: () => ({
+            read: async () => {
+              if (used) return { done: true, value: undefined };
+              used = true;
+              return { done: false, value: chunk };
+            },
+            releaseLock() {},
+          }),
+        },
+      };
+    };
+    try {
+      const s = new GeminiSession("k", "m");
+      let first = "";
+      for await (const piece of s.promptStreaming("gemma가 아니야?")) first += piece;
+      assert.ok(first.includes("user's question"));
+      s.rewriteLastModelText?.(sanitizeAnswer(first) || first);
+      assert.equal(sanitizeAnswer(first), "저는 m입니다.");
+      // Next turn re-sends history: reasoning must be gone, clean kept.
+      for await (const _ of s.promptStreaming("고마워")) { /* drain */ }
+      assert.ok(!lastBody.includes("user's question"));
+      assert.ok(lastBody.includes("저는 m입니다."));
     } finally {
       globalThis.fetch = origFetch;
     }

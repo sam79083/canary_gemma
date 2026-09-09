@@ -1,6 +1,8 @@
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  /** Generated/uploaded picture shown with the message (live view only). */
+  image?: { name: string; rel: string; url: string };
 }
 
 export interface FileEntry {

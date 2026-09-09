@@ -27,6 +27,9 @@ interface LanguageModelSession {
   destroy(): void;
   /** Photo-aware turn. Absent = text-only model (e.g. cloud/local adapters). */
   promptWithImages?(prompt: string, images: PromptImage[]): AsyncIterable<string>;
+  /** Replace the last assistant/model history entry with displayed text.
+   * Cloud + local adapters only; absent on built-in Gemma sessions. */
+  rewriteLastModelText?(text: string): void;
 }
 
 interface LanguageModelMonitor extends EventTarget {}

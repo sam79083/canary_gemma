@@ -159,6 +159,17 @@ export class OllamaSession implements LanguageModelSession {
     this.history.push({ role: "assistant", content: full });
   }
 
+  /** Overwrite the most recent assistant entry with the displayed
+   * (sanitized) answer — see GeminiSession.rewriteLastModelText. */
+  rewriteLastModelText(text: string): void {
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      if (this.history[i].role === "assistant") {
+        this.history[i] = { role: "assistant", content: text };
+        return;
+      }
+    }
+  }
+
   destroy(): void {
     this.destroyed = true;
     this.history = [];

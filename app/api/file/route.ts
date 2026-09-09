@@ -28,9 +28,10 @@ export async function GET(req: Request) {
   }
 }
 
-// POST /api/file {path, content} — create or overwrite file
+// POST /api/file {path, content} — create or overwrite file.
+// {path, contentBase64} writes binary (e.g. generated PNGs).
 export async function POST(req: Request) {
-  let body: { path?: string; content?: string };
+  let body: { path?: string; content?: string; contentBase64?: string };
   try {
     body = await req.json();
   } catch {
@@ -42,7 +43,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid path" }, { status: 400 });
   try {
     await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(target, body.content ?? "", "utf-8");
+    if (typeof body.contentBase64 === "string" && body.contentBase64) {
+      await fs.writeFile(target, Buffer.from(body.contentBase64, "base64"));
+    } else {
+      await fs.writeFile(target, body.content ?? "", "utf-8");
+    }
     return NextResponse.json({ success: true, path: rel });
   } catch (e) {
     return NextResponse.json(

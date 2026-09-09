@@ -154,6 +154,18 @@ export class GeminiSession implements LanguageModelSession {
     return text;
   }
 
+  /** Overwrite the most recent model entry with the displayed (sanitized)
+   * answer, so the next turn doesn't re-read leaked reasoning as an example.
+   * No-op when history has no model entry yet. */
+  rewriteLastModelText(text: string): void {
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      if (this.history[i].role === "model") {
+        this.history[i] = { role: "model", parts: [{ text }] };
+        return;
+      }
+    }
+  }
+
   async *promptStreaming(prompt: string): AsyncIterable<string> {
     yield* this.runStream(this.body(prompt), prompt);
   }

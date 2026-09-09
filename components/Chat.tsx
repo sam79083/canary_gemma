@@ -10,6 +10,7 @@ import {
   readFile as serverReadFile,
   webSearch,
   writeFile as serverWriteFile,
+  writeFileBinary as serverWriteFileBinary,
 } from "@/lib/api";
 import type { LanguageModelSession, PromptImage } from "@/lib/prompt-api.d";
 import type { BusyKind, Provider } from "@/hooks/useLanguageModel";
@@ -19,6 +20,13 @@ import { replySuffix, type Lang, type TFn } from "@/lib/i18n";
 import { recordUsage } from "@/lib/usage";
 import { renderMarkdown } from "@/lib/markdown";
 import { sanitizeAnswer } from "@/lib/sanitize";
+import {
+  buildSDXLWorkflow,
+  comfyViewUrl,
+  queueComfyPrompt,
+  readComfyHistory,
+  type ComfyImageOut,
+} from "@/lib/comfy";
 import {
   AGENT_MAX_STEPS,
   buildAgentPreamble,
@@ -37,7 +45,7 @@ interface Props {
   busyRef: RefObject<BusyKind>;
   modelReady: boolean;
   setModelStatus: (s: string, online: boolean) => void;
-  pushMessage: (role: ChatMessage["role"], content: string) => void;
+  pushMessage: (role: ChatMessage["role"], content: string, image?: ChatMessage["image"]) => void;
   persistChat: () => void;
   workspace: WorkspaceApi;
   onFilesChanged: () => void;
@@ -48,6 +56,9 @@ interface Props {
   ensureVision: () => Promise<LanguageModelSession | null>;
   /** Model id for usage tracking (e.g. gemma-4-26b-a4b-it). Empty = don't track. */
   usageModel: string;
+  /** ComfyUI wiring (image generation) — optional until the UI lands. */
+  comfyUrl?: string;
+  comfyModel?: string;
   t: TFn;
   lang: Lang;
 }
@@ -161,6 +172,8 @@ export default function Chat({
   provider,
   ensureVision,
   usageModel,
+  comfyUrl = "",
+  comfyModel = "",
   t,
   lang,
 }: Props) {
@@ -464,6 +477,17 @@ export default function Chat({
     }
   }
 
+  /** Store the displayed (sanitized) answer in adapter history so the next
+   * turn doesn't re-read leaked reasoning as an example. No-op for sessions
+   * without history rewriting (built-in Gemma). */
+  function rememberClean(clean: string): void {
+    try {
+      sessionRef.current?.rewriteLastModelText?.(clean);
+    } catch {
+      // history rewrite is optional — answer already delivered
+    }
+  }
+
   const handleSend = useCallback(async () => {
     if (busyRef.current) return;
     const prompt = input.trim();
@@ -499,6 +523,11 @@ export default function Chat({
           collectUsage();
           const photoClean = sanitizeAnswer(stripToolCalls(full).trim());
           if (photoClean) {
+            try {
+              session.rewriteLastModelText?.(photoClean);
+            } catch {
+              // history rewrite is optional
+            }
             pushMessage("assistant", photoClean);
             persistChat();
           }
@@ -588,6 +617,7 @@ export default function Chat({
         full = await runModelTurn(prompt + replyIn, setStreamText);
         const clean = sanitizeAnswer(stripToolCalls(full).trim());
         if (clean) {
+          rememberClean(clean);
           pushMessage("assistant", clean);
           persistChat();
         }
@@ -713,7 +743,10 @@ export default function Chat({
           setStreamText,
         );
         const clean = sanitizeAnswer(stripToolCalls(full).trim());
-        if (clean) pushMessage("assistant", clean);
+        if (clean) {
+          rememberClean(clean);
+          pushMessage("assistant", clean);
+        }
         return;
       }
 
@@ -758,6 +791,7 @@ export default function Chat({
             continue;
           }
           finalAnswer = sanitizeAnswer(stripToolCalls(raw).trim()) || t("chDidntGet");
+          rememberClean(finalAnswer);
           break;
         }
 
@@ -821,6 +855,95 @@ export default function Chat({
     { label: t("tk2L"), prompt: t("tk2P") },
     { label: t("tk3L"), prompt: t("tk3P") },
   ];
+
+  function blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result ?? "").split(",").slice(1).join(","));
+      r.onerror = () => reject(new Error("encode"));
+      r.readAsDataURL(blob);
+    });
+  }
+
+  /** Text prompt → ComfyUI picture → chat + workspace. Same-PC only. */
+  const handleDraw = useCallback(async () => {
+    if (busyRef.current) return;
+    const prompt = input.trim();
+    if (!prompt) {
+      pushMessage("assistant", t("cfNoPrompt"));
+      inputRef.current?.focus();
+      return;
+    }
+    if (!comfyUrl || !comfyModel) {
+      pushMessage("assistant", t("cfNone"));
+      return;
+    }
+    busyRef.current = "chat";
+    setStreaming(true);
+    setInput("");
+    pushMessage("user", `🎨 ${prompt}`);
+    const started = Date.now();
+    setStreamText(t("cfDrawing", { n: 0 }));
+    const tick = setInterval(() => {
+      setStreamText(t("cfDrawing", { n: Math.round((Date.now() - started) / 1000) }));
+    }, 1000);
+    try {
+      const workflow = buildSDXLWorkflow({ ckpt: comfyModel, prompt });
+      const pid = await queueComfyPrompt(comfyUrl, workflow);
+      let imgs: ComfyImageOut[] = [];
+      for (let i = 0; i < 150; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          imgs = await readComfyHistory(comfyUrl, pid);
+          if (imgs.length > 0) break;
+        } catch (e) {
+          if ((e as Error).message !== "pending") throw e;
+        }
+      }
+      if (imgs.length === 0) throw new Error("timeout");
+      const first = imgs[0];
+      const res = await fetch(comfyViewUrl(comfyUrl, first));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
+      const name = `gen-${stamp}.png`;
+      const rel = `uploads/${name}`;
+      if (workspace.connected) {
+        try {
+          await workspace.makeDir("uploads");
+        } catch {
+          // exists already
+        }
+        await workspace.writeBinary(rel, blob);
+      } else if (!workspace.supported) {
+        await serverWriteFileBinary(rel, await blobToBase64(blob));
+      } else {
+        throw new Error("no-space");
+      }
+      onFilesChanged();
+      onOpenFile(rel);
+      pushMessage("assistant", t("cfSaved", { name: rel }), {
+        name,
+        rel,
+        url: URL.createObjectURL(blob),
+      });
+      persistChat();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "no-space") pushMessage("assistant", t("cfNoSpace"));
+      else if (msg === "unreachable" || msg === "timeout" || msg.startsWith("HTTP"))
+        pushMessage("assistant", t("cfFail"));
+      else pushMessage("assistant", friendlyError(t, e));
+    } finally {
+      clearInterval(tick);
+      busyRef.current = null;
+      setStreaming(false);
+      setStreamText(null);
+      focusInput();
+      persistChat();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input, setInput, pushMessage, persistChat, comfyUrl, comfyModel, workspace, onFilesChanged, onOpenFile, t]);
 
   const handleSearch = useCallback(async () => {
     if (busyRef.current) return;
@@ -889,7 +1012,9 @@ export default function Chat({
         setStreamText(full);
       }
       if (full.trim()) {
-        pushMessage("assistant", sanitizeAnswer(full));
+        const clean = sanitizeAnswer(full) || t("chDidntGet");
+        rememberClean(clean);
+        pushMessage("assistant", clean);
         persistChat();
       }
     } catch (e) {

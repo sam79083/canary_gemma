@@ -7,7 +7,7 @@ export interface WorkspaceFileHandle {
   name: string;
   getFile(): Promise<File>;
   createWritable(): Promise<{
-    write(content: string): Promise<void>;
+    write(content: string | Blob | ArrayBuffer | ArrayBufferView): Promise<void>;
     close(): Promise<void>;
   }>;
 }

@@ -24,6 +24,7 @@ export interface WorkspaceApi {
   list: (rel: string) => Promise<FileEntry[]>;
   readFile: (rel: string) => Promise<string>;
   writeFile: (rel: string, content: string) => Promise<void>;
+  writeBinary: (rel: string, blob: Blob) => Promise<void>;
   makeDir: (rel: string) => Promise<void>;
   deletePath: (rel: string) => Promise<void>;
 }
@@ -183,6 +184,17 @@ export function useWorkspace(): WorkspaceApi {
     [getParentDir],
   );
 
+  const writeBinary = useCallback(
+    async (rel: string, blob: Blob): Promise<void> => {
+      const { dir, name } = await getParentDir(rel, true);
+      const fh = await dir.getFileHandle(name, { create: true });
+      const writable = await fh.createWritable();
+      await writable.write(blob);
+      await writable.close();
+    },
+    [getParentDir],
+  );
+
   const makeDir = useCallback(
     async (rel: string): Promise<void> => {
       await getDir(rel, true);
@@ -211,6 +223,7 @@ export function useWorkspace(): WorkspaceApi {
     list,
     readFile,
     writeFile,
+    writeBinary,
     makeDir,
     deletePath,
   };

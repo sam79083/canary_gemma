@@ -45,6 +45,18 @@ export async function writeFile(p: string, content: string): Promise<void> {
     throw new Error(data.error || `HTTP ${res.status}`);
 }
 
+/** Server fallback for binary data (base64-encoded PNG etc.). */
+export async function writeFileBinary(p: string, base64: string): Promise<void> {
+  const res = await fetch("/api/file", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: p, contentBase64: base64 }),
+  });
+  const data = await json<{ success?: boolean; error?: string }>(res);
+  if (!res.ok || data.success === false)
+    throw new Error(data.error || `HTTP ${res.status}`);
+}
+
 export async function makeDir(p: string): Promise<void> {
   const res = await fetch("/api/mkdir", {
     method: "POST",
