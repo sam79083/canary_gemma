@@ -14,8 +14,7 @@ import type { TFn } from "@/lib/i18n";
 import { summarizeDiff } from "@/lib/diff";
 import { fetchQuota } from "@/lib/api";
 import { folderCapLine, getFolderCap } from "@/lib/capabilities";
-import { DEFAULT_COMFY_URL, listComfyCheckpoints } from "@/lib/comfy";
-import {
+import { DEFAULT_COMFY_URL, listComfyCheckpoints } from "@/lib/comfy";import {
   deleteLocalSession,
   listLocalSessions,
   loadLocalSession,
@@ -144,6 +143,56 @@ export default function Home() {
   const setupRef = useRef<HTMLDetailsElement>(null);
   // Mirror of currentSessionFileRef for rendering (rename/delete row).
   const [currentFile, setCurrentFile] = useState<string | null>(null);
+  // ComfyUI image settings (same-PC only; stored locally).
+  const [comfyUrl, setComfyUrl] = useState(DEFAULT_COMFY_URL);
+  const [comfyModel, setComfyModel] = useState("");
+  const [comfyModels, setComfyModels] = useState<string[]>([]);
+  const [comfyChecking, setComfyChecking] = useState(false);
+  const [comfyError, setComfyError] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const u = localStorage.getItem("canary-comfy-url");
+      if (u) setComfyUrl(u);
+      const m = localStorage.getItem("canary-comfy-model");
+      if (m) setComfyModel(m);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const persistComfy = useCallback((url: string, model: string) => {
+    try {
+      localStorage.setItem("canary-comfy-url", url);
+      localStorage.setItem("canary-comfy-model", model);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const refreshComfy = useCallback(async () => {
+    setComfyChecking(true);
+    setComfyError(null);
+    try {
+      const names = await listComfyCheckpoints(comfyUrl);
+      setComfyModels(names);
+      if (names.length === 0) {
+        setComfyError("none");
+      } else {
+        setComfyModel((prev) => {
+          const pick = prev && names.includes(prev) ? prev : names[0];
+          persistComfy(comfyUrl, pick);
+          return pick;
+        });
+      }
+    } catch {
+      setComfyModels([]);
+      setComfyError("unreachable");
+    } finally {
+      setComfyChecking(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comfyUrl]);
 
   /** Ask the user to Keep/Undo a file change. Resolves with the verdict. */
   const reviewChange: ReviewFn = useCallback((r: PendingReview) => {
@@ -862,6 +911,72 @@ export default function Home() {
 
         <details className="side-group" open>
           <summary>{t("grpFiles")}</summary>
+          <div className="workspace-box" id="comfy-box" style={{ marginTop: 8 }}>
+            <div className="workspace-name">{t("cfTitle")}</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                className="sidebar-btn small"
+                style={{ flex: 1, cursor: "text" }}
+                value={comfyUrl}
+                onChange={(e) => {
+                  setComfyUrl(e.target.value);
+                  persistComfy(e.target.value, comfyModel);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void refreshComfy();
+                  }
+                }}
+                placeholder={t("cfUrl")}
+                title={t("cfUrl")}
+              />
+              <button
+                className="sidebar-btn small"
+                style={{ flex: "0 0 auto" }}
+                title={t("pgOllamaCheck")}
+                disabled={comfyChecking}
+                onClick={() => void refreshComfy()}
+              >
+                {comfyChecking ? "⏳" : t("pgOllamaCheck")}
+              </button>
+            </div>
+            {comfyModels.length > 0 ? (
+              <select
+                className="sidebar-btn small"
+                id="comfy-model-select"
+                value={comfyModel}
+                onChange={(e) => {
+                  setComfyModel(e.target.value);
+                  persistComfy(comfyUrl, e.target.value);
+                }}
+              >
+                {comfyModel ? null : (
+                  <option value="">{t("cfPick")}</option>
+                )}
+                {comfyModels.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="workspace-hint">
+                {comfyChecking
+                  ? t("pgOllamaChecking")
+                  : comfyError === "none"
+                    ? t("cfNone")
+                    : comfyError
+                      ? t("cfFail")
+                      : t("cfLocalOnly")}
+              </div>
+            )}
+            {comfyError ? (
+              <div className="workspace-hint" style={{ fontSize: 11 }}>
+                {t("cfCors")}
+              </div>
+            ) : null}
+          </div>
           <div className="workspace-box" id="workspace-box">
           {workspace.supported ? (
             workspace.connected ? (
@@ -1147,6 +1262,8 @@ export default function Home() {
                 ? model.ollamaModel
                 : ""
           }
+          comfyUrl={comfyUrl}
+          comfyModel={comfyModel}
           t={t}
           lang={lang}
         />

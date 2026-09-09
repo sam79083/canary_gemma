@@ -865,7 +865,7 @@ export default function Chat({
     });
   }
 
-  /** Text prompt → ComfyUI picture → chat + workspace. Same-PC only. */
+  /** Text prompt → local ComfyUI picture → chat + workspace. Same-PC only. */
   const handleDraw = useCallback(async () => {
     if (busyRef.current) return;
     const prompt = input.trim();
@@ -1047,6 +1047,9 @@ export default function Chat({
             ) : (
               <div className="content">{m.content}</div>
             )}
+            {m.image ? (
+              <img src={m.image.url} alt={m.image.name} className="msg-img" />
+            ) : null}
             {m.role === "assistant" ? (
               <button
                 className="msg-share"
@@ -1194,6 +1197,14 @@ export default function Chat({
             title={t("chLooking")}
           >
             {streaming ? "⏳" : "🔍"}
+          </button>
+          <button
+            className="send-btn secondary"
+            onClick={() => void handleDraw()}
+            disabled={streaming || !comfyModel}
+            title={t("cfDraw")}
+          >
+            🎨
           </button>
           <button className="send-btn" onClick={() => void handleSend()} disabled={sendDisabled}>
             {streaming ? "●" : "➤"}
