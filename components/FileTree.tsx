@@ -9,6 +9,7 @@ import {
 } from "@/lib/api";
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { FileEntry } from "@/lib/types";
+import type { TFn } from "@/lib/i18n";
 
 interface MenuState {
   x: number;
@@ -29,9 +30,10 @@ interface NodeProps {
   onOpenFile: (path: string) => void;
   showMenu: (m: MenuState, reload: () => void) => void;
   loadEntries: (path: string) => Promise<FileEntry[]>;
+  t: TFn;
 }
 
-function FolderNode({ entry, fullPath, parentPath, onOpenFile, showMenu, loadEntries }: NodeProps) {
+function FolderNode({ entry, fullPath, parentPath, onOpenFile, showMenu, loadEntries, t }: NodeProps) {
   const [open, setOpen] = useState(false);
   const [children, setChildren] = useState<FileEntry[] | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error" | "empty">("idle");
@@ -84,11 +86,11 @@ function FolderNode({ entry, fullPath, parentPath, onOpenFile, showMenu, loadEnt
       {!open ? null : (
         <div className="file-tree-children">
           {state === "loading" ? (
-            <div style={{ padding: "4px 8px", fontSize: 12 }}>Loading…</div>
+            <div style={{ padding: "4px 8px", fontSize: 12 }}>{t("trLoading")}</div>
           ) : state === "error" ? (
-            <div style={{ padding: "4px 8px", fontSize: 12 }}>Failed to load</div>
+            <div style={{ padding: "4px 8px", fontSize: 12 }}>{t("trLoadFail")}</div>
           ) : state === "empty" ? (
-            <div style={{ padding: "4px 8px", fontSize: 12 }}>(empty)</div>
+            <div style={{ padding: "4px 8px", fontSize: 12 }}>{t("trEmpty")}</div>
           ) : (
             (children ?? []).map((child) => {
               const childPath = joinPath(fullPath, child.name);
@@ -101,6 +103,7 @@ function FolderNode({ entry, fullPath, parentPath, onOpenFile, showMenu, loadEnt
                   onOpenFile={onOpenFile}
                   showMenu={showMenu}
                   loadEntries={loadEntries}
+                  t={t}
                 />
               ) : (
                 <FileNode
@@ -111,6 +114,7 @@ function FolderNode({ entry, fullPath, parentPath, onOpenFile, showMenu, loadEnt
                   onOpenFile={onOpenFile}
                   showMenu={showMenu}
                   loadEntries={loadEntries}
+                  t={t}
                 />
               );
             })
@@ -147,11 +151,13 @@ export default function FileTree({
   version,
   onMutated,
   workspace,
+  t,
 }: {
   onOpenFile: (path: string) => void;
   version: number;
   onMutated: () => void;
   workspace: WorkspaceApi;
+  t: TFn;
 }) {
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -196,9 +202,9 @@ export default function FileTree({
       setError(null);
     } catch (e) {
       console.error("Failed to load files:", e);
-      setError("Failed to load files");
+      setError(t("trFilesFail"));
     }
-  }, [loadEntries, localMode, connected]);
+  }, [loadEntries, localMode, connected, t]);
 
   useEffect(() => {
     void loadRoot();
@@ -229,7 +235,7 @@ export default function FileTree({
       await fn();
     } catch (e) {
       console.error("File action failed:", e);
-      alert(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+      alert(t("trActionFail", { msg: e instanceof Error ? e.message : String(e) }));
     }
   };
 
@@ -239,10 +245,9 @@ export default function FileTree({
         className="file-tree"
         style={{ flex: 1, minHeight: 150, padding: 12, fontSize: 13 }}
       >
-        <div style={{ marginBottom: 8 }}>📂 No workspace selected</div>
+        <div style={{ marginBottom: 8 }}>{t("trNoFolder")}</div>
         <div style={{ color: "var(--status-text)", fontSize: 12 }}>
-          Click “Set workspace” above to pick a folder on this PC. Files stay
-          local — nothing is uploaded to Render.
+          {t("trNoFolderHint")}
         </div>
       </div>
     );
@@ -264,7 +269,7 @@ export default function FileTree({
         {error ? (
           <div style={{ padding: 8, fontSize: 13 }}>{error}</div>
         ) : entries === null ? (
-          <div style={{ padding: 8, fontSize: 13 }}>Loading…</div>
+          <div style={{ padding: 8, fontSize: 13 }}>{t("trLoading")}</div>
         ) : (
           entries.map((entry) => {
             const fullPath = entry.name;
@@ -277,6 +282,7 @@ export default function FileTree({
                 onOpenFile={onOpenFile}
                 showMenu={showMenu}
                 loadEntries={loadEntries}
+                t={t}
               />
             ) : (
               <FileNode
@@ -287,6 +293,7 @@ export default function FileTree({
                 onOpenFile={onOpenFile}
                 showMenu={showMenu}
                 loadEntries={loadEntries}
+                t={t}
               />
             );
           })
@@ -312,10 +319,10 @@ export default function FileTree({
           {menu.isDir ? (
             <>
               <MenuItem
-                label="📄 New File"
+                label={t("trNewFile")}
                 onClick={() =>
                   runAction(async () => {
-                    const fname = prompt("File name:");
+                    const fname = prompt(t("trFileName"));
                     if (!fname) return;
                     const p = joinPath(menu.fullPath, fname);
                     await createFile(p, "");
@@ -325,10 +332,10 @@ export default function FileTree({
                 }
               />
               <MenuItem
-                label="📁 New Folder"
+                label={t("trNewFolder")}
                 onClick={() =>
                   runAction(async () => {
-                    const fname = prompt("Folder name:");
+                    const fname = prompt(t("trFolderName"));
                     if (!fname) return;
                     await createDir(joinPath(menu.fullPath, fname));
                     refreshAfter();
@@ -338,9 +345,9 @@ export default function FileTree({
             </>
           ) : (
             <>
-              <MenuItem label="✏️ Edit" onClick={() => { setMenu(null); onOpenFile(menu.fullPath); }} />
+              <MenuItem label={t("trEdit")} onClick={() => { setMenu(null); onOpenFile(menu.fullPath); }} />
               <MenuItem
-                label="📋 Copy Path"
+                label={t("trCopyPath")}
                 onClick={() => {
                   setMenu(null);
                   void navigator.clipboard.writeText(menu.fullPath);
@@ -350,18 +357,18 @@ export default function FileTree({
           )}
           {menu.fullPath ? (
             <MenuItem
-              label="🗑️ Delete"
+              label={t("trDelete")}
               onClick={() =>
                 runAction(async () => {
                   const name = menu.fullPath.split("/").pop();
-                  if (!confirm(`Delete ${name}?`)) return;
+                  if (!confirm(t("trDelConfirm", { name: name ?? menu.fullPath }))) return;
                   await removeEntry(menu.fullPath);
                   refreshAfter();
                 })
               }
             />
           ) : null}
-          <MenuItem label="Cancel" onClick={() => setMenu(null)} />
+          <MenuItem label={t("trCancel")} onClick={() => setMenu(null)} />
         </div>
       ) : null}
     </>

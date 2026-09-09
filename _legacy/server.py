@@ -13,7 +13,9 @@ from urllib.parse import urlparse, parse_qs
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
 PORT = 8080
-SERPAPI_KEY = 'a27127fe6862ee17a53388ff9c1a013490612f92b3f713a89d8b5ca623123d17'
+# Never hardcode secrets — SerpApi flagged the old committed key.
+# Set SERPAPI_KEY in the environment (.env.local locally, Render dashboard in prod).
+SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "")
 
 
 class SessionHandler(SimpleHTTPRequestHandler):

@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import type { WorkspaceDirHandle } from "@/lib/fs-access";
 import type { FileEntry } from "@/lib/types";
 
-const BLOCKED = new Set([".next", "node_modules", ".git", ".turbo"]);
+const BLOCKED = new Set([".next", "node_modules", ".git", ".turbo", ".canary"]);
 
 function splitPath(rel: string): string[] {
   return (rel || "")

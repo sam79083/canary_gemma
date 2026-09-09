@@ -32,3 +32,13 @@ export interface QuotaInfo {
   account_status?: string;
   error?: string;
 }
+
+/** A file change waiting for the user's Keep/Undo decision. */
+export interface PendingReview {
+  kind: "write" | "delete";
+  path: string;
+  oldText: string;
+  newText: string;
+}
+
+export type ReviewFn = (r: PendingReview) => Promise<boolean>;
