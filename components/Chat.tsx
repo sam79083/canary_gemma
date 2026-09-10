@@ -20,13 +20,7 @@ import { replySuffix, type Lang, type TFn } from "@/lib/i18n";
 import { recordUsage } from "@/lib/usage";
 import { renderMarkdown } from "@/lib/markdown";
 import { sanitizeAnswer } from "@/lib/sanitize";
-import {
-  buildSDXLWorkflow,
-  comfyViewUrl,
-  queueComfyPrompt,
-  readComfyHistory,
-  type ComfyImageOut,
-} from "@/lib/comfy";
+import { GEMINI_IMAGE_MODEL, generateGeminiImage } from "@/lib/cloud-model";
 import {
   AGENT_MAX_STEPS,
   buildAgentPreamble,
@@ -56,9 +50,11 @@ interface Props {
   ensureVision: () => Promise<LanguageModelSession | null>;
   /** Model id for usage tracking (e.g. gemma-4-26b-a4b-it). Empty = don't track. */
   usageModel: string;
-  /** ComfyUI wiring (image generation) — optional until the UI lands. */
+  /** Same-PC ComfyUI wiring (local drawing). */
   comfyUrl?: string;
   comfyModel?: string;
+  /** Cloud-draw key (Gemini image model, any device). Empty = local only. */
+  geminiKey?: string;
   t: TFn;
   lang: Lang;
 }
@@ -174,6 +170,7 @@ export default function Chat({
   usageModel,
   comfyUrl = "",
   comfyModel = "",
+  geminiKey = "",
   t,
   lang,
 }: Props) {
@@ -865,7 +862,7 @@ export default function Chat({
     });
   }
 
-  /** Text prompt → local ComfyUI picture → chat + workspace. Same-PC only. */
+  /** Text prompt → picture → chat + workspace. Cloud draw only. */
   const handleDraw = useCallback(async () => {
     if (busyRef.current) return;
     const prompt = input.trim();
@@ -874,8 +871,11 @@ export default function Chat({
       inputRef.current?.focus();
       return;
     }
-    if (!comfyUrl || !comfyModel) {
-      pushMessage("assistant", t("cfNone"));
+    if (provider !== "cloud" || !geminiKey) {
+      pushMessage(
+        "assistant",
+        provider !== "cloud" ? t("cfNeedCloud") : t("stCloudNeedKey"),
+      );
       return;
     }
     busyRef.current = "chat";
@@ -888,26 +888,16 @@ export default function Chat({
       setStreamText(t("cfDrawing", { n: Math.round((Date.now() - started) / 1000) }));
     }, 1000);
     try {
-      const workflow = buildSDXLWorkflow({ ckpt: comfyModel, prompt });
-      const pid = await queueComfyPrompt(comfyUrl, workflow);
-      let imgs: ComfyImageOut[] = [];
-      for (let i = 0; i < 150; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        try {
-          imgs = await readComfyHistory(comfyUrl, pid);
-          if (imgs.length > 0) break;
-        } catch (e) {
-          if ((e as Error).message !== "pending") throw e;
-        }
+      const gen = await generateGeminiImage(geminiKey, prompt);
+      const blob = gen.blob;
+      if (gen.usage && gen.usage.total > 0) {
+        setTokens((prev) => prev + (gen.usage as { total: number }).total);
+        recordUsage(GEMINI_IMAGE_MODEL, (gen.usage as { total: number }).total);
       }
-      if (imgs.length === 0) throw new Error("timeout");
-      const first = imgs[0];
-      const res = await fetch(comfyViewUrl(comfyUrl, first));
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
       const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
       const name = `gen-${stamp}.png`;
       const rel = `uploads/${name}`;
+      let temp = false;
       if (workspace.connected) {
         try {
           await workspace.makeDir("uploads");
@@ -915,14 +905,14 @@ export default function Chat({
           // exists already
         }
         await workspace.writeBinary(rel, blob);
-      } else if (!workspace.supported) {
-        await serverWriteFileBinary(rel, await blobToBase64(blob));
       } else {
-        throw new Error("no-space");
+        // No folder (yet): save server-side so the picture is never lost,
+        // and nudge to pick a folder instead of blocking.
+        await serverWriteFileBinary(rel, await blobToBase64(blob));
+        temp = workspace.supported;
       }
       onFilesChanged();
-      onOpenFile(rel);
-      pushMessage("assistant", t("cfSaved", { name: rel }), {
+      pushMessage("assistant", t("cfSaved", { name: rel }) + (temp ? "\n" + t("cfTemp") : ""), {
         name,
         rel,
         url: URL.createObjectURL(blob),
@@ -931,6 +921,8 @@ export default function Chat({
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === "no-space") pushMessage("assistant", t("cfNoSpace"));
+      else if (msg === "bad-key") pushMessage("assistant", t("stCloudBadKey"));
+      else if (msg === "no-image") pushMessage("assistant", t("chDidntGet"));
       else if (msg === "unreachable" || msg === "timeout" || msg.startsWith("HTTP"))
         pushMessage("assistant", t("cfFail"));
       else pushMessage("assistant", friendlyError(t, e));
@@ -943,7 +935,7 @@ export default function Chat({
       persistChat();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, setInput, pushMessage, persistChat, comfyUrl, comfyModel, workspace, onFilesChanged, onOpenFile, t]);
+  }, [input, setInput, pushMessage, persistChat, geminiKey, provider, workspace, onFilesChanged, t]);
 
   const handleSearch = useCallback(async () => {
     if (busyRef.current) return;
@@ -1201,7 +1193,7 @@ export default function Chat({
           <button
             className="send-btn secondary"
             onClick={() => void handleDraw()}
-            disabled={streaming || !comfyModel}
+            disabled={streaming || (provider === "cloud" ? !geminiKey : !comfyModel)}
             title={t("cfDraw")}
           >
             🎨

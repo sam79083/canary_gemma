@@ -12,9 +12,9 @@ import { useWorkspace } from "@/hooks/useWorkspace";
 import { LANGS, isLang } from "@/lib/i18n";
 import type { TFn } from "@/lib/i18n";
 import { summarizeDiff } from "@/lib/diff";
-import { fetchQuota } from "@/lib/api";
+import { fetchQuota, readFileBinary } from "@/lib/api";
 import { folderCapLine, getFolderCap } from "@/lib/capabilities";
-import { DEFAULT_COMFY_URL, listComfyCheckpoints } from "@/lib/comfy";import {
+import {
   deleteLocalSession,
   listLocalSessions,
   loadLocalSession,
@@ -141,58 +141,19 @@ export default function Home() {
   const [searchOk, setSearchOk] = useState<boolean | null>(null);
   const [capLine, setCapLine] = useState("…");
   const setupRef = useRef<HTMLDetailsElement>(null);
-  // Mirror of currentSessionFileRef for rendering (rename/delete row).
   const [currentFile, setCurrentFile] = useState<string | null>(null);
-  // ComfyUI image settings (same-PC only; stored locally).
-  const [comfyUrl, setComfyUrl] = useState(DEFAULT_COMFY_URL);
-  const [comfyModel, setComfyModel] = useState("");
-  const [comfyModels, setComfyModels] = useState<string[]>([]);
-  const [comfyChecking, setComfyChecking] = useState(false);
-  const [comfyError, setComfyError] = useState<string | null>(null);
-
+  // Mobile browsers have neither the Prompt API nor a folder picker —
+  // offering Gemma/Ollama there is a dead end, so hide them entirely.
+  const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
     try {
-      const u = localStorage.getItem("canary-comfy-url");
-      if (u) setComfyUrl(u);
-      const m = localStorage.getItem("canary-comfy-model");
-      if (m) setComfyModel(m);
+      setIsMobile(/Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(navigator.userAgent || ""));
     } catch {
-      // ignore
+      setIsMobile(false);
     }
   }, []);
-
-  const persistComfy = useCallback((url: string, model: string) => {
-    try {
-      localStorage.setItem("canary-comfy-url", url);
-      localStorage.setItem("canary-comfy-model", model);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const refreshComfy = useCallback(async () => {
-    setComfyChecking(true);
-    setComfyError(null);
-    try {
-      const names = await listComfyCheckpoints(comfyUrl);
-      setComfyModels(names);
-      if (names.length === 0) {
-        setComfyError("none");
-      } else {
-        setComfyModel((prev) => {
-          const pick = prev && names.includes(prev) ? prev : names[0];
-          persistComfy(comfyUrl, pick);
-          return pick;
-        });
-      }
-    } catch {
-      setComfyModels([]);
-      setComfyError("unreachable");
-    } finally {
-      setComfyChecking(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [comfyUrl]);
+  // Picture viewer (images never open in the text editor).
+  const [viewImage, setViewImage] = useState<{ name: string; url: string } | null>(null);
 
   /** Ask the user to Keep/Undo a file change. Resolves with the verdict. */
   const reviewChange: ReviewFn = useCallback((r: PendingReview) => {
@@ -470,6 +431,14 @@ export default function Home() {
     [model.provider],
   );
 
+  // On phones only Cloud can work — steer there automatically once ready.
+  useEffect(() => {
+    if (isMobile && model.hydrated && (model.provider === "gemma" || model.provider === "ollama")) {
+      void handleProviderSwitch("cloud");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile, model.hydrated]);
+
   const handleLoadSessionFile = useCallback(
     async (filename: string) => {
       if (!filename) return;
@@ -544,9 +513,25 @@ export default function Home() {
   }, []);
 
   const openFileAndCloseDrawer = useCallback((p: string) => {
-    setEditorPath(p);
     setSideOpen(false);
-  }, []);
+    // Pictures go to the viewer — never the text editor.
+    if (/\.(png|jpe?g|webp|gif|bmp|svg|ico)$/i.test(p)) {
+      void (async () => {
+        try {
+          const blob = workspace.connected
+            ? await workspace.readBinary(p)
+            : await readFileBinary(p);
+          const name = p.split("/").pop() ?? p;
+          setViewImage({ name, url: URL.createObjectURL(blob) });
+        } catch (e) {
+          console.error("Failed to open image:", e);
+        }
+      })();
+      return;
+    }
+    setEditorPath(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace]);
 
   const handleSaveChatAsFile = useCallback(async () => {
     const msgs = messagesRef.current;
@@ -647,20 +632,24 @@ export default function Home() {
           <summary>{t("pgModelTitle")}</summary>
           <div className="workspace-box" id="model-box" style={{ marginTop: 0 }}>
           <div className="workspace-actions">
-            <button
-              className={`sidebar-btn small${model.provider === "gemma" ? " secondary" : ""}`}
-              onClick={() => void handleProviderSwitch("gemma")}
-              title="Gemma"
-            >
-              {t("pgGemma")}
-            </button>
-            <button
-              className={`sidebar-btn small${model.provider === "ollama" ? " secondary" : ""}`}
-              onClick={() => void handleProviderSwitch("ollama")}
-              title="Ollama"
-            >
-              {t("pgOllama")}
-            </button>
+            {isMobile ? null : (
+              <>
+                <button
+                  className={`sidebar-btn small${model.provider === "gemma" ? " secondary" : ""}`}
+                  onClick={() => void handleProviderSwitch("gemma")}
+                  title="Gemma"
+                >
+                  {t("pgGemma")}
+                </button>
+                <button
+                  className={`sidebar-btn small${model.provider === "ollama" ? " secondary" : ""}`}
+                  onClick={() => void handleProviderSwitch("ollama")}
+                  title="Ollama"
+                >
+                  {t("pgOllama")}
+                </button>
+              </>
+            )}
             <button
               className={`sidebar-btn small${model.provider === "cloud" ? " secondary" : ""}`}
               onClick={() => void handleProviderSwitch("cloud")}
@@ -784,6 +773,7 @@ export default function Home() {
                 </a>
                 {" — "}{t("pgGeminiHint")}
               </div>
+              <div className="workspace-hint">{t("cfKeyDraws")}</div>
               {showKeyHelp || !model.geminiKey ? (
                 <div className="workspace-hint" style={{ lineHeight: 1.6 }}>
                   <div>{t("kgS1")}</div>
@@ -911,72 +901,6 @@ export default function Home() {
 
         <details className="side-group" open>
           <summary>{t("grpFiles")}</summary>
-          <div className="workspace-box" id="comfy-box" style={{ marginTop: 8 }}>
-            <div className="workspace-name">{t("cfTitle")}</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <input
-                className="sidebar-btn small"
-                style={{ flex: 1, cursor: "text" }}
-                value={comfyUrl}
-                onChange={(e) => {
-                  setComfyUrl(e.target.value);
-                  persistComfy(e.target.value, comfyModel);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void refreshComfy();
-                  }
-                }}
-                placeholder={t("cfUrl")}
-                title={t("cfUrl")}
-              />
-              <button
-                className="sidebar-btn small"
-                style={{ flex: "0 0 auto" }}
-                title={t("pgOllamaCheck")}
-                disabled={comfyChecking}
-                onClick={() => void refreshComfy()}
-              >
-                {comfyChecking ? "⏳" : t("pgOllamaCheck")}
-              </button>
-            </div>
-            {comfyModels.length > 0 ? (
-              <select
-                className="sidebar-btn small"
-                id="comfy-model-select"
-                value={comfyModel}
-                onChange={(e) => {
-                  setComfyModel(e.target.value);
-                  persistComfy(comfyUrl, e.target.value);
-                }}
-              >
-                {comfyModel ? null : (
-                  <option value="">{t("cfPick")}</option>
-                )}
-                {comfyModels.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="workspace-hint">
-                {comfyChecking
-                  ? t("pgOllamaChecking")
-                  : comfyError === "none"
-                    ? t("cfNone")
-                    : comfyError
-                      ? t("cfFail")
-                      : t("cfLocalOnly")}
-              </div>
-            )}
-            {comfyError ? (
-              <div className="workspace-hint" style={{ fontSize: 11 }}>
-                {t("cfCors")}
-              </div>
-            ) : null}
-          </div>
           <div className="workspace-box" id="workspace-box">
           {workspace.supported ? (
             workspace.connected ? (
@@ -1262,8 +1186,7 @@ export default function Home() {
                 ? model.ollamaModel
                 : ""
           }
-          comfyUrl={comfyUrl}
-          comfyModel={comfyModel}
+          geminiKey={model.provider === "cloud" ? model.geminiKey : ""}
           t={t}
           lang={lang}
         />
@@ -1302,6 +1225,38 @@ export default function Home() {
           onDone={closeOnboard}
           onSkip={closeOnboard}
         />
+      ) : null}
+
+      {viewImage ? (
+        <div className="review-overlay" id="image-viewer">
+          <div className="review-card" style={{ textAlign: "center" }}>
+            <h3>🖼️ {viewImage.name}</h3>
+            <img
+              src={viewImage.url}
+              alt={viewImage.name}
+              style={{ maxWidth: "100%", maxHeight: "65vh", borderRadius: 8, margin: "8px 0" }}
+            />
+            <div className="review-actions" style={{ justifyContent: "center" }}>
+              <a
+                className="editor-btn primary"
+                href={viewImage.url}
+                download={viewImage.name}
+                style={{ textDecoration: "none" }}
+              >
+                ⬇ Save
+              </a>
+              <button
+                className="editor-btn"
+                onClick={() => {
+                  URL.revokeObjectURL(viewImage.url);
+                  setViewImage(null);
+                }}
+              >
+                {t("edClose")}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {review ? (
