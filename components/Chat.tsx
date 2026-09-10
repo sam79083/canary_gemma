@@ -449,6 +449,19 @@ export default function Chat({
 
   const focusInput = () => inputRef.current?.focus();
 
+  /**
+   * Display-only stream cleanup: the RAW text stays intact for tool parsing
+   * and history — viewers never see thinking, checklists, or toolcall JSON,
+   * not even mid-stream. Empty result shows the typing dots.
+   */
+  function showStream(full: string): void {
+    if (!full) {
+      setStreamText("");
+      return;
+    }
+    setStreamText(sanitizeAnswer(stripToolCalls(full)));
+  }
+
   const onTrialOverRef = useRef(onTrialOver);
   onTrialOverRef.current = onTrialOver;
 
@@ -466,7 +479,7 @@ export default function Chat({
     return false;
   }
 
-  async function runModelTurn(prompt: string, onChunk: (full: string) => void): Promise<string> {
+  async function runModelTurn(prompt: string): Promise<string> {
     const session = sessionRef.current;
     if (!session) throw new Error("Model session not ready");
     let full = "";
@@ -474,12 +487,12 @@ export default function Chat({
       const stream = session.promptStreaming(prompt);
       for await (const chunk of stream) {
         full += chunk;
-        onChunk(full);
+        showStream(full);
       }
     } catch (streamErr) {
       console.warn("[agent] promptStreaming failed, trying prompt():", streamErr);
       full = (await session.prompt(prompt)) ?? "";
-      onChunk(full);
+      showStream(full);
     }
     collectUsage();
     return full;
@@ -641,7 +654,7 @@ export default function Chat({
       setStreamText("");
       let full = "";
       try {
-        full = await runModelTurn(prompt + replyIn, setStreamText);
+        full = await runModelTurn(prompt + replyIn);
         const clean = sanitizeAnswer(stripToolCalls(full).trim());
         if (clean) {
           rememberClean(clean);
@@ -768,7 +781,6 @@ export default function Chat({
           `No folder is connected, so you cannot read, write, list, or delete files. ` +
             `If and only if the user asks about files or folders, say in one short sentence that they can pick a folder with the sidebar button or attach a file with 📎. ` +
             `Otherwise just answer the question directly.\n\n${buildUserTurn(prompt)}${replyIn}`,
-          setStreamText,
         );
         const clean = sanitizeAnswer(stripToolCalls(full).trim());
         if (clean) {
@@ -798,7 +810,7 @@ export default function Chat({
 
       for (let step = 0; step < AGENT_MAX_STEPS; step++) {
         setModelStatus(step === 0 ? t("stThinking") : t("stWorking", { n: step + 1 }), true);
-        const raw = await runModelTurn(nextPrompt, setStreamText);
+        const raw = await runModelTurn(nextPrompt);
         const tc = parseToolCall(raw);
 
         if (!tc) {

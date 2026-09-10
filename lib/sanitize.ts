@@ -52,9 +52,16 @@ function isMetaLine(line: string): boolean {
   const t = line.trim();
   if (!t) return false;
   // "Response:" / "Answer:" label prefix — handled by stripping, not dropping.
-  if (/^(response|answer)\s*:\s*\S/i.test(t)) return false;
+  if (/^(final\s+)?(response|answer)\s*:\s*\S/i.test(t)) return false;
   // Bare analysis headers.
   if (/^(thinking|thought|analysis|reasoning|internal monologue)\s*:?$/i.test(t)) return true;
+  // Echoes of instruction blocks: Context:/Constraint N:/Formatting:/Truthfulness:
+  if (/^(context|constraints?(\s+\d+)?|formatting|truthfulness)\s*:/i.test(t)) return true;
+  // Draft scaffolding: Option N:/Draft:/Self-Correction during X:/Final Answer:
+  // (a few trailing words allowed before the colon).
+  if (/^(options?(\s+\d+)?|draft|self[\s-]+corrections?|corrections?|final answers?|knowledge checks?)(\s+[a-z]+){0,3}\s*:/i.test(t)) return true;
+  // "User instruction:" / "System prompt:" style headers.
+  if (/^(user|system)\s+(instruction|request|question|prompt|status)\s*:/i.test(t)) return true;
   // Parenthesized asides like "(Note: …".
   if (/^\((note|system|internal)/i.test(t)) return true;
   const bulleted = t.match(/^\s*[*•\-]\s+(.*)$/);
@@ -165,7 +172,7 @@ export function sanitizeAnswer(raw: string): string {
   }
 
   text = text
-    .replace(/^(response|answer)\s*:\s*/i, "")
+    .replace(/^(final\s+)?(response|answer)\s*:\s*/i, "")
     .replace(/^["“]+\s*/, "")
     .trim();
   if (!text) return "";

@@ -391,6 +391,7 @@ export function useLanguageModel(lang: Lang, t: TFn) {
       const outputLanguage = outputLangFor(lang);
       sessionRef.current = await LanguageModel.create({
         ...(outputLanguage ? { outputLanguage } : null),
+        initialPrompts: [{ role: "system", content: t("sysIdentityBuiltIn") }],
         monitor(m) {
           m.addEventListener("downloadprogress", (ev: Event) => {
             const loaded = (ev as unknown as { loaded?: number }).loaded ?? 0;

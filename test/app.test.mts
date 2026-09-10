@@ -60,6 +60,37 @@ describe("answer sanitizer", () => {
     assert.equal(sanitizeAnswer(raw), "저는 gemma-4-26b-a4b-it입니다.");
   });
 
+  it("strips full deliberation traces, keeps only the answer", () => {
+    const raw = [
+      "User instruction: \"No folder is connected...\"",
+      "User request: \"what is the seoul weather today\"",
+      "Constraint: Reply in English. Output ONLY the final answer.",
+      "Knowledge check: I do not have live web access.",
+      "Option 1: \"I don't have access...\"",
+      "Option 2: \"I cannot check...\"",
+      "Draft: \"I don't have access to live weather updates.\"",
+      "Self-Correction during drafting: keep it short.",
+      "Final Answer: I don't have access to live weather updates.",
+      "I don't have access to live weather updates.",
+    ].join("\n");
+    assert.equal(
+      sanitizeAnswer(raw),
+      "I don't have access to live weather updates.",
+    );
+  });
+
+  it("strips instruction-block echoes (Context/Constraint/Formatting)", () => {
+    const raw =
+      "Context: No folder connected (cannot read/write/list/delete files).\n" +
+      "Constraint 1: If the user asks about files/folders → pick a folder.\n" +
+      "Constraint 2: Otherwise → answer directly.\n" +
+      "Formatting: English only, NO preamble, NO thinking.\n" +
+      "Truthfulness: Do not claim image generation.\n" +
+      "The user is asking what ai they use.\n" +
+      "I am gemma-4-26b-a4b-it.";
+    assert.equal(sanitizeAnswer(raw), "I am gemma-4-26b-a4b-it.");
+  });
+
   it("drops parenthesized notes and Response: labels", () => {
     assert.equal(
       sanitizeAnswer("(Note: thinking here)\nResponse: 안녕하세요."),
