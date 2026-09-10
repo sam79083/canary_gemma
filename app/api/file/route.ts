@@ -3,6 +3,39 @@ import fs from "fs/promises";
 import path from "path";
 import { isRoot, safePath } from "@/lib/files";
 
+// Server-side uploads/ janitor: temp pictures rot away so the disk never
+// fills. Runs lazily on every write — no cron needed. Only touches the
+// server's uploads/ dir; real workspace folders (user's PC) are never pruned.
+const UPLOADS_TTL_MS = 24 * 60 * 60 * 1000;
+const UPLOADS_KEEP_NEWEST = 200;
+
+async function pruneUploads(): Promise<void> {
+  try {
+    const dir = safePath("uploads");
+    if (dir === null) return;
+    const names = await fs.readdir(dir);
+    const files: { name: string; mtime: number }[] = [];
+    for (const name of names) {
+      try {
+        const st = await fs.stat(path.join(dir, name));
+        if (st.isFile()) files.push({ name, mtime: st.mtimeMs });
+      } catch {
+        // vanished mid-sweep — ignore
+      }
+    }
+    files.sort((a, b) => b.mtime - a.mtime);
+    const now = Date.now();
+    const kill = files.filter(
+      (f, i) => i >= UPLOADS_KEEP_NEWEST || now - f.mtime > UPLOADS_TTL_MS,
+    );
+    await Promise.all(
+      kill.map((f) => fs.unlink(path.join(dir, f.name)).catch(() => {})),
+    );
+  } catch {
+    // uploads/ missing or unreadable — nothing to do
+  }
+}
+
 // GET /api/file?path=<rel> — read file content (?raw=1 returns bytes)
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -65,6 +98,8 @@ export async function POST(req: Request) {
     } else {
       await fs.writeFile(target, body.content ?? "", "utf-8");
     }
+    // Fire-and-forget: don't delay the response for janitor work.
+    void pruneUploads();
     return NextResponse.json({ success: true, path: rel });
   } catch (e) {
     return NextResponse.json(

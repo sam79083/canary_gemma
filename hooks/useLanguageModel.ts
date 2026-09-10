@@ -13,8 +13,10 @@ import {
   DEFAULT_GEMINI_MODEL,
   FALLBACK_GEMINI_MODEL,
   GeminiSession,
+  TrialChatSession,
   listGeminiModels,
 } from "@/lib/cloud-model";
+import { TRIAL_GEMINI_LIMIT } from "@/lib/trial-limits";
 import type { ChatMessage } from "@/lib/types";
 
 export type BusyKind = null | "chat" | "ai";
@@ -246,10 +248,11 @@ export function useLanguageModel(lang: Lang, t: TFn) {
   const supported = useCallback(async (): Promise<string> => {
     if (providerRef.current === "cloud") {
       if (!geminiKeyRef.current) {
-        setStatus(t("stCloudNeedKey"));
-        setOnline(false);
-        setAvailability("unavailable");
-        return "unavailable";
+        // No key: trial mode through the server key (capped per visitor).
+        setStatus(t("stTrialMode", { n: TRIAL_GEMINI_LIMIT }));
+        setOnline(true);
+        setAvailability("available");
+        return "available";
       }
       setStatus(t("stCloudChecking"));
       setOnline(true);
@@ -313,8 +316,14 @@ export function useLanguageModel(lang: Lang, t: TFn) {
       setReady(false);
       try {
         if (!geminiKeyRef.current) {
-          setStatus(t("stCloudNeedKey"));
-          return false;
+          // Trial mode: server key, visitor-capped. Model is fixed.
+          sessionRef.current = new TrialChatSession();
+          geminiModelRef.current = DEFAULT_GEMINI_MODEL;
+          setGeminiModelState(DEFAULT_GEMINI_MODEL);
+          setStatus(t("stTrialMode", { n: TRIAL_GEMINI_LIMIT }));
+          setOnline(true);
+          setReady(true);
+          return true;
         }
         if (!geminiModelRef.current) {
           const names = await refreshGeminiModels();
@@ -419,8 +428,20 @@ export function useLanguageModel(lang: Lang, t: TFn) {
       if (providerRef.current === "cloud") {
         try {
           if (!geminiKeyRef.current) {
-            setStatus(t("stCloudNeedKey"));
-            return false;
+            setStatus(t("stPickingUp"));
+            const s = new TrialChatSession();
+            for (const msg of history) {
+              await s.append(
+                `${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}\n`,
+              );
+            }
+            sessionRef.current = s;
+            geminiModelRef.current = DEFAULT_GEMINI_MODEL;
+            setGeminiModelState(DEFAULT_GEMINI_MODEL);
+            setStatus(t("stTrialMode", { n: TRIAL_GEMINI_LIMIT }));
+            setOnline(true);
+            setReady(true);
+            return true;
           }
           if (!geminiModelRef.current) {
             const names = await refreshGeminiModels();
