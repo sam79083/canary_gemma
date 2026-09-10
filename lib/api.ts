@@ -34,6 +34,13 @@ export async function readFile(p: string): Promise<string> {
   return data.content;
 }
 
+/** Server fallback for binary downloads (images). */
+export async function readFileBinary(p: string): Promise<Blob> {
+  const res = await fetch(`/api/file?path=${encodeURIComponent(p)}&raw=1`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.blob();
+}
+
 export async function writeFile(p: string, content: string): Promise<void> {
   const res = await fetch("/api/file", {
     method: "POST",

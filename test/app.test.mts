@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { parseToolCall, stripToolCalls } from "../lib/agent.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
 import { sanitizeAnswer } from "../lib/sanitize.ts";
-import { GeminiSession, HISTORY_TAIL } from "../lib/cloud-model.ts";
+import { GeminiSession, HISTORY_TAIL, generateGeminiImage } from "../lib/cloud-model.ts";
 import { OllamaSession, OLLAMA_HISTORY_TAIL } from "../lib/local-model.ts";
 
 describe("agent tool parser", () => {
@@ -147,7 +147,8 @@ describe("cloud SSE parser", () => {
     assert.deepEqual(usage, { in: 3, out: 2, total: 5 });
   });
 
-  it("throws (→ non-stream fallback) on empty streams", async () => {    const s = new GeminiSession("k", "m");
+  it("throws (→ non-stream fallback) on empty streams", async () => {
+    const s = new GeminiSession("k", "m");
     const origFetch = globalThis.fetch;
     // @ts-expect-error harness
     globalThis.fetch = async () => ({
@@ -164,7 +165,33 @@ describe("cloud SSE parser", () => {
     }
   });
 
-  it("caps sent history at HISTORY_TAIL entries", async () => {    let sentCount = -1;
+  it("extracts inline image data via generateGeminiImage", async () => {
+    const origFetch = globalThis.fetch;
+    // 1px PNG base64.
+    const tiny = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    // @ts-expect-error harness
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        candidates: [
+          { content: { parts: [{ inlineData: { mimeType: "image/png", data: tiny } }] } },
+        ],
+        usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 100, totalTokenCount: 105 },
+      }),
+    });
+    try {
+      const gen = await generateGeminiImage("k", "a cat");
+      assert.equal(gen.mime, "image/png");
+      assert.ok(gen.blob.size > 0);
+      assert.deepEqual(gen.usage, { in: 5, out: 100, total: 105 });
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it("caps sent history at HISTORY_TAIL entries", async () => {
+    let sentCount = -1;
     const origFetch = globalThis.fetch;
     // @ts-expect-error harness
     globalThis.fetch = async (_url: string, init?: { body?: string }) => {

@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { isRoot, safePath } from "@/lib/files";
 
-// GET /api/file?path=<rel> — read file content
+// GET /api/file?path=<rel> — read file content (?raw=1 returns bytes)
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const rel = searchParams.get("path") ?? "";
@@ -14,6 +14,23 @@ export async function GET(req: Request) {
     const stat = await fs.stat(target);
     if (!stat.isFile())
       return NextResponse.json({ error: "Not a file" }, { status: 400 });
+    if (searchParams.get("raw") === "1") {
+      const buf = await fs.readFile(target);
+      const ext = rel.split(".").pop()?.toLowerCase();
+      const type =
+        ext === "png"
+          ? "image/png"
+          : ext === "jpg" || ext === "jpeg"
+            ? "image/jpeg"
+            : ext === "webp"
+              ? "image/webp"
+              : ext === "gif"
+                ? "image/gif"
+                : "application/octet-stream";
+      return new Response(new Uint8Array(buf), {
+        headers: { "Content-Type": type },
+      });
+    }
     try {
       const content = await fs.readFile(target, "utf-8");
       return NextResponse.json({ path: rel, content });

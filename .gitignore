@@ -1,7 +1,8 @@
 node_modules/
 .next/
 out/
-# Saved chats at the repo root only — must not match app/api/sessions/
+# Saved chats at the repo root only ??must not match app/api/sessions/
 /sessions/
+/uploads/
 *.log
 .env*.local

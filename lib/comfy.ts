@@ -28,24 +28,118 @@ async function req(
   }
 }
 
-/** Checkpoint filenames from the CheckpointLoaderSimple node definition. */
+/** Checkpoint (.safetensors) + GGUF diffusion model filenames. */
 export async function listComfyCheckpoints(baseUrl: string): Promise<string[]> {
-  let res: Response;
   try {
-    res = await req(baseUrl, "/object_info/CheckpointLoaderSimple");
+    await req(baseUrl, "/system_stats", undefined, 8000);
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") throw new Error("timeout");
     throw new Error("unreachable");
   }
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = (await res.json()) as {
-    CheckpointLoaderSimple?: { input?: { required?: { ckpt_name?: [string[]] } } };
-  };
-  const names = data?.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] ?? [];
-  return (Array.isArray(names) ? names : []).filter((n) => typeof n === "string");
+  const [ckpt, unet] = await Promise.all([
+    listFromNode(baseUrl, "CheckpointLoaderSimple", "ckpt_name"),
+    listFromNode(baseUrl, "UnetLoaderGGUF", "unet_name"),
+  ]);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const n of [...ckpt, ...unet]) {
+    if (!seen.has(n)) {
+      seen.add(n);
+      out.push(n);
+    }
+  }
+  return out;
 }
 
-/** Minimal SDXL text-to-image API workflow. Keys must be unique node ids. */
+async function listFromNode(
+  baseUrl: string,
+  node: string,
+  field: string,
+): Promise<string[]> {
+  let res: Response;
+  try {
+    res = await req(baseUrl, `/object_info/${node}`);
+  } catch {
+    return [];
+  }
+  if (!res.ok) return [];
+  try {
+    const data = (await res.json()) as Record<
+      string,
+      { input?: { required?: Record<string, [string[]]> } }
+    >;
+    const names = data?.[node]?.input?.required?.[field]?.[0] ?? [];
+    return (Array.isArray(names) ? names : []).filter((n) => typeof n === "string");
+  } catch {
+    return [];
+  }
+}
+
+/** FLUX GGUF text-to-image workflow (native nodes, no custom packs). */
+export function buildFLUXGGUFWorkflow(opts: {
+  unet: string;
+  clipL?: string;
+  clipT5?: string;
+  vae?: string;
+  prompt: string;
+  negative?: string;
+  width?: number;
+  height?: number;
+  steps?: number;
+}): Record<string, unknown> {
+  const prompt = opts.prompt.slice(0, 2000);
+  const negative = (opts.negative ?? "").slice(0, 500);
+  const width = opts.width ?? 1024;
+  const height = opts.height ?? 1024;
+  const steps = opts.steps ?? 20;
+  return {
+    "1": { class_type: "UnetLoaderGGUF", inputs: { unet_name: opts.unet } },
+    "2": {
+      class_type: "DualCLIPLoader",
+      inputs: {
+        clip_name1: opts.clipL ?? "clip_l.safetensors",
+        clip_name2: opts.clipT5 ?? "t5xxl_fp8_e4m3fn.safetensors",
+        type: "flux",
+      },
+    },
+    "3": {
+      class_type: "VAELoader",
+      inputs: { vae_name: opts.vae ?? "ae.safetensors" },
+    },
+    "4": { class_type: "CLIPTextEncode", inputs: { text: prompt, clip: ["2", 0] } },
+    "5": { class_type: "CLIPTextEncode", inputs: { text: negative, clip: ["2", 0] } },
+    "6": {
+      class_type: "EmptySD3LatentImage",
+      inputs: { width, height, batch_size: 1 },
+    },
+    "7": {
+      class_type: "ModelSamplingFlux",
+      inputs: { model: ["1", 0], max_shift: 1.15, base_shift: 0.5, width, height },
+    },
+    "8": {
+      class_type: "BasicScheduler",
+      inputs: { model: ["7", 0], scheduler: "simple", steps, denoise: 1 },
+    },
+    "9": {
+      class_type: "BasicGuider",
+      inputs: { model: ["7", 0], conditioning: ["4", 0] },
+    },
+    "11": { class_type: "RandomNoise", inputs: { noise_seed: Math.floor(Math.random() * 2 ** 31) } },
+    "12": { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } },
+    "13": {
+      class_type: "SamplerCustomAdvanced",
+      inputs: {
+        noise: ["11", 0],
+        guider: ["9", 0],
+        sampler: ["12", 0],
+        sigmas: ["8", 0],
+        latent_image: ["6", 0],
+      },
+    },
+    "15": { class_type: "VAEDecode", inputs: { samples: ["13", 0], vae: ["3", 0] } },
+    "16": { class_type: "SaveImage", inputs: { images: ["15", 0], filename_prefix: "canary" } },
+  };
+}
 export function buildSDXLWorkflow(opts: {
   ckpt: string;
   prompt: string;
