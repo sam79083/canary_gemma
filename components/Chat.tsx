@@ -17,10 +17,10 @@ import type { BusyKind, Provider } from "@/hooks/useLanguageModel";
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { ChatMessage, ReviewFn } from "@/lib/types";
 import { replySuffix, type Lang, type TFn } from "@/lib/i18n";
-import { recordUsage } from "@/lib/usage";
+import { getDrawsToday, recordDraw, recordUsage } from "@/lib/usage";
 import { renderMarkdown } from "@/lib/markdown";
 import { sanitizeAnswer } from "@/lib/sanitize";
-import { GEMINI_IMAGE_MODEL, generateGeminiImage } from "@/lib/cloud-model";
+import { FREE_DRAW_ENGINE, generateFreeImage } from "@/lib/cloud-model";
 import {
   AGENT_MAX_STEPS,
   buildAgentPreamble,
@@ -50,9 +50,6 @@ interface Props {
   ensureVision: () => Promise<LanguageModelSession | null>;
   /** Model id for usage tracking (e.g. gemma-4-26b-a4b-it). Empty = don't track. */
   usageModel: string;
-  /** Same-PC ComfyUI wiring (local drawing). */
-  comfyUrl?: string;
-  comfyModel?: string;
   /** Cloud-draw key (Gemini image model, any device). Empty = local only. */
   geminiKey?: string;
   t: TFn;
@@ -168,8 +165,6 @@ export default function Chat({
   provider,
   ensureVision,
   usageModel,
-  comfyUrl = "",
-  comfyModel = "",
   geminiKey = "",
   t,
   lang,
@@ -180,6 +175,7 @@ export default function Chat({
   const [quotaLow, setQuotaLow] = useState(false);
   const [agentMode, setAgentMode] = useState(true);
   const [tokens, setTokens] = useState(0);
+  const [draws, setDraws] = useState(0);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [photos, setPhotos] = useState<{ name: string; mime: string; data: string }[]>([]);
   const [speechOK, setSpeechOK] = useState(false);
@@ -196,6 +192,14 @@ export default function Chat({
   useEffect(() => {
     if (messages.length === 0) setTokens(0);
   }, [messages.length]);
+
+  useEffect(() => {
+    try {
+      setDraws(getDrawsToday());
+    } catch {
+      // storage unavailable
+    }
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -862,20 +866,15 @@ export default function Chat({
     });
   }
 
-  /** Text prompt → picture → chat + workspace. Cloud draw only. */
+  /** Text prompt → picture → chat + workspace. Provider-independent:
+   *  always the free keyless engine (no chat model draws pictures). */
   const handleDraw = useCallback(async () => {
     if (busyRef.current) return;
-    const prompt = input.trim();
+    // Users often type the 🎨 themselves and then press the button too.
+    const prompt = input.replace(/^[🎨✨📷\s]+/u, "").trim();
     if (!prompt) {
       pushMessage("assistant", t("cfNoPrompt"));
       inputRef.current?.focus();
-      return;
-    }
-    if (provider !== "cloud" || !geminiKey) {
-      pushMessage(
-        "assistant",
-        provider !== "cloud" ? t("cfNeedCloud") : t("stCloudNeedKey"),
-      );
       return;
     }
     busyRef.current = "chat";
@@ -888,12 +887,9 @@ export default function Chat({
       setStreamText(t("cfDrawing", { n: Math.round((Date.now() - started) / 1000) }));
     }, 1000);
     try {
-      const gen = await generateGeminiImage(geminiKey, prompt);
-      const blob = gen.blob;
-      if (gen.usage && gen.usage.total > 0) {
-        setTokens((prev) => prev + (gen.usage as { total: number }).total);
-        recordUsage(GEMINI_IMAGE_MODEL, (gen.usage as { total: number }).total);
-      }
+      const free = await generateFreeImage(prompt);
+      const blob = free.blob;
+      const freeNote = true;
       const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
       const name = `gen-${stamp}.png`;
       const rel = `uploads/${name}`;
@@ -912,19 +908,30 @@ export default function Chat({
         temp = workspace.supported;
       }
       onFilesChanged();
-      pushMessage("assistant", t("cfSaved", { name: rel }) + (temp ? "\n" + t("cfTemp") : ""), {
-        name,
-        rel,
-        url: URL.createObjectURL(blob),
-      });
+      try {
+        setDraws(recordDraw());
+      } catch {
+        // tracking unavailable — picture still saved
+      }
+      pushMessage(
+        "assistant",
+        t("cfSaved", { name: rel }) +
+          (temp ? "\n" + t("cfTemp") : "") +
+          (freeNote ? "\n" + t("cfFreeEngine") : ""),
+        {
+          name,
+          rel,
+          url: URL.createObjectURL(blob),
+        },
+      );
       persistChat();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === "no-space") pushMessage("assistant", t("cfNoSpace"));
       else if (msg === "bad-key") pushMessage("assistant", t("stCloudBadKey"));
-      else if (msg === "no-image") pushMessage("assistant", t("chDidntGet"));
-      else if (msg === "unreachable" || msg === "timeout" || msg.startsWith("HTTP"))
-        pushMessage("assistant", t("cfFail"));
+      else if (msg === "no-image" || msg === "empty-image") pushMessage("assistant", t("chDidntGet"));
+      else if (msg.startsWith("HTTP"))
+        pushMessage("assistant", t("cfCloudFail", { msg }));
       else pushMessage("assistant", friendlyError(t, e));
     } finally {
       clearInterval(tick);
@@ -1188,12 +1195,33 @@ export default function Chat({
             disabled={searchDisabled}
             title={t("chLooking")}
           >
-            {streaming ? "⏳" : "🔍"}
+            {streaming ? (
+              "⏳"
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="#4285F4"
+                  d="M23.5 12.3c0-.9-.1-1.5-.3-2.3H12v4.3h6.5c-.1 1.1-.8 2.7-2.4 3.8l-.1.1 3.5 2.7.2.1c2.2-2 3.8-5 3.8-8.7z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.8-2.9c-1 .7-2.4 1.2-4.1 1.2-3.1 0-5.8-2.1-6.8-5l-.1.1-3.6 2.8v.1C3.5 21.3 7.5 24 12 24z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.2 14.4c-.2-.7-.4-1.5-.4-2.4s.1-1.7.4-2.4l-.1-.1-3.5-2.7-.1.1C.5 8.9 0 10.4 0 12s.5 3.1 1.5 4.5l3.7-2.1z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 4.7c1.8 0 3 .8 3.7 1.4l3.3-3.2C17.9 1.1 15.2 0 12 0 7.5 0 3.5 2.7 1.5 6.9l3.7 2.8c1-2.9 3.7-5 6.8-5z"
+                />
+              </svg>
+            )}
           </button>
           <button
             className="send-btn secondary"
             onClick={() => void handleDraw()}
-            disabled={streaming || (provider === "cloud" ? !geminiKey : !comfyModel)}
+            disabled={streaming || !input.trim()}
             title={t("cfDraw")}
           >
             🎨
@@ -1224,6 +1252,7 @@ export default function Chat({
           {provider === "cloud" && tokens > 0 ? (
             <span className="token-meter">{t("tkTokens", { n: fmtTokens(tokens) })}</span>
           ) : null}
+          <span className="token-meter">{t("usDrawEngine", { m: FREE_DRAW_ENGINE, n: draws })}</span>
           <button className="quota-refresh" onClick={() => void loadQuota()} title="Refresh quota">
             ↻
           </button>

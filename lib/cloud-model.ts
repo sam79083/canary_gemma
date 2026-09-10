@@ -14,8 +14,6 @@ import type { LanguageModelSession, PromptImage } from "./prompt-api.d";
 export const DEFAULT_GEMINI_MODEL = "gemma-4-26b-a4b-it";
 export const FALLBACK_GEMINI_MODEL = "gemma-4-31b-it";
 export const GEMINI_KEY_URL = "https://aistudio.google.com/apikey";
-/** Image-capable model for the "cloud draw" path (same key, any device). */
-export const GEMINI_IMAGE_MODEL = "gemini-2.0-flash-preview-image-generation";
 
 /**
  * History tail kept per request. Long chats otherwise resend everything
@@ -282,39 +280,26 @@ export interface GeneratedImage {
 }
 
 /**
- * Text → picture via Google's image-capable model. Same API key, works on
- * any device (the phone included) — no local GPU needed.
+ * Free keyless drawing via Pollinations (FLUX-class models), proxied
+ * through our own server: browsers get 403 fetching it directly
+ * (hotlink protection), server-to-server works. No account, any device.
+ * Quality varies. Seed cache-busts so repeats differ.
  */
-export async function generateGeminiImage(
-  apiKey: string,
-  prompt: string,
-  model = GEMINI_IMAGE_MODEL,
-): Promise<GeneratedImage> {
-  const data = (await fetchJson(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt.slice(0, 2000) }] }],
-        generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
-      }),
-    },
-    120000,
-  )) as {
-    candidates?: { content?: { parts?: { text?: string; inlineData?: { mimeType?: string; data?: string } }[] } }[];
-    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
-  };
-  const parts = data.candidates?.[0]?.content?.parts ?? [];
-  const img = parts.find((p) => p.inlineData?.data);
-  if (!img?.inlineData?.data) throw new Error("no-image");
-  const mime = img.inlineData.mimeType || "image/png";
-  const bin = atob(img.inlineData.data);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return {
-    blob: new Blob([bytes.buffer as ArrayBuffer], { type: mime }),
-    mime,
-    usage: extractUsage(data),
-  };
+export const FREE_DRAW_ENGINE = "Pollinations · flux";
+export async function generateFreeImage(prompt: string): Promise<GeneratedImage> {
+  const seed = Math.floor(Math.random() * 1000000);
+  const url =
+    `/api/draw?prompt=${encodeURIComponent(prompt.slice(0, 1500))}` +
+    `&seed=${seed}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 180000);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    if (!blob || blob.size < 1024) throw new Error("empty-image");
+    return { blob, mime: blob.type || "image/jpeg", usage: null };
+  } finally {
+    clearTimeout(timer);
+  }
 }

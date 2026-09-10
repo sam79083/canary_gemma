@@ -773,7 +773,6 @@ export default function Home() {
                 </a>
                 {" — "}{t("pgGeminiHint")}
               </div>
-              <div className="workspace-hint">{t("cfKeyDraws")}</div>
               {showKeyHelp || !model.geminiKey ? (
                 <div className="workspace-hint" style={{ lineHeight: 1.6 }}>
                   <div>{t("kgS1")}</div>

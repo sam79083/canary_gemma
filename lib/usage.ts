@@ -31,6 +31,7 @@ interface Store {
   days: Record<string, DayBucket>; // key: `${model}|${pacificDate}`
   stamps: Record<string, Stamp[]>; // key: model
   limits: Record<string, ModelLimits>; // key: model
+  draws: Record<string, number>; // key: pacificDate → free-draw count
 }
 
 function pacificDate(d = new Date()): string {
@@ -46,12 +47,15 @@ function load(): Store {
     const raw = localStorage.getItem(USAGE_KEY);
     if (raw) {
       const s = JSON.parse(raw) as Store;
-      if (s && s.days && s.stamps && s.limits) return s;
+      if (s && s.days && s.stamps && s.limits) {
+        if (!s.draws) s.draws = {};
+        return s;
+      }
     }
   } catch {
     // corrupted or unavailable — start fresh
   }
-  return { days: {}, stamps: {}, limits: {} };
+  return { days: {}, stamps: {}, limits: {}, draws: {} };
 }
 
 function save(s: Store): void {
@@ -124,4 +128,17 @@ export function fmtNum(n: number): string {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return `${n}`;
+}
+
+/** Free-draw counter (Pollinations publishes no quota API either). */
+export function recordDraw(): number {
+  const s = load();
+  const key = pacificDate();
+  s.draws[key] = (s.draws[key] ?? 0) + 1;
+  save(s);
+  return s.draws[key];
+}
+
+export function getDrawsToday(): number {
+  return load().draws[pacificDate()] ?? 0;
 }
