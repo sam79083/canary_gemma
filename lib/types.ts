@@ -2,7 +2,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   /** Generated/uploaded picture shown with the message (live view only). */
-  image?: { name: string; rel: string; url: string };
+  image?: { name: string; rel: string; url: string; prompt: string; engine: "free" | "hf" };
 }
 
 export interface FileEntry {
