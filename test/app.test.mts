@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { parseToolCall, stripToolCalls } from "../lib/agent.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
 import { sanitizeAnswer } from "../lib/sanitize.ts";
-import { GeminiSession, HISTORY_TAIL, generateFreeImage } from "../lib/cloud-model.ts";
+import { GeminiSession, HISTORY_TAIL, generateFreeImage, generateHFImage } from "../lib/cloud-model.ts";
+import { TRIAL_GEMINI_LIMIT } from "../lib/trial-limits.ts";
 import { OllamaSession, OLLAMA_HISTORY_TAIL } from "../lib/local-model.ts";
 
 describe("agent tool parser", () => {
@@ -251,6 +252,79 @@ describe("cloud SSE parser", () => {
     } finally {
       globalThis.fetch = origFetch;
     }
+  });
+
+  it("draws HD via generateHFImage", async () => {
+    const origFetch = globalThis.fetch;
+    let seenAuth = "";
+    let seenUrl = "";
+    let sawServerFirst = false;
+    // @ts-expect-error harness
+    globalThis.fetch = async (url: string, init?: { headers?: Record<string, string> }) => {
+      seenUrl = String(url);
+      if (seenUrl.startsWith("/api/hf-draw")) {
+        // No server key in tests → 501, client must fall back to direct.
+        sawServerFirst = true;
+        return { ok: false, status: 501, json: async () => ({ error: "no-server-key" }) };
+      }
+      seenAuth = init?.headers?.Authorization ?? "";
+      return {
+        ok: true,
+        status: 200,
+        blob: async () => new Blob([new Uint8Array(2048)], { type: "image/jpeg" }),
+      };
+    };
+    try {
+      const gen = await generateHFImage("hf_test", "a cat");
+      assert.ok(sawServerFirst);
+      assert.ok(seenUrl.includes("hf-inference/models/stabilityai/stable-diffusion-3-medium-diffusers"));
+      assert.equal(seenAuth, "Bearer hf_test");
+      assert.ok(gen.blob.size > 0);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it("rejects bad HF keys", async () => {
+    const origFetch = globalThis.fetch;
+    // @ts-expect-error harness
+    globalThis.fetch = async (url: string) => {
+      if (String(url).startsWith("/api/hf-draw"))
+        return { ok: false, status: 501, json: async () => ({ error: "no-server-key" }) };
+      return { ok: false, status: 401, json: async () => ({}) };
+    };
+    try {
+      await assert.rejects(generateHFImage("bad", "a cat"), /hf-bad-key/);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+});
+
+describe("trial budgets", () => {
+  it("allows N uses then refuses, localhost bypasses", async () => {
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    process.env.TRIAL_FILE = join(tmpdir(), `canary-trial-test-${Date.now()}.json`);
+    const { trialUse, isLocalRequest, clientIp } = await import("../lib/trial.ts");
+    const mkReq = (ip: string) =>
+      new Request("https://example.com/api/x", {
+        headers: { "x-forwarded-for": ip },
+      });
+    for (let i = 0; i < TRIAL_GEMINI_LIMIT; i++) {
+      const left = await trialUse(mkReq("9.9.9.9"), "gemini");
+      assert.ok(left >= 0);
+    }
+    assert.equal(await trialUse(mkReq("9.9.9.9"), "gemini"), -1);
+    // Other IP unaffected.
+    assert.ok((await trialUse(mkReq("8.8.8.8"), "gemini")) >= 0);
+    // Localhost bypass (undici forbids a real host header in tests, stub it).
+    const stub = (host: string | null) =>
+      ({ headers: { get: (k: string) => (k === "host" ? host : null) } }) as unknown as Request;
+    assert.equal(isLocalRequest(stub("localhost:3000")), true);
+    assert.equal(isLocalRequest(stub("example.com")), false);
+    assert.equal(clientIp(mkReq("9.9.9.9")), "9.9.9.9");
+    delete process.env.TRIAL_FILE;
   });
 });
 

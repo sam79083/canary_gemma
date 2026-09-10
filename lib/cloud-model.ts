@@ -280,6 +280,139 @@ export interface GeneratedImage {
 }
 
 /**
+ * Trial chat through the server key (/api/gemini-chat): no user key needed.
+ * Non-streaming server-side; yields the answer as one chunk. Throws
+ * "trial-over" when the visitor budget is spent.
+ */
+export class TrialChatSession implements LanguageModelSession {
+  private history: Content[] = [];
+  private destroyed = false;
+
+  async append(text: string): Promise<void> {
+    const m = text.match(/^(User|Assistant):\s*([\s\S]*)$/);
+    if (m) {
+      this.history.push({
+        role: m[1] === "User" ? "user" : "model",
+        parts: [{ text: m[2].trim() }],
+      });
+    } else {
+      this.history.push({ role: "user", parts: [{ text }] });
+    }
+  }
+
+  async prompt(prompt: string): Promise<string> {
+    let full = "";
+    for await (const chunk of this.promptStreaming(prompt)) full += chunk;
+    return full;
+  }
+
+  async *promptStreaming(prompt: string): AsyncIterable<string> {
+    if (this.destroyed) throw new Error("Session destroyed");
+    const contents = [...this.history, { role: "user", parts: [{ text: prompt }] }];
+    // Keep the tail bounded like the keyed path (server bills per token).
+    const slim = contents.length > HISTORY_TAIL ? contents.slice(-HISTORY_TAIL) : contents;
+    const res = await fetch("/api/gemini-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: slim }),
+    });
+    if (res.status === 429) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(data?.error || "trial-over");
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as { text?: string };
+    const text = data.text ?? "";
+    this.history.push({ role: "user", parts: [{ text: prompt }] });
+    this.history.push({ role: "model", parts: [{ text }] });
+    yield text;
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+    this.history = [];
+  }
+}
+
+/** Image model actually served by the hf-inference provider (verified in
+ *  their provider→model mapping — the router has no provider-less route,
+ *  and big names like FLUX/Qwen were dropped from this provider). */
+export const HF_IMAGE_MODEL = "stabilityai/stable-diffusion-3-medium-diffusers";
+/** Provider-pinned router path (this exact shape is what hf-inference serves). */
+const HF_ROUTER = "https://router.huggingface.co/hf-inference/models";
+
+export async function generateHFImage(
+  token: string,
+  prompt: string,
+): Promise<GeneratedImage> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 240000);
+  try {
+    // Preferred: server key (never exposed). A decided server answer
+    // (anything but 501/no-key) is final; only 501 falls through.
+    let useDirect = false;
+    try {
+      const res = await fetch("/api/hf-draw", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: prompt.slice(0, 1500) }),
+        signal: ctrl.signal,
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        if (!blob || blob.size < 1024) throw new Error("empty-image");
+        return { blob, mime: blob.type || "image/jpeg", usage: null };
+      }
+      if (res.status === 501) {
+        useDirect = true;
+      } else {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") throw e;
+      const msg = e instanceof Error ? e.message : String(e);
+      // Unreachable server (dev down? proxy hiccup) → try direct.
+      if (!useDirect && /failed to fetch|load failed|networkerror/i.test(msg)) {
+        useDirect = true;
+      } else if (!useDirect) {
+        throw e;
+      }
+    }
+    // Fallback: user's own key, direct to HuggingFace.
+    if (!token) throw new Error("hf-no-key");
+    const res = await fetch(
+      `https://router.huggingface.co/hf-inference/models/${HF_IMAGE_MODEL}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ inputs: prompt.slice(0, 1500) }),
+        signal: ctrl.signal,
+      },
+    );
+    if (res.status === 401 || res.status === 403) throw new Error("hf-bad-key");
+    if (res.status === 429) throw new Error("hf-limited");
+    if (!res.ok) {
+      let detail = "";
+      try {
+        detail = ` ${(await res.text()).slice(0, 200)}`;
+      } catch {
+        // body unreadable — status only
+      }
+      throw new Error(`HTTP ${res.status}${detail}`);
+    }
+    const blob = await res.blob();
+    if (!blob || blob.size < 1024) throw new Error("empty-image");
+    return { blob, mime: blob.type || "image/jpeg", usage: null };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Free keyless drawing via Pollinations (FLUX-class models), proxied
  * through our own server: browsers get 403 fetching it directly
  * (hotlink protection), server-to-server works. No account, any device.

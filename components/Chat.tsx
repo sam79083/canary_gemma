@@ -17,10 +17,11 @@ import type { BusyKind, Provider } from "@/hooks/useLanguageModel";
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { ChatMessage, ReviewFn } from "@/lib/types";
 import { replySuffix, type Lang, type TFn } from "@/lib/i18n";
+import { TRIAL_GEMINI_LIMIT, TRIAL_HF_LIMIT } from "@/lib/trial-limits";
 import { getDrawsToday, recordDraw, recordUsage } from "@/lib/usage";
 import { renderMarkdown } from "@/lib/markdown";
 import { sanitizeAnswer } from "@/lib/sanitize";
-import { FREE_DRAW_ENGINE, generateFreeImage } from "@/lib/cloud-model";
+import { FREE_DRAW_ENGINE, generateFreeImage, generateHFImage } from "@/lib/cloud-model";
 import {
   AGENT_MAX_STEPS,
   buildAgentPreamble,
@@ -50,6 +51,8 @@ interface Props {
   ensureVision: () => Promise<LanguageModelSession | null>;
   /** Model id for usage tracking (e.g. gemma-4-26b-a4b-it). Empty = don't track. */
   usageModel: string;
+  /** HF token for HD drawing. Empty = free engine only. */
+  hfKey?: string;
   /** Cloud-draw key (Gemini image model, any device). Empty = local only. */
   geminiKey?: string;
   t: TFn;
@@ -73,6 +76,7 @@ function shortName(rel: string): string {
 /** Turn a raw technical error into something a non-technical user can act on. */
 function friendlyError(t: TFn, e: unknown, path?: string): string {
   const raw = e instanceof Error ? e.message : String(e);
+  if (/trial-over/i.test(raw)) return t("trOver", { n: TRIAL_GEMINI_LIMIT });
   const name = path ? shortName(path) : "";
   if (/not found|no such|does not exist|ENOENT|NotFound/i.test(raw))
     return t("chErrNotFound", { name });
@@ -165,7 +169,7 @@ export default function Chat({
   provider,
   ensureVision,
   usageModel,
-  geminiKey = "",
+  hfKey = "",
   t,
   lang,
 }: Props) {
@@ -866,8 +870,7 @@ export default function Chat({
     });
   }
 
-  /** Text prompt → picture → chat + workspace. Provider-independent:
-   *  always the free keyless engine (no chat model draws pictures). */
+  /** Text prompt → free picture → chat + workspace. Provider-independent. */
   const handleDraw = useCallback(async () => {
     if (busyRef.current) return;
     // Users often type the 🎨 themselves and then press the button too.
@@ -888,47 +891,10 @@ export default function Chat({
     }, 1000);
     try {
       const free = await generateFreeImage(prompt);
-      const blob = free.blob;
-      const freeNote = true;
-      const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
-      const name = `gen-${stamp}.png`;
-      const rel = `uploads/${name}`;
-      let temp = false;
-      if (workspace.connected) {
-        try {
-          await workspace.makeDir("uploads");
-        } catch {
-          // exists already
-        }
-        await workspace.writeBinary(rel, blob);
-      } else {
-        // No folder (yet): save server-side so the picture is never lost,
-        // and nudge to pick a folder instead of blocking.
-        await serverWriteFileBinary(rel, await blobToBase64(blob));
-        temp = workspace.supported;
-      }
-      onFilesChanged();
-      try {
-        setDraws(recordDraw());
-      } catch {
-        // tracking unavailable — picture still saved
-      }
-      pushMessage(
-        "assistant",
-        t("cfSaved", { name: rel }) +
-          (temp ? "\n" + t("cfTemp") : "") +
-          (freeNote ? "\n" + t("cfFreeEngine") : ""),
-        {
-          name,
-          rel,
-          url: URL.createObjectURL(blob),
-        },
-      );
-      persistChat();
+      await savePicture(free.blob, prompt, t("cfFreeEngine"));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === "no-space") pushMessage("assistant", t("cfNoSpace"));
-      else if (msg === "bad-key") pushMessage("assistant", t("stCloudBadKey"));
       else if (msg === "no-image" || msg === "empty-image") pushMessage("assistant", t("chDidntGet"));
       else if (msg.startsWith("HTTP"))
         pushMessage("assistant", t("cfCloudFail", { msg }));
@@ -942,7 +908,93 @@ export default function Chat({
       persistChat();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, setInput, pushMessage, persistChat, geminiKey, provider, workspace, onFilesChanged, t]);
+  }, [input, setInput, pushMessage, persistChat, workspace, onFilesChanged, t]);
+
+  /** Text prompt → uncompressed FLUX via HF token → chat + workspace. */
+  const handleDrawHF = useCallback(async () => {
+    if (busyRef.current) return;
+    const prompt = input.replace(/^[🎨✨📷🖼️\s]+/u, "").trim();
+    if (!prompt) {
+      pushMessage("assistant", t("cfNoPrompt"));
+      inputRef.current?.focus();
+      return;
+    }
+    if (!hfKey) {
+      pushMessage("assistant", t("cfHFKeyPh"));
+      return;
+    }
+    busyRef.current = "chat";
+    setStreaming(true);
+    setInput("");
+    pushMessage("user", `🖼️ ${prompt}`);
+    const started = Date.now();
+    setStreamText(t("cfDrawing", { n: 0 }));
+    const tick = setInterval(() => {
+      setStreamText(t("cfDrawing", { n: Math.round((Date.now() - started) / 1000) }));
+    }, 1000);
+    try {
+      const gen = await generateHFImage(hfKey, prompt);
+      await savePicture(gen.blob, prompt, null);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "no-space") pushMessage("assistant", t("cfNoSpace"));
+      else if (msg === "hf-bad-key") pushMessage("assistant", t("cfHFBad"));
+      else if (msg === "hf-limited") pushMessage("assistant", t("cfHFLimited"));
+      else if (msg === "trial-over") pushMessage("assistant", t("trOver", { n: TRIAL_HF_LIMIT }));
+      else if (msg === "hf-no-key") pushMessage("assistant", t("cfHFNoKey"));
+      else if (msg === "no-image" || msg === "empty-image") pushMessage("assistant", t("chDidntGet"));
+      else if (msg.startsWith("HTTP"))
+        pushMessage("assistant", t("cfCloudFail", { msg }));
+      else pushMessage("assistant", friendlyError(t, e));
+    } finally {
+      clearInterval(tick);
+      busyRef.current = null;
+      setStreaming(false);
+      setStreamText(null);
+      focusInput();
+      persistChat();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input, setInput, pushMessage, persistChat, hfKey, workspace, onFilesChanged, t]);
+
+  async function savePicture(blob: Blob, prompt: string, note: string | null): Promise<void> {
+    void prompt;
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
+    const name = `gen-${stamp}.png`;
+    const rel = `uploads/${name}`;
+    let temp = false;
+    if (workspace.connected) {
+      try {
+        await workspace.makeDir("uploads");
+      } catch {
+        // exists already
+      }
+      await workspace.writeBinary(rel, blob);
+    } else {
+      // No folder (yet): save server-side so the picture is never lost,
+      // and nudge to pick a folder instead of blocking.
+      await serverWriteFileBinary(rel, await blobToBase64(blob));
+      temp = workspace.supported;
+    }
+    onFilesChanged();
+    try {
+      setDraws(recordDraw());
+    } catch {
+      // tracking unavailable — picture still saved
+    }
+    pushMessage(
+      "assistant",
+      t("cfSaved", { name: rel }) +
+        (temp ? "\n" + t("cfTemp") : "") +
+        (note ? "\n" + note : ""),
+      {
+        name,
+        rel,
+        url: URL.createObjectURL(blob),
+      },
+    );
+    persistChat();
+  }
 
   const handleSearch = useCallback(async () => {
     if (busyRef.current) return;
@@ -1225,6 +1277,14 @@ export default function Chat({
             title={t("cfDraw")}
           >
             🎨
+          </button>
+          <button
+            className="send-btn secondary"
+            onClick={() => void handleDrawHF()}
+            disabled={streaming || !input.trim()}
+            title={t("cfHFDraw")}
+          >
+            🖼️
           </button>
           <button className="send-btn" onClick={() => void handleSend()} disabled={sendDisabled}>
             {streaming ? "●" : "➤"}

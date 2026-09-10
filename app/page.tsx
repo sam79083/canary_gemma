@@ -142,6 +142,24 @@ export default function Home() {
   const [capLine, setCapLine] = useState("…");
   const setupRef = useRef<HTMLDetailsElement>(null);
   const [currentFile, setCurrentFile] = useState<string | null>(null);
+  // HuggingFace token for HD drawing (browser-only, like the Gemini key).
+  const [hfKey, setHfKey] = useState("");
+  useEffect(() => {
+    try {
+      const k = localStorage.getItem("canary-hf-token");
+      if (k) setHfKey(k);
+    } catch {
+      // ignore
+    }
+  }, []);
+  const setHfKeyStored = useCallback((k: string) => {
+    setHfKey(k);
+    try {
+      localStorage.setItem("canary-hf-token", k);
+    } catch {
+      // ignore
+    }
+  }, []);
   // Mobile browsers have neither the Prompt API nor a folder picker —
   // offering Gemma/Ollama there is a dead end, so hide them entirely.
   const [isMobile, setIsMobile] = useState(false);
@@ -900,6 +918,24 @@ export default function Home() {
 
         <details className="side-group" open>
           <summary>{t("grpFiles")}</summary>
+          <div className="workspace-box" id="hf-box" style={{ marginTop: 8 }}>
+            <div className="workspace-name">🖼️ SD 3.5 Medium (HD)</div>
+            <input
+              className="sidebar-btn small"
+              style={{ width: "100%", cursor: "text" }}
+              type="password"
+              autoComplete="off"
+              value={hfKey}
+              onChange={(e) => setHfKeyStored(e.target.value.trim())}
+              placeholder={t("cfHFKeyPh")}
+              title={t("cfHFKey")}
+            />
+            {hfKey ? (
+              <div className="workspace-hint" style={{ color: "#2e7d32", fontWeight: 600 }}>
+                {t("kgSaved", { last4: hfKey.slice(-4) })}
+              </div>
+            ) : null}
+          </div>
           <div className="workspace-box" id="workspace-box">
           {workspace.supported ? (
             workspace.connected ? (
@@ -1186,6 +1222,7 @@ export default function Home() {
                 : ""
           }
           geminiKey={model.provider === "cloud" ? model.geminiKey : ""}
+          hfKey={hfKey}
           t={t}
           lang={lang}
         />
