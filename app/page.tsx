@@ -142,6 +142,29 @@ export default function Home() {
   const [capLine, setCapLine] = useState("…");
   const setupRef = useRef<HTMLDetailsElement>(null);
   const [currentFile, setCurrentFile] = useState<string | null>(null);
+  // Trial budget display (keyless cloud visitors only).
+  const [trialLeft, setTrialLeft] = useState<{ gemini: number; hf: number } | null>(null);
+  useEffect(() => {
+    if (model.provider !== "cloud" || model.geminiKey) {
+      setTrialLeft(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/trial-status");
+        const data = (await res.json()) as { gemini?: number; hf?: number };
+        if (!cancelled && typeof data.gemini === "number")
+          setTrialLeft({ gemini: data.gemini, hf: data.hf ?? 0 });
+      } catch {
+        // invisible on failure
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model.provider, model.geminiKey, messages.length]);
   // HuggingFace token for HD drawing (browser-only, like the Gemini key).
   const [hfKey, setHfKey] = useState("");
   useEffect(() => {
@@ -514,6 +537,54 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.connected, t, handleNewChat]);
 
+  const handleDeleteOneChat = useCallback(
+    async (filename: string) => {
+      if (!filename) return;
+      if (!confirm(t("ssDelete"))) return;
+      try {
+        if (workspace.connected)
+          await deleteWorkspaceSession(workspace, filename);
+        else await deleteLocalSession(filename);
+      } catch (e) {
+        console.error("Delete failed:", e);
+      }
+      if (currentSessionFileRef.current === filename) {
+        handleNewChat();
+      } else {
+        setSessionList(
+          workspace.connected
+            ? await listWorkspaceSessions(workspace).catch(() => [])
+            : await listLocalSessions().catch(() => []),
+        );
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workspace.connected, t, handleNewChat],
+  );
+
+  const handleDeleteAllChats = useCallback(async () => {
+    if (!confirm(t("ssDeleteAllConfirm"))) return;
+    try {
+      const list = workspace.connected
+        ? await listWorkspaceSessions(workspace).catch(() => [])
+        : await listLocalSessions().catch(() => []);
+      for (const s of list) {
+        try {
+          if (workspace.connected)
+            await deleteWorkspaceSession(workspace, s.filename);
+          else await deleteLocalSession(s.filename);
+        } catch {
+          // keep deleting the rest
+        }
+      }
+    } catch (e) {
+      console.error("Delete-all failed:", e);
+    }
+    handleNewChat();
+    setSessionList([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace.connected, t, handleNewChat]);
+
   const appendInput = useCallback((text: string) => {
     setInput((prev) => (prev.trim() ? prev.trimEnd() + "\n\n" + text : text));
   }, []);
@@ -872,6 +943,49 @@ export default function Home() {
           ))}
         </select>
 
+        {sessionList.length > 0 ? (
+          <details className="side-group" style={{ marginTop: 6 }}>
+            <summary style={{ fontSize: 11 }}>{t("ssManage")}</summary>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4, maxHeight: 180, overflowY: "auto" }}>
+              {sessionList.map((s) => (
+                <div
+                  key={s.filename}
+                  style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}
+                >
+                  <span
+                    style={{
+                      flex: 1,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      opacity: s.filename === currentFile ? 1 : 0.75,
+                      fontWeight: s.filename === currentFile ? 700 : 400,
+                    }}
+                    title={s.title}
+                  >
+                    {s.title}
+                  </span>
+                  <button
+                    className="sidebar-btn small"
+                    style={{ flex: "0 0 auto", padding: "2px 8px" }}
+                    title={t("trDelete")}
+                    onClick={() => void handleDeleteOneChat(s.filename)}
+                  >
+                    🗑️
+                  </button>
+                </div>
+              ))}
+              <button
+                className="sidebar-btn small"
+                style={{ justifyContent: "center", marginTop: 4 }}
+                onClick={() => void handleDeleteAllChats()}
+              >
+                {t("ssDeleteAll")}
+              </button>
+            </div>
+          </details>
+        ) : null}
+
         {currentFile ? (
           <div
             style={{
@@ -1046,6 +1160,11 @@ export default function Home() {
             {model.provider === "cloud" ? (
               <CheckRow label={t("ckKey")} ok={!!model.geminiKey} bad={false} />
             ) : null}
+            {trialLeft && !model.geminiKey ? (
+              <div style={{ fontSize: 11, opacity: 0.8 }}>
+                💬 {t("trLeft", { n: trialLeft.gemini })} · 🎨 {t("trLeft", { n: trialLeft.hf })}
+              </div>
+            ) : null}
             <div style={{ fontSize: 11, opacity: 0.7, fontFamily: "monospace" }}>
               {capLine}
             </div>
@@ -1214,6 +1333,11 @@ export default function Home() {
           reviewChange={reviewChange}
           provider={model.provider}
           ensureVision={model.ensureVisionSession}
+          onTrialOver={() => {
+            // Walk them to the key field: open drawer, expand the guide.
+            setSideOpen(true);
+            setShowKeyHelp(true);
+          }}
           usageModel={
             model.provider === "cloud"
               ? model.geminiModel

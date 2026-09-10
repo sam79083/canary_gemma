@@ -47,6 +47,21 @@ export function clientIp(req: Request): string {
   return "unknown";
 }
 
+/** Remaining trial uses without counting (for display). */
+export async function trialPeek(req: Request): Promise<{ gemini: number; hf: number }> {
+  if (isLocalRequest(req)) return { gemini: 999999, hf: 999999 };
+  try {
+    const s = await load();
+    const entry = s[clientIp(req)] ?? { gemini: 0, hf: 0, ts: 0 };
+    return {
+      gemini: Math.max(0, TRIAL_GEMINI_LIMIT - entry.gemini),
+      hf: Math.max(0, TRIAL_HF_LIMIT - entry.hf),
+    };
+  } catch {
+    return { gemini: TRIAL_GEMINI_LIMIT, hf: TRIAL_HF_LIMIT };
+  }
+}
+
 export function isLocalRequest(req: Request): boolean {
   const host = (req.headers.get("host") || "").toLowerCase();
   return (
@@ -60,8 +75,7 @@ export function isLocalRequest(req: Request): boolean {
  * Count one trial use. Returns remaining (>=0), or -1 when the budget
  * is exhausted. Localhost is unlimited (returns a large number).
  * Fail-open: storage errors allow the request through.
- */
-export async function trialUse(req: Request, kind: Kind): Promise<number> {
+ */export async function trialUse(req: Request, kind: Kind): Promise<number> {
   if (isLocalRequest(req)) return 999999;
   const limit = kind === "gemini" ? TRIAL_GEMINI_LIMIT : TRIAL_HF_LIMIT;
   try {

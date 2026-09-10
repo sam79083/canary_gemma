@@ -53,6 +53,8 @@ interface Props {
   usageModel: string;
   /** HF token for HD drawing. Empty = free engine only. */
   hfKey?: string;
+  /** Called when a trial budget runs out (open the key guide for them). */
+  onTrialOver?: () => void;
   /** Cloud-draw key (Gemini image model, any device). Empty = local only. */
   geminiKey?: string;
   t: TFn;
@@ -170,6 +172,7 @@ export default function Chat({
   ensureVision,
   usageModel,
   hfKey = "",
+  onTrialOver,
   t,
   lang,
 }: Props) {
@@ -446,6 +449,23 @@ export default function Chat({
 
   const focusInput = () => inputRef.current?.focus();
 
+  const onTrialOverRef = useRef(onTrialOver);
+  onTrialOverRef.current = onTrialOver;
+
+  /** Trial budget spent: message handled by callers, guide opened here. */
+  function noteTrialOver(e: unknown): boolean {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/trial-over/i.test(msg)) {
+      try {
+        onTrialOverRef.current?.();
+      } catch {
+        // guide is best-effort
+      }
+      return true;
+    }
+    return false;
+  }
+
   async function runModelTurn(prompt: string, onChunk: (full: string) => void): Promise<string> {
     const session = sessionRef.current;
     if (!session) throw new Error("Model session not ready");
@@ -537,7 +557,8 @@ export default function Chat({
             persistChat();
           }
         } catch (e) {
-          pushMessage("assistant", friendlyError(t, e));
+          noteTrialOver(e);
+        pushMessage("assistant", friendlyError(t, e));
         } finally {
           busyRef.current = null;
           setStreaming(false);
@@ -592,7 +613,8 @@ export default function Chat({
             persistChat();
           }
         } catch (e) {
-          pushMessage("assistant", friendlyError(t, e));
+          noteTrialOver(e);
+        pushMessage("assistant", friendlyError(t, e));
         } finally {
           busyRef.current = null;
           setStreaming(false);
@@ -627,6 +649,7 @@ export default function Chat({
           persistChat();
         }
       } catch (e) {
+        noteTrialOver(e);
         pushMessage("assistant", friendlyError(t, e));
       } finally {
         busyRef.current = null;
@@ -870,9 +893,62 @@ export default function Chat({
     });
   }
 
+  /** Shared engine: generate → save → post. Engine "free" (keyless) or "hf". */
+  const runDraw = useCallback(async (
+    promptText: string,
+    engine: "free" | "hf",
+    userLabel: string,
+  ): Promise<void> => {
+    if (busyRef.current) return;
+    if (engine === "hf" && !hfKey) {
+      pushMessage("assistant", t("cfHFKeyPh"));
+      return;
+    }
+    busyRef.current = "chat";
+    setStreaming(true);
+    setInput("");
+    pushMessage("user", `${userLabel} ${promptText}`);
+    const started = Date.now();
+    setStreamText(t("cfDrawing", { n: 0 }));
+    const tick = setInterval(() => {
+      setStreamText(t("cfDrawing", { n: Math.round((Date.now() - started) / 1000) }));
+    }, 1000);
+    try {
+      const blob =
+        engine === "hf"
+          ? (await generateHFImage(hfKey, promptText)).blob
+          : (await generateFreeImage(promptText)).blob;
+      await savePicture(blob, promptText, engine === "hf" ? null : t("cfFreeEngine"), engine);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "no-space") pushMessage("assistant", t("cfNoSpace"));
+      else if (msg === "hf-bad-key") pushMessage("assistant", t("cfHFBad"));
+      else if (msg === "hf-limited") pushMessage("assistant", t("cfHFLimited"));
+      else if (msg === "trial-over") {
+        noteTrialOver(e);
+        pushMessage("assistant", t("trOver", { n: TRIAL_HF_LIMIT }));
+      }
+      else if (msg === "hf-no-key") pushMessage("assistant", t("cfHFNoKey"));
+      else if (msg === "no-image" || msg === "empty-image") pushMessage("assistant", t("chDidntGet"));
+      else if (msg.startsWith("HTTP"))
+        pushMessage("assistant", t("cfCloudFail", { msg }));
+      else {
+        noteTrialOver(e);
+        pushMessage("assistant", friendlyError(t, e));
+      }
+    } finally {
+      clearInterval(tick);
+      busyRef.current = null;
+      setStreaming(false);
+      setStreamText(null);
+      focusInput();
+      persistChat();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setInput, pushMessage, persistChat, hfKey, workspace, onFilesChanged, t]);
+
   /** Text prompt → free picture → chat + workspace. Provider-independent. */
   const handleDraw = useCallback(async () => {
-    if (busyRef.current) return;
     // Users often type the 🎨 themselves and then press the button too.
     const prompt = input.replace(/^[🎨✨📷\s]+/u, "").trim();
     if (!prompt) {
@@ -880,85 +956,35 @@ export default function Chat({
       inputRef.current?.focus();
       return;
     }
-    busyRef.current = "chat";
-    setStreaming(true);
-    setInput("");
-    pushMessage("user", `🎨 ${prompt}`);
-    const started = Date.now();
-    setStreamText(t("cfDrawing", { n: 0 }));
-    const tick = setInterval(() => {
-      setStreamText(t("cfDrawing", { n: Math.round((Date.now() - started) / 1000) }));
-    }, 1000);
-    try {
-      const free = await generateFreeImage(prompt);
-      await savePicture(free.blob, prompt, t("cfFreeEngine"));
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (msg === "no-space") pushMessage("assistant", t("cfNoSpace"));
-      else if (msg === "no-image" || msg === "empty-image") pushMessage("assistant", t("chDidntGet"));
-      else if (msg.startsWith("HTTP"))
-        pushMessage("assistant", t("cfCloudFail", { msg }));
-      else pushMessage("assistant", friendlyError(t, e));
-    } finally {
-      clearInterval(tick);
-      busyRef.current = null;
-      setStreaming(false);
-      setStreamText(null);
-      focusInput();
-      persistChat();
-    }
+    await runDraw(prompt, "free", "🎨");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, setInput, pushMessage, persistChat, workspace, onFilesChanged, t]);
+  }, [input, pushMessage, runDraw, t]);
 
   /** Text prompt → uncompressed FLUX via HF token → chat + workspace. */
   const handleDrawHF = useCallback(async () => {
-    if (busyRef.current) return;
     const prompt = input.replace(/^[🎨✨📷🖼️\s]+/u, "").trim();
     if (!prompt) {
       pushMessage("assistant", t("cfNoPrompt"));
       inputRef.current?.focus();
       return;
     }
-    if (!hfKey) {
-      pushMessage("assistant", t("cfHFKeyPh"));
-      return;
-    }
-    busyRef.current = "chat";
-    setStreaming(true);
-    setInput("");
-    pushMessage("user", `🖼️ ${prompt}`);
-    const started = Date.now();
-    setStreamText(t("cfDrawing", { n: 0 }));
-    const tick = setInterval(() => {
-      setStreamText(t("cfDrawing", { n: Math.round((Date.now() - started) / 1000) }));
-    }, 1000);
-    try {
-      const gen = await generateHFImage(hfKey, prompt);
-      await savePicture(gen.blob, prompt, null);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (msg === "no-space") pushMessage("assistant", t("cfNoSpace"));
-      else if (msg === "hf-bad-key") pushMessage("assistant", t("cfHFBad"));
-      else if (msg === "hf-limited") pushMessage("assistant", t("cfHFLimited"));
-      else if (msg === "trial-over") pushMessage("assistant", t("trOver", { n: TRIAL_HF_LIMIT }));
-      else if (msg === "hf-no-key") pushMessage("assistant", t("cfHFNoKey"));
-      else if (msg === "no-image" || msg === "empty-image") pushMessage("assistant", t("chDidntGet"));
-      else if (msg.startsWith("HTTP"))
-        pushMessage("assistant", t("cfCloudFail", { msg }));
-      else pushMessage("assistant", friendlyError(t, e));
-    } finally {
-      clearInterval(tick);
-      busyRef.current = null;
-      setStreaming(false);
-      setStreamText(null);
-      focusInput();
-      persistChat();
-    }
+    await runDraw(prompt, "hf", "🖼️");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, setInput, pushMessage, persistChat, hfKey, workspace, onFilesChanged, t]);
+  }, [input, pushMessage, runDraw, t]);
 
-  async function savePicture(blob: Blob, prompt: string, note: string | null): Promise<void> {
-    void prompt;
+  /** Re-roll the same prompt on the same engine (new seed each time). */
+  const handleReroll = useCallback(async (img: NonNullable<ChatMessage["image"]>) => {
+    if (busyRef.current || !img.prompt) return;
+    await runDraw(img.prompt, img.engine, img.engine === "hf" ? "🖼️" : "🎨");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runDraw]);
+
+  async function savePicture(
+    blob: Blob,
+    prompt: string,
+    note: string | null,
+    engine: "free" | "hf" = "free",
+  ): Promise<void> {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
     const name = `gen-${stamp}.png`;
     const rel = `uploads/${name}`;
@@ -991,6 +1017,8 @@ export default function Chat({
         name,
         rel,
         url: URL.createObjectURL(blob),
+        prompt,
+        engine,
       },
     );
     persistChat();
@@ -1020,6 +1048,7 @@ export default function Chat({
         }
         persistChat();
       } catch (e) {
+        noteTrialOver(e);
         pushMessage("assistant", friendlyError(t, e));
       } finally {
         busyRef.current = null;
@@ -1099,7 +1128,20 @@ export default function Chat({
               <div className="content">{m.content}</div>
             )}
             {m.image ? (
-              <img src={m.image.url} alt={m.image.name} className="msg-img" />
+              <>
+                <img src={m.image.url} alt={m.image.name} className="msg-img" />
+                {m.image.prompt ? (
+                  <button
+                    className="task-chip"
+                    style={{ marginTop: 4, alignSelf: "flex-start" }}
+                    title={t("cfReroll")}
+                    disabled={streaming}
+                    onClick={() => void handleReroll(m.image as NonNullable<ChatMessage["image"]>)}
+                  >
+                    🎲 {t("cfReroll")}
+                  </button>
+                ) : null}
+              </>
             ) : null}
             {m.role === "assistant" ? (
               <button

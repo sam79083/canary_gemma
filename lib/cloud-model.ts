@@ -31,17 +31,66 @@ interface Content {
   parts: Part[];
 }
 
-async function fetchJson(url: string, init?: RequestInit, timeoutMs = 12000): Promise<unknown> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { ...init, signal: ctrl.signal });
-    if (res.status === 400 || res.status === 403) throw new Error("bad-key");
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return (await res.json()) as unknown;
-  } finally {
-    clearTimeout(timer);
+async function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Retryable: throttles and transient upstream failures. Never auth errors. */
+function retryable(e: unknown): boolean {
+  if (e instanceof DOMException && e.name === "AbortError") return true;
+  const msg = e instanceof Error ? e.message : String(e);
+  return /HTTP (429|500|502|503|504)/.test(msg);
+}
+
+/** GET bytes with the same polite backoff (used by image paths). */
+async function fetchBlobWithRetry(url: string, init: RequestInit, timeoutMs: number): Promise<Blob> {
+  let last: unknown = new Error("unreachable");
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...init, signal: ctrl.signal });
+      if (res.status === 401 || res.status === 403) throw new Error("hf-bad-key");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      if (!blob || blob.size < 1024) throw new Error("empty-image");
+      return blob;
+    } catch (e) {
+      last = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "hf-bad-key" || msg === "empty-image") throw e;
+      if (!retryable(e) || attempt === 3) throw e;
+      await sleep(2000 * 2 ** attempt);
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  throw last;
+}
+
+/**
+ * fetchJson with polite backoff: 2s → 4s → 8s on throttles/transients.
+ * Auth and client errors fail immediately.
+ */
+async function fetchJson(url: string, init?: RequestInit, timeoutMs = 12000): Promise<unknown> {
+  let last: unknown = new Error("unreachable");
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...init, signal: ctrl.signal });
+      if (res.status === 400 || res.status === 403) throw new Error("bad-key");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as unknown;
+    } catch (e) {
+      last = e;
+      if (!retryable(e) || attempt === 3) throw e;
+      await sleep(2000 * 2 ** attempt);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw last;
 }
 
 /** List Gemma models available to this key (for the picker). */
@@ -379,22 +428,30 @@ export async function generateHFImage(
         throw e;
       }
     }
-    // Fallback: user's own key, direct to HuggingFace.
+    // Fallback: user's own key, direct to HuggingFace (one polite
+    // re-try on throttle, then the honest hf-limited message).
     if (!token) throw new Error("hf-no-key");
-    const res = await fetch(
-      `https://router.huggingface.co/hf-inference/models/${HF_IMAGE_MODEL}`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await fetch(
+        `https://router.huggingface.co/hf-inference/models/${HF_IMAGE_MODEL}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ inputs: prompt.slice(0, 1500) }),
+          signal: ctrl.signal,
         },
-        body: JSON.stringify({ inputs: prompt.slice(0, 1500) }),
-        signal: ctrl.signal,
-      },
-    );
-    if (res.status === 401 || res.status === 403) throw new Error("hf-bad-key");
-    if (res.status === 429) throw new Error("hf-limited");
+      );
+      if (res.status === 401 || res.status === 403) throw new Error("hf-bad-key");
+      if (res.status === 429) {
+        if (attempt === 0) {
+          await sleep(4000);
+          continue;
+        }
+        throw new Error("hf-limited");
+      }
     if (!res.ok) {
       let detail = "";
       try {
@@ -407,6 +464,8 @@ export async function generateHFImage(
     const blob = await res.blob();
     if (!blob || blob.size < 1024) throw new Error("empty-image");
     return { blob, mime: blob.type || "image/jpeg", usage: null };
+    }
+    throw new Error("hf-limited");
   } finally {
     clearTimeout(timer);
   }
@@ -424,15 +483,6 @@ export async function generateFreeImage(prompt: string): Promise<GeneratedImage>
   const url =
     `/api/draw?prompt=${encodeURIComponent(prompt.slice(0, 1500))}` +
     `&seed=${seed}`;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 180000);
-  try {
-    const res = await fetch(url, { signal: ctrl.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
-    if (!blob || blob.size < 1024) throw new Error("empty-image");
-    return { blob, mime: blob.type || "image/jpeg", usage: null };
-  } finally {
-    clearTimeout(timer);
-  }
+  const blob = await fetchBlobWithRetry(url, {}, 180000);
+  return { blob, mime: blob.type || "image/jpeg", usage: null };
 }
