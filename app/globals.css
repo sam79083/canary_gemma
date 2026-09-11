@@ -575,6 +575,7 @@ body.dark .message .content.md a {
 
 .input-container textarea {
     flex: 1;
+    min-width: 0;
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 10px 14px;
@@ -898,7 +899,30 @@ body.dark .message .content.md a {
     }
 
     .message .content {
-        max-width: 88%;
+        max-width: 82%;
+    }
+
+    /* 360px rows: 5 buttons + textarea must share ~336px. Let the
+       textarea shrink (flex items default to min-width:auto and would
+       otherwise force the page wider than the screen). */
+    .input-area {
+        padding: 10px 10px 12px;
+    }
+
+    .input-container {
+        gap: 6px;
+    }
+
+    .input-container textarea {
+        min-width: 0;
+        padding: 9px 12px;
+    }
+
+    .send-btn {
+        width: 32px;
+        height: 32px;
+        font-size: 14px;
+        flex-shrink: 0;
     }
 
     .review-card {
