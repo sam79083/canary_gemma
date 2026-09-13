@@ -14,6 +14,73 @@ function hasCJK(s: string): boolean {
   return /[\uAC00-\uD7AF\u3040-\u30FF\u4E00-\u9FFF]/.test(s);
 }
 
+// --- Structural trace shapes (no content words) ---
+//
+// A deliberation trace has a recognizable SHAPE whatever its vocabulary:
+// leading `Label:`-style sentences, `…?` immediately answered by a bare
+// yes/no, and the real answer repeated at the end (quoted draft + bare).
+// extractTracedAnswer() returns just that final answer when all three
+// signals line up, else null (normal text untouched).
+
+/** Sentences modulo quotes/case/whitespace — for repeat detection. */
+function normSent(s: string): string {
+  return s
+    .trim()
+    .replace(/^["“”'‘’⤴\s]+|["“”'‘’.!?。！？\s]+$/g, "")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+/** `Label: …` header-shaped sentence (any language, any words). */
+function isHeaderShape(s: string): boolean {
+  return /^[A-Za-z가-힣][^:?\n]{1,30}:\s+\S/.test(s.trim());
+}
+
+/** Bare yes/no sentence (closed set, pre-existing in this file). */
+function isYesNoShape(s: string): boolean {
+  return /^["“”'‘’]?(yes|no|네|아니요)\.?["“”'‘’]?$/.test(s.trim().toLowerCase());
+}
+
+/** Sentence ending in a question mark (modulo closers/quotes). */
+function endsQShape(s: string): boolean {
+  return /\?\s*["“”'‘’)\]]?$/.test(s.trim());
+}
+
+/**
+ * If the message is a deliberation trace ending in its (repeated) answer,
+ * return just the answer. Requirements, all structural:
+ * - the last two sentences are equal modulo quotes/case (quoted draft +
+ *   bare repeat), AND
+ * - a `Label:` header or a `?`→yes/no pair appears before them.
+ */
+function extractTracedAnswer(text: string): string | null {
+  const flat = text.replace(/\r\n/g, "\n").replace(/\n+/g, " ").trim();
+  if (!flat) return null;
+  const parts = flat
+    .split(/(?<=[.!?。！？][)\]”"]?)\s+/)
+    .map((p) => p.trim())
+    .filter((p) => p && normSent(p).length > 0);
+  if (parts.length < 3) return null;
+  const n = parts.length;
+  const last = normSent(parts[n - 1]);
+  const prev = normSent(parts[n - 2]);
+  // Longer than any bare affirmation ("yes"/"no"/"네"/"아니요" ≤ 4 chars),
+  // so a plain "Yes. Yes." can never trigger this.
+  if (last.length <= 4 || last !== prev) return null;
+  const head = parts.slice(0, n - 2);
+  let confirmed = head.some(isHeaderShape);
+  if (!confirmed) {
+    for (let k = 0; k + 1 < head.length; k++) {
+      if (endsQShape(head[k]) && isYesNoShape(head[k + 1])) {
+        confirmed = true;
+        break;
+      }
+    }
+  }
+  if (!confirmed) return null;
+  return parts[n - 1].replace(/^["“”'‘’⤴\s]+|["“”'‘’⤴\s]+$/g, "").trim() || null;
+}
+
 /**
  * A sentence that talks ABOUT the answer instead of being the answer:
  * third-person narration ("The user's question …"), self-planning
@@ -114,6 +181,11 @@ export function sanitizeAnswer(raw: string): string {
   if (!text) return "";
   // Code blocks stay untouched apart from repeat-collapsing.
   if (text.includes("```")) return dedupe(text);
+
+  // Deliberation trace with a repeated answer at the end (shape-based,
+  // vocabulary-free) — take just the answer up front.
+  const traced = extractTracedAnswer(text);
+  if (traced) return dedupe(traced);
 
   // "So, I will answer in Korean: "quoted answer" …" — the meta lead and the
   // answer share one line, so line-stripping can't see it. Cut the lead and

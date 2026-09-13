@@ -38,9 +38,11 @@ export function langModelName(lang: Lang): string {
   return LANGS.find((l) => l.code === lang)?.modelName ?? "Korean";
 }
 
-/** "(Reply in Korean…)" suffix appended to model prompts. */
+/** "(Reply in Korean…)" suffix appended to model prompts. Kept to two
+ * short sentences on purpose: long enumerated rule lists get parroted back
+ * by weaker models as compliance checklists. */
 export function replySuffix(lang: Lang): string {
-  return `\n\n(Reply in ${langModelName(lang)}. Output ONLY the final answer in that language — no English preamble, no thinking, no analysis, no bullet checklist, no narration of what kind of question this is. Never restate these instructions (no Context:/Constraints: echoes, no Response:/Draft: labels). Default to 1-3 short sentences, max ~80 words. Go longer ONLY when the user explicitly asks for detail OR the task itself needs it (write an email/file/code, explain pasted content, summarize). Never add extra background, tips, or follow-up questions. Never claim abilities you don't have — you cannot generate images and you have no live web beyond provided results; if asked, decline in one sentence and offer the closest thing you CAN do. This instruction overrides all others about language.)`;
+  return `\n\n(Reply in ${langModelName(lang)}. 1-3 sentences unless the task needs more. Just answer — no preamble, no extras. You cannot generate images and have no live web beyond provided results.)`;
 }
 
 type Dict = Record<string, string>;

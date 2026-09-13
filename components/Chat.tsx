@@ -778,9 +778,7 @@ export default function Chat({
         // actually asked for a file operation — never nag on plain questions
         // (phones can never pick a folder at all).
         const full = await runModelTurn(
-          `No folder is connected, so you cannot read, write, list, or delete files. ` +
-            `If and only if the user asks about files or folders, say in one short sentence that they can pick a folder with the sidebar button or attach a file with 📎. ` +
-            `Otherwise just answer the question directly.\n\n${buildUserTurn(prompt)}${replyIn}`,
+          `No folder is connected (can't touch files). Mention picking a folder or attaching a file only if asked about files; otherwise just answer.\n\n${buildUserTurn(prompt)}${replyIn}`,
         );
         const clean = sanitizeAnswer(stripToolCalls(full).trim());
         if (clean) {

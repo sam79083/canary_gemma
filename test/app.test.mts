@@ -129,6 +129,24 @@ describe("answer sanitizer", () => {
     assert.equal(sanitizeAnswer(raw), "gemma-4-26b-a4b-it 모델을 사용하고 계십니다.");
   });
 
+  it("extracts the repeated end-answer from a header/Q&A trace", () => {
+    const raw =
+      "G\nIdentity Constraint: \"you are the model 'm', served through X.\" " +
+      "Instruction for Identity: \"give that designation in one short sentence.\" " +
+      "Constraint for File questions: Only if asked about files. " +
+      "Output format: Only the final answer, 1-3 short sentences. Identity: m\n" +
+      "Served through: X\n" +
+      "Translation to Korean: 저는 m입니다. " +
+      "\" 저는 m입니다.\" One short natural sentence? Yes. Only final answer? Yes. " +
+      "Language correct? Yes. \" 저는 m입니다.\" 저는 m입니다.\n⤴";
+    assert.equal(sanitizeAnswer(raw), "저는 m입니다.");
+  });
+
+  it("leaves a normal answer ending in a question alone", () => {
+    const normal = "오늘 뭐 먹을까? 김치찌개는 어때?";
+    assert.equal(sanitizeAnswer(normal), normal);
+  });
+
   it("drops a 'So, I will answer' lead without quotes", () => {
     assert.equal(
       sanitizeAnswer("So, I will answer in Korean. 저는 gemma-4-26b-a4b-it입니다."),
