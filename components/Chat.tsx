@@ -21,7 +21,7 @@ import { TRIAL_GEMINI_LIMIT, TRIAL_HF_LIMIT } from "@/lib/trial-limits";
 import { getDrawsToday, recordDraw, recordUsage } from "@/lib/usage";
 import { renderMarkdown } from "@/lib/markdown";
 import { sanitizeAnswer } from "@/lib/sanitize";
-import { FREE_DRAW_ENGINE, generateFreeImage, generateHFImage } from "@/lib/cloud-model";
+import { generateHFImage } from "@/lib/cloud-model";
 import {
   AGENT_MAX_STEPS,
   buildAgentPreamble,
@@ -51,7 +51,7 @@ interface Props {
   ensureVision: () => Promise<LanguageModelSession | null>;
   /** Model id for usage tracking (e.g. gemma-4-26b-a4b-it). Empty = don't track. */
   usageModel: string;
-  /** HF token for HD drawing. Empty = free engine only. */
+  /** HF token for HD drawing. Empty = server trial first. */
   hfKey?: string;
   /** Called when a trial budget runs out (open the key guide for them). */
   onTrialOver?: () => void;
@@ -903,10 +903,9 @@ export default function Chat({
     });
   }
 
-  /** Shared engine: generate → save → post. Engine "free" (keyless) or "hf". */
+  /** Generate → save → post. HD only (server trial key, else your own). */
   const runDraw = useCallback(async (
     promptText: string,
-    engine: "free" | "hf",
     userLabel: string,
   ): Promise<void> => {
     if (busyRef.current) return;
@@ -923,11 +922,8 @@ export default function Chat({
       setStreamText(t("cfDrawing", { n: Math.round((Date.now() - started) / 1000) }));
     }, 1000);
     try {
-      const blob =
-        engine === "hf"
-          ? (await generateHFImage(hfKey, promptText)).blob
-          : (await generateFreeImage(promptText)).blob;
-      await savePicture(blob, promptText, engine === "hf" ? null : t("cfFreeEngine"), engine);
+      const blob = (await generateHFImage(hfKey, promptText)).blob;
+      await savePicture(blob, promptText);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === "no-space") pushMessage("assistant", t("cfNoSpace"));
@@ -956,43 +952,29 @@ export default function Chat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setInput, pushMessage, persistChat, hfKey, workspace, onFilesChanged, t]);
 
-  /** Text prompt → free picture → chat + workspace. Provider-independent. */
+  /** Text prompt → HD picture (server trial, else your HF key) → chat + workspace. */
   const handleDraw = useCallback(async () => {
     // Users often type the 🎨 themselves and then press the button too.
-    const prompt = input.replace(/^[🎨✨📷\s]+/u, "").trim();
-    if (!prompt) {
-      pushMessage("assistant", t("cfNoPrompt"));
-      inputRef.current?.focus();
-      return;
-    }
-    await runDraw(prompt, "free", "🎨");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, pushMessage, runDraw, t]);
-
-  /** Text prompt → uncompressed FLUX via HF token → chat + workspace. */
-  const handleDrawHF = useCallback(async () => {
     const prompt = input.replace(/^[🎨✨📷🖼️\s]+/u, "").trim();
     if (!prompt) {
       pushMessage("assistant", t("cfNoPrompt"));
       inputRef.current?.focus();
       return;
     }
-    await runDraw(prompt, "hf", "🖼️");
+    await runDraw(prompt, "🖼️");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input, pushMessage, runDraw, t]);
 
-  /** Re-roll the same prompt on the same engine (new seed each time). */
+  /** Re-roll the same prompt (new seed each time). */
   const handleReroll = useCallback(async (img: NonNullable<ChatMessage["image"]>) => {
     if (busyRef.current || !img.prompt) return;
-    await runDraw(img.prompt, img.engine, img.engine === "hf" ? "🖼️" : "🎨");
+    await runDraw(img.prompt, "🖼️");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runDraw]);
 
   async function savePicture(
     blob: Blob,
     prompt: string,
-    note: string | null,
-    engine: "free" | "hf" = "free",
   ): Promise<void> {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
     const name = `gen-${stamp}.png`;
@@ -1019,15 +1001,13 @@ export default function Chat({
     }
     pushMessage(
       "assistant",
-      t("cfSaved", { name: rel }) +
-        (temp ? "\n" + t("cfTemp") : "") +
-        (note ? "\n" + note : ""),
+      t("cfSaved", { name: rel }) + (temp ? "\n" + t("cfTemp") : ""),
       {
         name,
         rel,
         url: URL.createObjectURL(blob),
         prompt,
-        engine,
+        engine: "hf",
       },
     );
     persistChat();
@@ -1325,14 +1305,6 @@ export default function Chat({
             className="send-btn secondary"
             onClick={() => void handleDraw()}
             disabled={streaming || !input.trim()}
-            title={t("cfDraw")}
-          >
-            🎨
-          </button>
-          <button
-            className="send-btn secondary"
-            onClick={() => void handleDrawHF()}
-            disabled={streaming || !input.trim()}
             title={t("cfHFDraw")}
           >
             🖼️
@@ -1363,7 +1335,7 @@ export default function Chat({
           {provider === "cloud" && tokens > 0 ? (
             <span className="token-meter">{t("tkTokens", { n: fmtTokens(tokens) })}</span>
           ) : null}
-          <span className="token-meter">{t("usDrawEngine", { m: FREE_DRAW_ENGINE, n: draws })}</span>
+          <span className="token-meter">{t("usDraws", { n: draws })}</span>
           <button className="quota-refresh" onClick={() => void loadQuota()} title="Refresh quota">
             ↻
           </button>

@@ -42,32 +42,6 @@ function retryable(e: unknown): boolean {
   return /HTTP (429|500|502|503|504)/.test(msg);
 }
 
-/** GET bytes with the same polite backoff (used by image paths). */
-async function fetchBlobWithRetry(url: string, init: RequestInit, timeoutMs: number): Promise<Blob> {
-  let last: unknown = new Error("unreachable");
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      const res = await fetch(url, { ...init, signal: ctrl.signal });
-      if (res.status === 401 || res.status === 403) throw new Error("hf-bad-key");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      if (!blob || blob.size < 1024) throw new Error("empty-image");
-      return blob;
-    } catch (e) {
-      last = e;
-      const msg = e instanceof Error ? e.message : String(e);
-      if (msg === "hf-bad-key" || msg === "empty-image") throw e;
-      if (!retryable(e) || attempt === 3) throw e;
-      await sleep(2000 * 2 ** attempt);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  throw last;
-}
-
 /**
  * fetchJson with polite backoff: 2s → 4s → 8s on throttles/transients.
  * Auth and client errors fail immediately.
@@ -471,20 +445,4 @@ export async function generateHFImage(
   } finally {
     clearTimeout(timer);
   }
-}
-
-/**
- * Free keyless drawing via Pollinations (FLUX-class models), proxied
- * through our own server: browsers get 403 fetching it directly
- * (hotlink protection), server-to-server works. No account, any device.
- * Quality varies. Seed cache-busts so repeats differ.
- */
-export const FREE_DRAW_ENGINE = "Pollinations · flux";
-export async function generateFreeImage(prompt: string): Promise<GeneratedImage> {
-  const seed = Math.floor(Math.random() * 1000000);
-  const url =
-    `/api/draw?prompt=${encodeURIComponent(prompt.slice(0, 1500))}` +
-    `&seed=${seed}`;
-  const blob = await fetchBlobWithRetry(url, {}, 180000);
-  return { blob, mime: blob.type || "image/jpeg", usage: null };
 }

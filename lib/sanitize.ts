@@ -272,5 +272,23 @@ export function sanitizeAnswer(raw: string): string {
     .replace(/^["“]+\s*/, "")
     .trim();
   if (!text) return "";
-  return dedupe(text);
+  return dedupe(dropEarlierCopiesOfFinal(text));
+}
+
+/**
+ * Generic no-duplication rule (vocabulary-free): the final sentence wins —
+ * drop earlier copies of it (modulo quotes/case/whitespace), whatever the
+ * question was. Single-paragraph only, so lists and multi-paragraph answers
+ * keep their structure. Bare affirmations ("Yes.") never trigger it.
+ */
+function dropEarlierCopiesOfFinal(text: string): string {
+  if (text.includes("\n")) return text;
+  const parts = text.split(/(?<=[.!?。！？][)\]”"]?)\s+/);
+  if (parts.length < 2) return text;
+  const target = normSent(parts[parts.length - 1]);
+  if (target.length <= 4) return text;
+  const kept = parts.filter(
+    (p, idx) => idx === parts.length - 1 || normSent(p) !== target,
+  );
+  return kept.length === parts.length ? text : kept.join(" ").trim();
 }

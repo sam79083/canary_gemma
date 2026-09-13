@@ -1162,7 +1162,7 @@ export default function Home() {
             ) : null}
             {trialLeft && !model.geminiKey ? (
               <div style={{ fontSize: 11, opacity: 0.8 }}>
-                💬 {t("trLeft", { n: trialLeft.gemini })} · 🎨 {t("trLeft", { n: trialLeft.hf })}
+                💬 {t("trLeft", { n: trialLeft.gemini })} · 🖼️ {t("trLeft", { n: trialLeft.hf })}
               </div>
             ) : null}
             <div style={{ fontSize: 11, opacity: 0.7, fontFamily: "monospace" }}>

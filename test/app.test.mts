@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { parseToolCall, stripToolCalls } from "../lib/agent.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
 import { sanitizeAnswer } from "../lib/sanitize.ts";
-import { GeminiSession, HISTORY_TAIL, generateFreeImage, generateHFImage } from "../lib/cloud-model.ts";
+import { GeminiSession, HISTORY_TAIL, generateHFImage } from "../lib/cloud-model.ts";
 import { TRIAL_GEMINI_LIMIT } from "../lib/trial-limits.ts";
 import { OllamaSession, OLLAMA_HISTORY_TAIL } from "../lib/local-model.ts";
 
@@ -140,6 +140,17 @@ describe("answer sanitizer", () => {
       "\" 저는 m입니다.\" One short natural sentence? Yes. Only final answer? Yes. " +
       "Language correct? Yes. \" 저는 m입니다.\" 저는 m입니다.\n⤴";
     assert.equal(sanitizeAnswer(raw), "저는 m입니다.");
+  });
+
+  it("keeps one copy when the final sentence repeats, any question", () => {
+    assert.equal(
+      sanitizeAnswer("첫 문장. 마지막 문장. 마지막 문장."),
+      "첫 문장. 마지막 문장.",
+    );
+    assert.equal(
+      sanitizeAnswer('"Do X." Do X.'),
+      "Do X.",
+    );
   });
 
   it("leaves a normal answer ending in a question alone", () => {
@@ -297,24 +308,6 @@ describe("cloud SSE parser", () => {
       globalThis.fetch = origFetch;
     }
   });
-  it("draws keyless via generateFreeImage", async () => {
-    const origFetch = globalThis.fetch;
-    // @ts-expect-error harness
-    globalThis.fetch = async () => ({
-      ok: true,
-      status: 200,
-      blob: async () => new Blob([new Uint8Array(2048)], { type: "image/jpeg" }),
-    });
-    try {
-      const gen = await generateFreeImage("a cat");
-      assert.equal(gen.mime, "image/jpeg");
-      assert.ok(gen.blob.size > 0);
-      assert.equal(gen.usage, null);
-    } finally {
-      globalThis.fetch = origFetch;
-    }
-  });
-
   it("draws HD via generateHFImage", async () => {
     const origFetch = globalThis.fetch;
     let seenAuth = "";
