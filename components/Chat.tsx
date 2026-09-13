@@ -912,10 +912,9 @@ export default function Chat({
     userLabel: string,
   ): Promise<void> => {
     if (busyRef.current) return;
-    if (engine === "hf" && !hfKey) {
-      pushMessage("assistant", t("cfHFKeyPh"));
-      return;
-    }
+    // No early key gate: generateHFImage() tries the server trial key
+    // first (/api/hf-draw) and only needs the user's own key as fallback
+    // (501 no-server-key) or after the trial budget is spent.
     busyRef.current = "chat";
     setStreaming(true);
     setInput("");
