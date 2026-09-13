@@ -26,10 +26,6 @@ function isMetaSentence(s: string): boolean {
   const t = s.trim().replace(/^[*•\-]\s+/, "");
   if (!t) return false;
   // Third-person narration of the request = thinking, not answering.
-  if (/^context\s*:/i.test(t)) return true;
-  if (/the user is interacting with me/i.test(t)) return true;
-  if (/served through google/i.test(t)) return true;
-  if (/system instructions?\/identity/i.test(t)) return true;
   if (/the user'?s (question|prompt|request)/i.test(t)) return true;
   if (/\buser question\b/i.test(t)) return true;
   if (/\bidentity question\b/i.test(t)) return true;
@@ -42,27 +38,6 @@ function isMetaSentence(s: string): boolean {
   if (/^so,?\s*i will\b/i.test(t)) return true;
   if (/asks me to reply/i.test(t)) return true;
   if (/(prompt|instruction) asks/i.test(t)) return true;
-  // Deliberation about the request (thinking out loud, not answering).
-  if (/the user'?s (question|prompt|request) is about/i.test(t)) return true;
-  if (/^however,?\s*["'«“]?token/i.test(t)) return true;
-  if (/in llm context/i.test(t)) return true;
-  if (/in this conversational context/i.test(t)) return true;
-  if (/likely referring to/i.test(t)) return true;
-  if (/wait,?\s+the user'?s prompt includes/i.test(t)) return true;
-  if (/prompt injection/i.test(t)) return true;
-  if (/the core question is/i.test(t)) return true;
-  if (/^if they mean\b/i.test(t)) return true;
-  if (/i can'?t see the raw token/i.test(t)) return true;
-  if (/looking at the system instruction/i.test(t)) return true;
-  if (/actually,?\s+the user might/i.test(t)) return true;
-  if (/according to the .*system instruction/i.test(t)) return true;
-  if (/let'?s (refine|stick to)\b/i.test(t)) return true;
-  if (/given the identity instruction/i.test(t)) return true;
-  if (/the user'?s prompt is a complex instruction/i.test(t)) return true;
-  if (/^draft (response)?\s*:/i.test(t)) return true;
-  if (/^response\s*:/i.test(t)) return true;
-  if (/but as an ai,? i identify as/i.test(t)) return true;
-  if (/the prompt says\b/i.test(t)) return true;
   // English-only echo of the reply-language instruction.
   if (/reply in (korean|english|japanese|chinese|spanish|french|german|portuguese|vietnamese|indonesian)/i.test(t) && !hasCJK(t))
     return true;
@@ -94,15 +69,6 @@ function isMetaLine(line: string): boolean {
   const body = (bulleted ? bulleted[1] : t).trim();
   // Compliance-checklist Q&A: "* Is it short? Yes."
   if (/\?\s*(yes|no|네|아니요)\.?\s*$/i.test(body)) return true;
-  // Instruction echoes (the model restating its orders as a checklist):
-  // "* Reply in Korean.", "* No thinking…", "* Keep it short.",
-  // "* Truthful identity: …", "* Context: …".
-  if (
-    /^(reply in|output only|no (english )?preamble|no thinking|no analysis|no bullet|no narration|keep it (short|concise)|truthful|context\s*:|constraints?(\s+\d+)?\s*:|truthfulness\s*:|formatting\s*:|system instructions?([/.]\w+)?\s*:|the user'?s (question|prompt|request) is about|wait,?\s+the user|the core question is|if (they|you) mean|looking at the|actually,?\s+the user|according to (the|my)|let'?s (refine|stick)|given the|i must follow|draft (response)?\s*:|response\s*:|answer\s*:|i (can't|can ?not|must|should|will)|but as an ai|the prompt says|in llm context|in this conversational context|likely referring to|prompt injection|or something similar|this is slightly ambiguous)/i.test(
-      body,
-    )
-  )
-    return true;
   // Echoes of the prompt structure.
   if (
     /^(user (asks|question|request|status|is asking)|system instruction|the user (is asking|asks|provided|question)|context\/constraints|constraints?|conditions?|instructions?|language constraint|language:|reply in |according to my system)/i.test(
