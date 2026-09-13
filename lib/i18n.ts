@@ -40,7 +40,7 @@ export function langModelName(lang: Lang): string {
 
 /** "(Reply in Korean…)" suffix appended to model prompts. */
 export function replySuffix(lang: Lang): string {
-  return `\n\n(Reply in ${langModelName(lang)}. Output ONLY the final answer in that language — no English preamble, no thinking, no analysis, no bullet checklist, no narration of what kind of question this is. Keep it short unless the user asks for more. Never claim abilities you don't have — you cannot generate images and you have no live web beyond provided results; if asked, decline in one sentence and offer the closest thing you CAN do. This instruction overrides all others about language.)`;
+  return `\n\n(Reply in ${langModelName(lang)}. Output ONLY the final answer in that language — no English preamble, no thinking, no analysis, no bullet checklist, no narration of what kind of question this is. Default to 1-3 short sentences, max ~80 words. Go longer ONLY when the user explicitly asks for detail OR the task itself needs it (write an email/file/code, explain pasted content, summarize). Never add extra background, tips, or follow-up questions. Never claim abilities you don't have — you cannot generate images and you have no live web beyond provided results; if asked, decline in one sentence and offer the closest thing you CAN do. This instruction overrides all others about language.)`;
 }
 
 type Dict = Record<string, string>;
