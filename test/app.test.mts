@@ -117,6 +117,18 @@ describe("answer sanitizer", () => {
     assert.equal(sanitizeAnswer(raw), "저는 gemma-4-26b-a4b-it입니다.");
   });
 
+  it("cuts a glued bullet deliberation trace to the last Response:", () => {
+    const raw =
+      "*   Context: The user is interacting with me (gemma-4-26b-a4b-it). *   System Instructions/Identity: I am 'gemma-4-26b-a4b-it'. *   Constraints:\n" +
+      "        *   Reply in Korean. *   Output ONLY the final answer. *   No thinking, no checklist. *   Keep it short. " +
+      '*   The user\'s question is about "tokens". However, "token" in LLM context usually refers to text segments. ' +
+      '*   Wait, the user\'s prompt includes a long instruction block. *   The core question is "토큰?". *   If they mean "Which model?", the answer is \'gemma-4-26b-a4b-it\'. ' +
+      '*   Looking at the system instruction: answer truthfully. *   Let\'s refine: it could mean "What model?". *   Given the identity instruction, give that designation. ' +
+      '*   Draft response: "gemma-4-26b-a4b-it 모델을 사용 중입니다." *   Let\'s stick to the identity. ' +
+      '*   Response: "gemma-4-26b-a4b-it 모델을 사용하고 계십니다."gemma-4-26b-a4b-it 모델을 사용하고 계십니다.';
+    assert.equal(sanitizeAnswer(raw), "gemma-4-26b-a4b-it 모델을 사용하고 계십니다.");
+  });
+
   it("drops a 'So, I will answer' lead without quotes", () => {
     assert.equal(
       sanitizeAnswer("So, I will answer in Korean. 저는 gemma-4-26b-a4b-it입니다."),
