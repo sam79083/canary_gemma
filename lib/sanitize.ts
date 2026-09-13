@@ -119,8 +119,8 @@ function isMetaSentence(s: string): boolean {
 function isMetaLine(line: string): boolean {
   const t = line.trim();
   if (!t) return false;
-  // "Response:" / "Answer:" label prefix — handled by stripping, not dropping.
-  if (/^(final\s+)?(response|answer)\s*:\s*\S/i.test(t)) return false;
+  // "Response:" / "Answer:" / "Final String:" label prefix — handled by stripping, not dropping.
+  if (/^(?:final\s+(?:answer|string)|draft response|response|answer)\s*:\s*\S/i.test(t)) return false;
   // Bare analysis headers.
   if (/^(thinking|thought|analysis|reasoning|internal monologue)\s*:?$/i.test(t)) return true;
   // Echoes of instruction blocks: Context:/Constraint N:/Formatting:/Truthfulness:
@@ -179,8 +179,23 @@ export function sanitizeAnswer(raw: string): string {
   if (!raw) return raw;
   let text = raw.replace(/\r\n/g, "\n").trim();
   if (!text) return "";
-  // Code blocks stay untouched apart from repeat-collapsing.
+  // Code blocks stay untouched apart from repeat-collapsing (this guard
+  // must come first — ``` fences are symbol-only lines, see below).
   if (text.includes("```")) return dedupe(text);
+  // Leading single-char fragment ("G\n…") and trailing symbol-only lines
+  // ("…\n⤴") carry no content — drop them while real content remains.
+  // Shapes only, no vocabulary.
+  text = text.replace(/^[A-Za-z0-9]\s*\n+(?=\S)/, "");
+  const fragLines = text.split("\n");
+  while (
+    fragLines.length > 1 &&
+    fragLines[fragLines.length - 1].trim() !== "" &&
+    /^[^\p{L}\p{N}]+$/u.test(fragLines[fragLines.length - 1].trim())
+  ) {
+    fragLines.pop();
+  }
+  text = fragLines.join("\n").trim();
+  if (!text) return "";
 
   // Deliberation trace with a repeated answer at the end (shape-based,
   // vocabulary-free) — take just the answer up front.
@@ -197,26 +212,32 @@ export function sanitizeAnswer(raw: string): string {
     if (qPos >= 0) text = text.slice(qPos).trim();
   }
 
-  // "… Response: "final answer" final answer" — a deliberation trace that
-  // ends with a Response:/Final Answer:/Draft response: label glued onto the
-  // same line as bullets, so line-stripping would drop the answer with the
-  // trace and the all-stripped fallback would restore the whole mess. Cut to
-  // the LAST such marker first; the steps below unwrap quotes and dedupe.
-  // (First-marker cutting fails: an early "* Answer: <draft>" still leaves
-  // pages of deliberation behind it.)
+  // "… Final String: <answer>" (or Response:/Final Answer:/Draft response:)
+  // — a deliberation trace that ends with its answer under a label, so
+  // line-stripping would drop the answer with the trace and the all-stripped
+  // fallback would restore the whole mess. Per the user's rule: just take
+  // what's after the LAST such marker; the steps below unwrap quotes and
+  // dedupe. (First-marker cutting fails: an early "* Answer: <draft>" still
+  // leaves pages of deliberation behind it.)
   let lastIdx = -1;
-  for (const m of text.matchAll(/[\s*](?:final\s+answer|draft response|response|answer)\s*:\s*\S/gi)) {
+  for (const m of text.matchAll(/[\s*](?:final\s+(?:answer|string)|draft response|response|answer)\s*:\s*\S/gi)) {
     if (m.index !== undefined) lastIdx = m.index;
   }
   if (lastIdx >= 0) {
     const tail = text
       .slice(lastIdx)
-      .replace(/^(?:[\s*]*)(?:final\s+answer|draft response|response|answer)\s*:\s*/i, "")
+      .replace(/^(?:[\s*]*)(?:final\s+(?:answer|string)|draft response|response|answer)\s*:\s*/i, "")
       .trim();
     // Only cut when something answer-like follows (avoid gutting a normal
     // reply that merely mentions the word "answer:").
     if (tail.length > 0 && (hasCJK(tail) || tail.length < text.length / 2)) {
       text = tail;
+      // Draft + final back-to-back ("A. B. A'. B'") — keep the later half.
+      // Scoped to this isolated region ONLY: bare similarity is unsafe in
+      // general (distinct facts like "오늘/내일 날씨가 좋아요" score 0.80,
+      // right between real draft/final pairs), but after a Final String: /
+      // Response: label the tail IS the answer dump.
+      text = collapseDoubledHalves(text);
     }
   }
 
@@ -268,11 +289,55 @@ export function sanitizeAnswer(raw: string): string {
   }
 
   text = text
-    .replace(/^(final\s+)?(response|answer)\s*:\s*/i, "")
+    .replace(/^(?:final\s+(?:answer|string)|draft response|response|answer)\s*:\s*/i, "")
     .replace(/^["“]+\s*/, "")
     .trim();
   if (!text) return "";
   return dedupe(dropEarlierCopiesOfFinal(text));
+}
+
+/** Character-level similarity ratio (0-1) on normalized sentences. */
+function similarity(a: string, b: string): number {
+  const x = normSent(a);
+  const y = normSent(b);
+  const m = x.length;
+  const n = y.length;
+  if (m === 0 || n === 0) return 0;
+  if (x === y) return 1;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(
+        prev[j] + 1,
+        cur[j - 1] + 1,
+        prev[j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1),
+      );
+    }
+    prev = cur;
+  }
+  return 1 - prev[n] / Math.max(m, n);
+}
+
+/**
+ * Draft + final back-to-back ("A. B. A'. B'") — keep the later half.
+ * ONLY for already-isolated answer regions (after a Final String: /
+ * Response: label). Never applied generally: near-identical sentences can
+ * be distinct facts ("오늘/내일 날씨가 좋아요").
+ */
+function collapseDoubledHalves(text: string): string {
+  if (text.includes("\n")) return text;
+  const parts = text.split(/(?<=[.!?。！？][)\]”"]?)\s+/);
+  if (parts.length < 4 || parts.length % 2 !== 0) return text;
+  const half = parts.length / 2;
+  for (let k = 0; k < half; k++) {
+    const a = normSent(parts[k]);
+    const b = normSent(parts[k + half]);
+    if (Math.min(a.length, b.length) < 8 || similarity(parts[k], parts[k + half]) < 0.7) {
+      return text;
+    }
+  }
+  return parts.slice(half).join(" ").trim();
 }
 
 /**
@@ -280,8 +345,7 @@ export function sanitizeAnswer(raw: string): string {
  * drop earlier copies of it (modulo quotes/case/whitespace), whatever the
  * question was. Single-paragraph only, so lists and multi-paragraph answers
  * keep their structure. Bare affirmations ("Yes.") never trigger it.
- */
-function dropEarlierCopiesOfFinal(text: string): string {
+ */function dropEarlierCopiesOfFinal(text: string): string {
   if (text.includes("\n")) return text;
   const parts = text.split(/(?<=[.!?。！？][)\]”"]?)\s+/);
   if (parts.length < 2) return text;

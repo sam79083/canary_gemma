@@ -142,6 +142,25 @@ describe("answer sanitizer", () => {
     assert.equal(sanitizeAnswer(raw), "저는 m입니다.");
   });
 
+  it("takes only what's after the last Final String:", () => {
+    const raw =
+      "G\nLength: 1-3 sentences.\nIdentity: m.\n" +
+      "I can answer questions.\n" +
+      '" 저는 m으로 답변합니다. 질문 답변을 수행합니다."\n' +
+      "Korean? Yes.\n" +
+      "Final String: 저는 m으로 답변합니다. 질문 답변을 수행합니다. " +
+      "저는 m으로 답변합니다. 질문 답변을 수행합니다.\n⤴";
+    assert.equal(
+      sanitizeAnswer(raw),
+      "저는 m으로 답변합니다. 질문 답변을 수행합니다.",
+    );
+  });
+
+  it("drops leading fragments and trailing symbol lines", () => {
+    assert.equal(sanitizeAnswer("G\n본문입니다."), "본문입니다.");
+    assert.equal(sanitizeAnswer("본문입니다.\n⤴"), "본문입니다.");
+    assert.equal(sanitizeAnswer("🎉"), "🎉");
+  });
   it("keeps one copy when the final sentence repeats, any question", () => {
     assert.equal(
       sanitizeAnswer("첫 문장. 마지막 문장. 마지막 문장."),

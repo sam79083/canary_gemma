@@ -821,8 +821,8 @@ export default function Chat({
           ) {
             nextPrompt =
               `Your last reply tried to call a tool but the JSON was invalid and nothing ran. ` +
-              `Reply again with EXACTLY ONE valid block and nothing else:\n` +
-              `\`\`\`toolcall\n{"name": "readFile", "path": "notes/a.txt"}\n\`\`\`\n` +
+              `Reply again with EXACTLY ONE valid block and nothing else (shape illustration only — use the path from the user's request, never this example path):\n` +
+              `\`\`\`toolcall\n{"name": "readFile", "path": "relative/path.txt"}\n\`\`\`\n` +
               `Valid names: listFiles, readFile, writeFile, makeDir, deletePath. ` +
               `For writeFile, "content" must be a JSON string with \\n for newlines.`;
             setStreamText("");
