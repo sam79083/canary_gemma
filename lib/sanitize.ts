@@ -47,6 +47,66 @@ function endsQShape(s: string): boolean {
 }
 
 /**
+ * Trailing-answer extraction (vocabulary-free): if the message ends with a
+ * short run of reply-language (CJK) sentences after non-CJK scaffolding
+ * (`Label:` headers, `?`→yes/no pairs, note asides), the run IS the answer —
+ * whatever the question was, whatever words the scaffolding uses.
+ * Guards: single paragraph (lists keep structure), gated on scaffolding
+ * shapes (titled legit answers like "제목: …" stay), near-dup collapse at
+ * 0.85 (distinct facts like "오늘/내일 날씨가 좋아요" at 0.80 survive).
+ */
+function extractAnswerTail(text: string): string | null {
+  const parts = text
+    .split(/(?<=[.!?。！？][)\]”"]?)\s+/)
+    .map((p) => p.trim())
+    .filter((p) => p && normSent(p).length > 0);
+  if (parts.length < 2) return null;
+  let start = parts.length;
+  while (start > 0 && hasCJK(parts[start - 1])) start--;
+  const run = parts.slice(start);
+  const rest = parts.slice(0, start);
+  if (run.length === 0 || rest.length === 0 || run.length > 6) return null;
+  if (run.join(" ").includes("\n")) return null;
+  let headers = 0;
+  for (const s of rest) {
+    const b = s.replace(/^[*•\-]\s+/, "").trim();
+    if (isHeaderShape(b) || /^\((note|system|internal)/i.test(b)) headers++;
+  }
+  let qa = false;
+  for (let k = 0; k + 1 < rest.length; k++) {
+    if (endsQShape(rest[k]) && isYesNoShape(rest[k + 1])) {
+      qa = true;
+      break;
+    }
+  }
+  if (!(headers >= 2 || (headers >= 1 && qa))) return null;
+  const cleaned = run.map((p) =>
+    p.trim().replace(/^["“”'‘’]+\s*|\s*["“”'‘’]+$/g, ""),
+  );
+  const kept: string[] = [];
+  for (let i = cleaned.length - 1; i >= 0; i--) {
+    const c = cleaned[i];
+    if (!c) continue;
+    const cn = normSent(c);
+    let dup = false;
+    for (const k of kept) {
+      const kn = normSent(k);
+      if (cn && cn === kn) {
+        dup = true;
+        break;
+      }
+      if (cn.length >= 8 && kn.length >= 8 && similarity(c, k) >= 0.85) {
+        dup = true;
+        break;
+      }
+    }
+    if (!dup) kept.unshift(c);
+  }
+  if (kept.length === 0) return null;
+  return kept.join(" ").trim() || null;
+}
+
+/**
  * If the message is a deliberation trace ending in its (repeated) answer,
  * return just the answer. Requirements, all structural:
  * - the last two sentences are equal modulo quotes/case (quoted draft +
@@ -196,6 +256,10 @@ export function sanitizeAnswer(raw: string): string {
   }
   text = fragLines.join("\n").trim();
   if (!text) return "";
+
+  // Trailing reply-language run after scaffolding — the run is the answer.
+  const tail = extractAnswerTail(text);
+  if (tail) text = tail;
 
   // Deliberation trace with a repeated answer at the end (shape-based,
   // vocabulary-free) — take just the answer up front.

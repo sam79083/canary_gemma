@@ -142,6 +142,35 @@ describe("answer sanitizer", () => {
     assert.equal(sanitizeAnswer(raw), "저는 m입니다.");
   });
 
+  it("takes the trailing answer after scaffolding, any vocab", () => {
+    const raw =
+      "G\nLength: 1-3 sentences.\nNo preamble/extras.\n" +
+      "Capabilities: Text in, text out.\n" +
+      "Input: Text and images.\nOutput: Text only.\n" +
+      "저는 m으로 답변합니다. 질문에 답합니다.\n" +
+      "Korean? Yes.\nNo preamble? Yes.\n" +
+      '" 저는 m으로 답변을 생성합니다. 질문에 답합니다." ' +
+      "저는 m으로 답변을 생성합니다. 질문에 답합니다.\n\n⤴";
+    assert.equal(
+      sanitizeAnswer(raw),
+      "저는 m으로 답변을 생성합니다. 질문에 답합니다.",
+    );
+  });
+
+  it("keeps titled answers, distinct facts, and lists", () => {
+    assert.equal(
+      sanitizeAnswer("제목: 회의록. 내용은 다음과 같습니다."),
+      "제목: 회의록. 내용은 다음과 같습니다.",
+    );
+    assert.equal(
+      sanitizeAnswer("오늘 날씨가 좋아요. 내일 날씨가 좋아요."),
+      "오늘 날씨가 좋아요. 내일 날씨가 좋아요.",
+    );
+    assert.equal(
+      sanitizeAnswer("Here you go:\n- 사과\n- 배"),
+      "Here you go:\n- 사과\n- 배",
+    );
+  });
   it("takes only what's after the last Final String:", () => {
     const raw =
       "G\nLength: 1-3 sentences.\nIdentity: m.\n" +
