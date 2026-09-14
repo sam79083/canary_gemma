@@ -39,14 +39,12 @@ import {
   listLocalSessions,
   loadLocalSession,
   normalizeTitle,
-  renameLocalSession,
   saveLocalSession,
 } from "@/lib/sessions-local";
 import {
   deleteWorkspaceSession,
   listWorkspaceSessions,
   loadWorkspaceSession,
-  renameWorkspaceSession,
   saveWorkspaceSession,
 } from "@/lib/sessions-workspace";
 import type { ChatMessage, PendingReview, ReviewFn, ReviewResult, SessionInfo } from "@/lib/types";
@@ -715,34 +713,22 @@ export default function Home() {
         await model.restoreSession(msgs);
       } catch (e) {
         console.error("Failed to load session:", e);
+        // Storage and list disagree (deleted elsewhere, failed write) —
+        // drop the ghost row now instead of leaving one that can never
+        // open, and say so in chat rather than crashing.
+        setSessionList((prev) => prev.filter((s) => s.filename !== filename));
+        if (currentSessionFileRef.current === filename) {
+          currentSessionFileRef.current = null;
+          setCurrentFile(null);
+        }
+        pushMessage("assistant", t("ssGone"));
+        persistChat();
       }
       setTimeout(() => document.getElementById("prompt-input")?.focus(), 0);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [workspace.connected],
+    [workspace.connected, t],
   );
-
-  const handleRenameChat = useCallback(async () => {
-    const filename = currentSessionFileRef.current;
-    if (!filename) return;
-    const current =
-      sessionList.find((s) => s.filename === filename)?.title ?? "";
-    const next = prompt(t("ssRename"), current);
-    if (!next || !next.trim() || next.trim() === current) return;
-    try {
-      if (workspace.connected)
-        await renameWorkspaceSession(workspace, filename, next);
-      else await renameLocalSession(filename, next);
-      setSessionList(
-        workspace.connected
-          ? await listWorkspaceSessions(workspace)
-          : await listLocalSessions(),
-      );
-    } catch (e) {
-      console.error("Rename failed:", e);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace.connected, sessionList, t]);
 
   const handleDeleteChat = useCallback(async () => {
     const filename = currentSessionFileRef.current;
@@ -756,6 +742,9 @@ export default function Home() {
       console.error("Delete failed:", e);
     }
     handleNewChat();
+    // The list must reflect the delete even for the active chat —
+    // otherwise its row lingers as a ghost that can never open.
+    await refreshSessions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.connected, t, handleNewChat]);
 
@@ -772,13 +761,11 @@ export default function Home() {
       }
       if (currentSessionFileRef.current === filename) {
         handleNewChat();
-      } else {
-        setSessionList(
-          workspace.connected
-            ? await listWorkspaceSessions(workspace).catch(() => [])
-            : await listLocalSessions().catch(() => []),
-        );
       }
+      // Always re-read the list: the deleted row must vanish even when
+      // it was the active chat (handleNewChat alone leaves a ghost row
+      // that throws "Not found" when opened).
+      await refreshSessions();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [workspace.connected, t, handleNewChat],
@@ -1173,61 +1160,66 @@ export default function Home() {
         </select>
 
         {sessionList.length > 0 ? (
-          <details className="side-group" style={{ marginTop: 6 }}>
+          <details className="side-group" style={{ marginTop: 6 }} open>
             <summary style={{ fontSize: 11 }}>{t("ssManage")}</summary>
             <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4, maxHeight: 180, overflowY: "auto" }}>
           {sessionList
             .filter((s) => s.filename && s.filename.trim())
-            .map((s) => {
+            .map((s, i) => {
               // Belt-and-braces: title → filename → date, so a row can
-              // never render blank (plus a visible date to tell chats apart).
+              // never render blank. Plain wrapping text (no ellipsis
+              // truncation), filename shown inline, native radio to pick.
               const label =
                 displayTitle(s).trim() || new Date(s.timestamp).toLocaleString();
               const d = new Date(s.timestamp);
               const when = s.timestamp
                 ? `${d.toLocaleDateString()} ${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`
                 : "?";
+              const radioId = `chat-pick-${i}`;
+              const isCurrent = s.filename === currentFile;
               return (
                 <div
                   key={s.filename}
-                  style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}
+                  style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12, padding: "6px 4px", borderRadius: 6, background: isCurrent ? "var(--border)" : "transparent" }}
                 >
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => void handleLoadSessionFile(s.filename)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") void handleLoadSessionFile(s.filename);
-                    }}
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      opacity: s.filename === currentFile ? 1 : 0.85,
-                      fontWeight: s.filename === currentFile ? 700 : 400,
-                      cursor: "pointer",
-                      color: "var(--text)",
-                    }}
-                    title={`${label} (${s.filename}) — click to open`}
-                  >
-                    {label}
-                  </span>
-                  <span style={{ flex: "0 0 auto", fontSize: 11, opacity: 0.65, color: "var(--text)" }}>
-                    {when}
-                  </span>
-                  <button
-                    className="sidebar-btn small"
-                    style={{ flex: "0 0 auto", padding: "2px 8px" }}
-                    title={t("trDelete")}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleDeleteOneChat(s.filename);
-                    }}
-                  >
-                    🗑️
-                  </button>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <input
+                      id={radioId}
+                      type="radio"
+                      name="canary-chat-pick"
+                      checked={isCurrent}
+                      onChange={() => void handleLoadSessionFile(s.filename)}
+                      title={label}
+                      style={{ flex: "0 0 auto", accentColor: "var(--green)" }}
+                    />
+                    <label
+                      htmlFor={radioId}
+                      title={`${label} — click to open`}
+                      style={{ flex: 1, minWidth: 0, cursor: "pointer", color: "var(--text)", fontWeight: isCurrent ? 700 : 400, overflowWrap: "break-word" }}
+                    >
+                      {label}
+                    </label>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", paddingLeft: 22 }}>
+                    <span
+                      title={s.filename}
+                      style={{ flex: 1, minWidth: 0, fontSize: 11, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                    >
+                      {when} · {s.filename}
+                    </span>
+                    <button
+                      className="sidebar-btn small"
+                      style={{ flex: "0 0 auto", width: "auto", padding: "2px 8px" }}
+                      title={t("trDelete")}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        void handleDeleteOneChat(s.filename);
+                      }}
+                    >
+                      🗑️
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -1275,15 +1267,7 @@ export default function Home() {
             </span>
             <button
               className="sidebar-btn small"
-              style={{ flex: "0 0 auto" }}
-              title={t("trEdit")}
-              onClick={() => void handleRenameChat()}
-            >
-              ✏️
-            </button>
-            <button
-              className="sidebar-btn small"
-              style={{ flex: "0 0 auto" }}
+              style={{ flex: "0 0 auto", width: "auto" }}
               title={t("trDelete")}
               onClick={() => void handleDeleteChat()}
             >

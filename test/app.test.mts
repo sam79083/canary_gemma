@@ -51,6 +51,10 @@ describe("markdown renderer", () => {
 });
 
 describe("answer sanitizer", () => {
+  // Doctrine: every rule here is structural (repeats, drafts, labels,
+  // dedupe) and knows zero question words. Fixtures below are EXAMPLES
+  // only — the same rows pass for any topic. Cover a new shape by adding
+  // an it-block with a DIFFERENT question, never wording lists.
   it("strips leading analysis bullets, keeps the answer", () => {
     const raw =
       '*   User question: "gemma가 아니야?"\n' +
@@ -268,6 +272,58 @@ describe("answer sanitizer", () => {
     assert.equal(
       sanitizeAnswer("Direct answer. The meeting is at noon."),
       "Direct answer. The meeting is at noon.",
+    );
+  });
+
+  it("cuts planning about 'the user' at the pivot to 'you'", () => {
+    const raw =
+      "The user is comparing two phone makers and their ecosystems. " +
+      "The user is likely asking which brand fits them best. " +
+      "Outline: history, products, verdict. " +
+      "Because you mentioned battery life, I will focus on that. " +
+      "Both brands last a full day. Pick the one with the better warranty.";
+    assert.equal(
+      sanitizeAnswer(raw),
+      "Because you mentioned battery life, I will focus on that. " +
+        "Both brands last a full day. Pick the one with the better warranty.",
+    );
+  });
+
+  it("keeps prose that merely mentions users, even with 'you' nearby", () => {
+    assert.equal(
+      sanitizeAnswer("The user manual explains the setup. You should read chapter 2 first."),
+      "The user manual explains the setup. You should read chapter 2 first.",
+    );
+    assert.equal(
+      sanitizeAnswer("The user account section is under Settings. The user profile photo can be changed there. You can upload a PNG."),
+      "The user account section is under Settings. The user profile photo can be changed there. You can upload a PNG.",
+    );
+    assert.equal(
+      sanitizeAnswer("The user asked about refunds. You can get one within 30 days."),
+      "The user asked about refunds. You can get one within 30 days.",
+    );
+  });
+
+  it("cuts planning at the pivot on another topic (cooking)", () => {
+    const raw =
+      "The user is deciding between pasta and rice tonight. " +
+      "The user seems hungry and in a hurry. " +
+      "Notes: quick meals only. " +
+      "You should make pasta, it takes ten minutes. Pasta is ready fast.";
+    assert.equal(
+      sanitizeAnswer(raw),
+      "You should make pasta, it takes ten minutes. Pasta is ready fast.",
+    );
+  });
+
+  it("keeps titled and listed content (no scaffolding proof)", () => {
+    assert.equal(
+      sanitizeAnswer("Ingredients:\n- eggs\n- flour"),
+      "Ingredients:\n- eggs\n- flour",
+    );
+    assert.equal(
+      sanitizeAnswer("Title: Quarterly Report. The event was great."),
+      "Title: Quarterly Report. The event was great.",
     );
   });
 });

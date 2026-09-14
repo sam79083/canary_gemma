@@ -225,15 +225,15 @@ export function sanitizeAnswer(raw: string): string {
   const labeled = extractLastLabeled(text);
   if (labeled !== null) text = labeled;
 
-  // Leading whole-line scaffolding (bare analysis headers, labeled
-  // parenthesized asides) carries no content — drop it. Anything left
-  // standing is shown as-is; nothing left means chDidntGet downstream.
-  const leadLines = text.split("\n");
-  while (leadLines.length > 0 && (leadLines[0].trim() === "" || isScaffoldLine(leadLines[0]))) {
-    leadLines.shift();
-  }
-  text = leadLines.join("\n").trim();
-  if (!text) return "";
+  // Audience shift: planning about "the user" pivots to addressing
+  // "you" — cut everything before the pivot. Grammar only.
+  const shifted = extractAudienceShift(text);
+  if (shifted !== null) text = shifted;
+
+  // (No vocabulary-based leading-line strip: hardcoded phrase lists only
+  // work for the exact questions they were written for. A lone stray
+  // header line may survive — harmless next to a real answer, and the
+  // prompts no longer feed such lines to the model.)
 
   // Glued boundaries from streaming ("…it.)저는…", `"Hi!"Hi!`) — split
   // CJK joints and quote/paren glue. Decimals/URLs like 3.14 stay intact:
@@ -254,20 +254,30 @@ export function sanitizeAnswer(raw: string): string {
 
   // Standalone English parentheticals inside an otherwise CJK answer are
   // translation asides ("(I am …)"), not content the user asked for.
+  // Sets cleanedAside below: a label left standing right after an aside
+  // was almost certainly scaffolding around it (`(Note: …)\nLabel: …`).
+  // Splits on newlines too — asides usually own their line.
+  let cleanedAside = false;
   if (hasCJK(text)) {
-    const sents = text.split(/(?<=[.!?。！？][)\]”"]?)\s+/);
+    const sents = text.split(/(?<=[.!?。！？][)\]”"]?)\s+|\n+/);
     const kept = sents.filter((s) => {
       const st = s.trim();
       if (/^\([^()]{0,200}\)\.?$/.test(st) && !hasCJK(st)) return false;
       return true;
     });
-    if (kept.length > 0 && kept.length !== sents.length) text = kept.join(" ").trim();
+    if (kept.length > 0 && kept.length !== sents.length) {
+      text = kept.join(" ").trim();
+      cleanedAside = text.length > 0;
+    }
   }
 
-  text = text
-    .replace(/^(?:final\s+(?:answer|string)|draft response|response|answer)\s*:\s*/i, "")
-    .replace(/^["“]+\s*/, "")
-    .trim();
+  // A leading `Label:` left standing right after a removed aside is
+  // scaffolding residue (`(Note: …)\nResponse: …`) — any label words.
+  // Anywhere else a leading label is content (`Name: Sam.`) and stays.
+  if (cleanedAside) {
+    text = text.replace(/^[A-Za-z가-힣][^:?\n]{1,30}:\s*/, "").trim();
+  }
+  text = text.replace(/^["“]+\s*/, "").trim();
   if (!text) return "";
   return dedupe(dropEarlierCopiesOfFinal(text));
 }
@@ -378,17 +388,6 @@ function extractFinalRepeat(text: string): string | null {
   return null;
 }
 
-/** A whole line that is pure scaffolding, never content: a bare analysis
- * header, or a parenthesized aside LABEL (`(Note: …)`). Whole-line only —
- * inline uses stay untouched. */
-function isScaffoldLine(line: string): boolean {
-  const t = line.trim();
-  if (!t) return false;
-  if (/^(thinking|thought|analysis|reasoning|internal monologue)\s*:?$/i.test(t)) return true;
-  if (/^\((note|system|internal)\b[^()\n]{0,200}\)\.?$/i.test(t)) return true;
-  return false;
-}
-
 /**
  * Generic labeled-answer take: a trace that ends with its answer under a
  * `Label:` takes just the tail — any label words, any language. Proof
@@ -463,6 +462,46 @@ function extractQuotedDraft(text: string): string | null {
   }
   if (markers < 2) return null;
   return parts[parts.length - 1].replace(/^["“”'‘’\s]+|["“”'‘’\s]+$/g, "").trim() || null;
+}
+
+/**
+ * Audience shift: deliberation talks ABOUT "the user" (third person),
+ * the answer talks TO "you" (second person). When >= 2 third-person
+ * mentions precede the first second-person sentence, and the dropped
+ * head carries structural markers, cut everything before that sentence.
+ * Any language of content, any question — only grammar is inspected.
+ */
+function extractAudienceShift(text: string): string | null {
+  const parts = text
+    .split(/(?<=[.!?。！？][)\]”"]?)\s+|\n+/)
+    .map((p) => p.trim())
+    .filter((p) => p && normSent(p).length > 0);
+  if (parts.length < 4) return null;
+  const mentions: number[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    if (/\bthe user\b/i.test(parts[i])) mentions.push(i);
+    if (/\byou(r)?\b/i.test(parts[i]) && mentions.filter((m) => m < i).length >= 2) {
+      const head = parts.slice(0, i);
+      let markers = 0;
+      for (const h of head) {
+        if (isHeaderShape(h.replace(/^[*•\-]\s+/, "").trim())) markers++;
+      }
+      const flat = head.join(" ");
+      const drafts = flat.match(/["“][^"”]{8,}["”]/g);
+      if (drafts) markers += drafts.length;
+      for (let k = 0; k + 1 < head.length; k++) {
+        if (endsQShape(head[k]) && isYesNoShape(head[k + 1])) {
+          markers++;
+          break;
+        }
+      }
+      if (markers < 1) continue;
+      const at = text.indexOf(parts[i]);
+      if (at < 0) continue;
+      return text.slice(at).trim() || null;
+    }
+  }
+  return null;
 }
 
 /** Scaffolding proof: >= 2 structural markers, no vocabulary involved. */
