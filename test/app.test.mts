@@ -60,35 +60,29 @@ describe("answer sanitizer", () => {
     assert.equal(sanitizeAnswer(raw), "저는 gemma-4-26b-a4b-it입니다.");
   });
 
-  it("strips full deliberation traces, keeps only the answer", () => {
+  it("takes the answer from a labeled trace (weather question)", () => {
     const raw = [
-      "User instruction: \"No folder is connected...\"",
-      "User request: \"what is the seoul weather today\"",
-      "Constraint: Reply in English. Output ONLY the final answer.",
-      "Knowledge check: I do not have live web access.",
-      "Option 1: \"I don't have access...\"",
-      "Option 2: \"I cannot check...\"",
-      "Draft: \"I don't have access to live weather updates.\"",
-      "Self-Correction during drafting: keep it short.",
-      "Final Answer: I don't have access to live weather updates.",
-      "I don't have access to live weather updates.",
+      "Subject: Weather query.",
+      "Locale: Seoul.",
+      'Option 1: "There may be rain this afternoon."',
+      'Option 2: "No umbrella needed."',
+      'Draft: "There may be rain this afternoon."',
+      "Summary: There may be rain this afternoon.",
+      "There may be rain this afternoon.",
     ].join("\n");
     assert.equal(
       sanitizeAnswer(raw),
-      "I don't have access to live weather updates.",
+      "There may be rain this afternoon.",
     );
   });
 
-  it("strips instruction-block echoes (Context/Constraint/Formatting)", () => {
+  it("takes the answer from a labeled trace (lunch question)", () => {
     const raw =
-      "Context: No folder connected (cannot read/write/list/delete files).\n" +
-      "Constraint 1: If the user asks about files/folders → pick a folder.\n" +
-      "Constraint 2: Otherwise → answer directly.\n" +
-      "Formatting: English only, NO preamble, NO thinking.\n" +
-      "Truthfulness: Do not claim image generation.\n" +
-      "The user is asking what ai they use.\n" +
-      "I am gemma-4-26b-a4b-it.";
-    assert.equal(sanitizeAnswer(raw), "I am gemma-4-26b-a4b-it.");
+      "Subject: Lunch plans.\n" +
+      "Reminder: The place closes early.\n" +
+      "Question: Shall we order pizza? Yes.\n" +
+      "Decision: We order pizza at noon.";
+    assert.equal(sanitizeAnswer(raw), "We order pizza at noon.");
   });
 
   it("drops parenthesized notes and Response: labels", () => {
@@ -107,14 +101,12 @@ describe("answer sanitizer", () => {
     assert.equal(sanitizeAnswer(normal), normal);
   });
 
-  it("strips prose reasoning, quoted answer, translation aside, glued repeat", () => {
+  it("takes a quoted draft's answer (forecast question)", () => {
     const raw =
-      "for the cloud response, it is still not natural. The user's question " +
-      '"gemma가 아니야?" is an identity question. I must identify as ' +
-      "'gemma-4-26b-a4b-it'. The user's prompt asks me to reply in Korean.\n\n" +
-      'So, I will answer in Korean: "저는 gemma-4-26b-a4b-it입니다." ' +
-      "(I am gemma-4-26b-a4b-it.)저는 gemma-4-26b-a4b-it입니다.";
-    assert.equal(sanitizeAnswer(raw), "저는 gemma-4-26b-a4b-it입니다.");
+      "Topic: Forecast. " +
+      'Radar shows "heavy rain after noon". ' +
+      '"There may be rain this afternoon." There may be rain this afternoon.';
+    assert.equal(sanitizeAnswer(raw), "There may be rain this afternoon.");
   });
 
   it("cuts a glued bullet deliberation trace to the last Response:", () => {
@@ -206,13 +198,6 @@ describe("answer sanitizer", () => {
     assert.equal(sanitizeAnswer(normal), normal);
   });
 
-  it("drops a 'So, I will answer' lead without quotes", () => {
-    assert.equal(
-      sanitizeAnswer("So, I will answer in Korean. 저는 gemma-4-26b-a4b-it입니다."),
-      "저는 gemma-4-26b-a4b-it입니다.",
-    );
-  });
-
   it("keeps normal English answers starting with I will", () => {
     const normal = "I will help you write that email.";
     assert.equal(sanitizeAnswer(normal), normal);
@@ -222,6 +207,68 @@ describe("answer sanitizer", () => {
     const code = "```js\nconst pi = 3.14;\n```";
     assert.equal(sanitizeAnswer(code), code);
     assert.equal(sanitizeAnswer("3.14 is pi."), "3.14 is pi.");
+  });
+
+  it("keeps answers that merely mention users or manuals", () => {
+    assert.equal(
+      sanitizeAnswer("The user manual explains the setup. It is simple."),
+      "The user manual explains the setup. It is simple.",
+    );
+    assert.equal(
+      sanitizeAnswer("No problem, I can help with that."),
+      "No problem, I can help with that.",
+    );
+  });
+
+  it("extracts the same way whatever the question (repeat rule)", () => {
+    // One structural rule, three unrelated questions — no wording lists.
+    assert.equal(
+      sanitizeAnswer('"The Haut-Médoc is in Bordeaux." The Haut-Médoc is in Bordeaux.'),
+      "The Haut-Médoc is in Bordeaux.",
+    );
+    assert.equal(
+      sanitizeAnswer('"Use const, not let." Use const, not let.'),
+      "Use const, not let.",
+    );
+    assert.equal(
+      sanitizeAnswer('"Water boils at 100°C." Water boils at 100°C.'),
+      "Water boils at 100°C.",
+    );
+  });
+
+  it("takes the repeated answer from a check + draft trace (route question)", () => {
+    const raw =
+      "Check: Answer with the route only. " +
+      '"Take Line 2 to City Hall." ' +
+      "The fastest option is the subway, not a taxi, and the rider is in a hurry. " +
+      '"Take Line 2 to City Hall."Take Line 2 to City Hall.';
+    assert.equal(sanitizeAnswer(raw), "Take Line 2 to City Hall.");
+  });
+
+  it("keeps a legit 'I should follow up' opener (no scaffolding)", () => {
+    const normal = "I should follow up tomorrow. The report is ready.";
+    assert.equal(sanitizeAnswer(normal), normal);
+  });
+
+  it("leaves a lone constraint line plus answer alone", () => {
+    const normal = "Constraint Check passed. Deploying now.";
+    assert.equal(sanitizeAnswer(normal), normal);
+  });
+
+  it("unglues quoted repeats into one answer", () => {
+    assert.equal(sanitizeAnswer('"Hi there!"Hi there!'), "Hi there!");
+  });
+
+  it("keeps lone labels that are the actual answer", () => {
+    assert.equal(sanitizeAnswer("Name: Sam."), "Name: Sam.");
+    assert.equal(
+      sanitizeAnswer("Language: English. It has 26 letters."),
+      "Language: English. It has 26 letters.",
+    );
+    assert.equal(
+      sanitizeAnswer("Direct answer. The meeting is at noon."),
+      "Direct answer. The meeting is at noon.",
+    );
   });
 });
 
@@ -315,9 +362,13 @@ describe("cloud SSE parser", () => {
 
   it("rewriteLastModelText swaps raw reasoning for the clean answer", async () => {
     const enc = new TextEncoder();
+    // Structural trace (labeled lines, quoted draft, bare repeat) — no
+    // question-specific wording; any deliberation shape works the same.
     const rawReasoning =
-      "The user's question is an identity question. So, I will answer in Korean: " +
-      '"저는 m입니다." (I am m.)저는 m입니다.';
+      "Length: 1-3 sentences.\n" +
+      "Identity: trial model.\n" +
+      '"Trial replies are short."\n' +
+      "Trial replies are short.";
     const sseText = `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: rawReasoning }] } }] })}\n\n`;
     const origFetch = globalThis.fetch;
     let lastBody = "";
@@ -344,14 +395,14 @@ describe("cloud SSE parser", () => {
     try {
       const s = new GeminiSession("k", "m");
       let first = "";
-      for await (const piece of s.promptStreaming("gemma가 아니야?")) first += piece;
-      assert.ok(first.includes("user's question"));
+      for await (const piece of s.promptStreaming("how long are trial replies?")) first += piece;
+      assert.ok(first.includes("Length:"));
       s.rewriteLastModelText?.(sanitizeAnswer(first) || first);
-      assert.equal(sanitizeAnswer(first), "저는 m입니다.");
+      assert.equal(sanitizeAnswer(first), "Trial replies are short.");
       // Next turn re-sends history: reasoning must be gone, clean kept.
-      for await (const _ of s.promptStreaming("고마워")) { /* drain */ }
-      assert.ok(!lastBody.includes("user's question"));
-      assert.ok(lastBody.includes("저는 m입니다."));
+      for await (const _ of s.promptStreaming("thanks")) { /* drain */ }
+      assert.ok(!lastBody.includes("Length:"));
+      assert.ok(lastBody.includes("Trial replies are short."));
     } finally {
       globalThis.fetch = origFetch;
     }

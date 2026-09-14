@@ -8,25 +8,31 @@ import {
   listFiles as serverListFiles,
   makeDir as serverMakeDir,
   readFile as serverReadFile,
+  readFileBinary as serverReadBinary,
   webSearch,
   writeFile as serverWriteFile,
   writeFileBinary as serverWriteFileBinary,
 } from "@/lib/api";
+import {
+  createMkdirEntry,
+  createWriteEntry,
+  snapshotForDelete,
+  type UndoInput,
+} from "@/lib/undo";
 import type { LanguageModelSession, PromptImage } from "@/lib/prompt-api.d";
 import type { BusyKind, Provider } from "@/hooks/useLanguageModel";
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { ChatMessage, ReviewFn } from "@/lib/types";
-import { replySuffix, type Lang, type TFn } from "@/lib/i18n";
+import { type Lang, type TFn } from "@/lib/i18n";
 import { TRIAL_GEMINI_LIMIT, TRIAL_HF_LIMIT } from "@/lib/trial-limits";
 import { getDrawsToday, recordDraw, recordUsage } from "@/lib/usage";
 import { renderMarkdown } from "@/lib/markdown";
 import { sanitizeAnswer } from "@/lib/sanitize";
-import { generateHFImage } from "@/lib/cloud-model";
+import { generateHFImage, HF_DRAW_LABEL } from "@/lib/cloud-model";
 import {
   AGENT_MAX_STEPS,
   buildAgentPreamble,
   buildToolResultTurn,
-  buildUserTurn,
   parseToolCall,
   stripToolCalls,
   type ToolCall,
@@ -46,12 +52,20 @@ interface Props {
   onFilesChanged: () => void;
   onOpenFile: (path: string) => void;
   reviewChange: ReviewFn;
+  /** Backup-before-write: every mutation records its old state for Undo. */
+  recordUndo: (e: UndoInput) => void;
+  /** Number of undoable changes (0 = hide the Undo button). */
+  undoCount: number;
+  /** Display name of the most recent change, if any. */
+  undoLabel: string | null;
+  /** Undo the most recent change. */
+  onUndo: () => void;
   provider: Provider;
   /** Native multimodal session for built-in Gemma photo turns (null = N/A). */
   ensureVision: () => Promise<LanguageModelSession | null>;
   /** Model id for usage tracking (e.g. gemma-4-26b-a4b-it). Empty = don't track. */
   usageModel: string;
-  /** HF token for HD drawing. Empty = server trial first. */
+  /** HF token for HD drawing. Empty = members use the server key. */
   hfKey?: string;
   /** Called when a trial budget runs out (open the key guide for them). */
   onTrialOver?: () => void;
@@ -168,6 +182,10 @@ export default function Chat({
   onFilesChanged,
   onOpenFile,
   reviewChange,
+  recordUndo,
+  undoCount,
+  undoLabel,
+  onUndo,
   provider,
   ensureVision,
   usageModel,
@@ -193,7 +211,8 @@ export default function Chat({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const replyIn = replySuffix(lang);
+  // Prompts are the user's bare text — no per-turn instruction blocks.
+  // (Appended checklists get echoed back as deliberation.)
 
   // Fresh chat → fresh token count.
   useEffect(() => {
@@ -401,6 +420,18 @@ export default function Chat({
         }
         const rel = `uploads/${safeName}`;
         try {
+          // Backup-before-write: an upload may overwrite an existing file.
+          let oldText: string | null = null;
+          let existed = false;
+          try {
+            oldText = workspace.connected
+              ? await workspace.readFile(rel)
+              : await serverReadFile(rel);
+            existed = true;
+          } catch {
+            existed = false;
+            oldText = null;
+          }
           if (workspace.connected) {
             try {
               await workspace.makeDir("uploads");
@@ -411,6 +442,11 @@ export default function Chat({
           } else {
             await serverWriteFile(rel, text);
           }
+          try {
+            recordUndo(createWriteEntry(rel, oldText, existed));
+          } catch {
+            // recording must never break the upload itself
+          }
           onFilesChanged();
           pushMessage("assistant", t("upUploaded", { name: rel }));
           onOpenFile(rel);
@@ -419,6 +455,7 @@ export default function Chat({
         }
       }
       persistChat();
+      inputRef.current?.focus();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [workspace, pushMessage, persistChat, onFilesChanged, onOpenFile, t],
@@ -447,7 +484,69 @@ export default function Chat({
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, streamText]);
 
-  const focusInput = () => inputRef.current?.focus();
+  /**
+   * Return focus to the prompt box for continuous convo.
+   * NOTE: finally-blocks call this right after setStreaming(false), but the
+   * textarea is still disabled until React commits — a sync .focus() on a
+   * disabled element is a no-op and focus is lost to <body>. So defer past
+   * the re-enable and retry while disabled.
+   */
+  const focusInput = useCallback(() => {
+    const attempt = (tries: number) => {
+      const el = inputRef.current;
+      if (!el) return;
+      // Don't pull focus out of an open modal (review / editor / viewer /
+      // onboarding) — the modal owns focus until it closes.
+      if (
+        document.getElementById("review-overlay") ||
+        document.getElementById("editor-overlay") ||
+        document.getElementById("onboard-overlay") ||
+        document.getElementById("image-viewer")
+      ) {
+        return;
+      }
+      if (el.disabled) {
+        if (tries > 0) setTimeout(() => attempt(tries - 1), 30);
+        return;
+      }
+      try {
+        el.focus({ preventScroll: true } as FocusOptions);
+      } catch {
+        el.focus();
+      }
+    };
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => setTimeout(() => attempt(10), 0));
+    } else {
+      setTimeout(() => attempt(10), 0);
+    }
+  }, []);
+
+  // Autofocus on mount so the first message needs no click.
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // Refocus when a response/search/draw finishes (streaming -> false),
+  // unless the user deliberately moved into another field or modal.
+  // This covers the disabled-button focus loss (Send becomes disabled after
+  // click, focus lands on <body>) without stealing intentional focus.
+  useEffect(() => {
+    if (streaming) return;
+    const ae = document.activeElement as HTMLElement | null;
+    if (!ae || ae === document.body) {
+      focusInput();
+      return;
+    }
+    if (ae.tagName === "BUTTON") {
+      if (
+        !ae.closest?.(".review-overlay") &&
+        !ae.closest?.(".editor-overlay")
+      ) {
+        focusInput();
+      }
+    }
+  }, [streaming, focusInput]);
 
   /**
    * Display-only stream cleanup: the RAW text stays intact for tool parsing
@@ -536,6 +635,7 @@ export default function Chat({
       pushMessage("user", prompt);
       pushMessage("assistant", t("chNeedAi"));
       persistChat();
+      focusInput();
       return;
     }
 
@@ -553,7 +653,7 @@ export default function Chat({
         setStreamText("");
         try {
           let full = "";
-          const stream = session.promptWithImages(prompt + replyIn, imgs);
+          const stream = session.promptWithImages(prompt, imgs);
           for await (const chunk of stream) {
             full += chunk;
             setStreamText(full);
@@ -605,7 +705,7 @@ export default function Chat({
             {
               role: "user",
               content: [
-                { type: "text", value: prompt + replyIn },
+                { type: "text", value: prompt },
                 ...blobs.map((b) => ({ type: "image" as const, value: b })),
               ],
             },
@@ -642,6 +742,7 @@ export default function Chat({
       pushMessage("user", prompt);
       pushMessage("assistant", t("imgUnsupported"));
       persistChat();
+      focusInput();
       return;
     }
     busyRef.current = "chat";
@@ -654,7 +755,7 @@ export default function Chat({
       setStreamText("");
       let full = "";
       try {
-        full = await runModelTurn(prompt + replyIn);
+        full = await runModelTurn(prompt);
         const clean = sanitizeAnswer(stripToolCalls(full).trim());
         if (clean) {
           rememberClean(clean);
@@ -689,6 +790,8 @@ export default function Chat({
       useWorkspaceFiles ? workspace.makeDir(p) : serverMakeDir(p);
     const deleteOp = (p: string) =>
       useWorkspaceFiles ? workspace.deletePath(p) : serverDeletePath(p);
+    const readBinaryOp = (p: string): Promise<Blob> =>
+      useWorkspaceFiles ? workspace.readBinary(p) : serverReadBinary(p);
 
     async function executeTool(tc: ToolCall): Promise<{ ok: boolean; detail: string; mutated: boolean; openPath?: string }> {
       const rel = cleanRelPath(tc.path);
@@ -720,22 +823,43 @@ export default function Chat({
             if (tc.content === undefined)
               return { ok: false, detail: t("chErrSomething"), mutated: false };
             // Trust step: show the change (editable), apply only on Keep.
-            let oldText = "";
+            // Backup-before-write: capture the old state FIRST so a bad
+            // model output can always be reverted via Undo.
+            let oldText: string | null = null;
+            let existed = false;
             try {
               oldText = await readOp(rel);
+              existed = true;
             } catch {
-              oldText = "";
+              existed = false;
+              oldText = null;
             }
             const verdict = await reviewChange({
               kind: "write",
               path: rel,
-              oldText,
+              oldText: oldText ?? "",
               newText: tc.content,
             });
             if (!verdict.ok)
               return { ok: false, detail: t("rvDeclined"), mutated: false };
             const finalText = verdict.text;
             await writeOp(rel, finalText);
+            try {
+              recordUndo(createWriteEntry(rel, oldText, existed));
+            } catch {
+              // recording must never break the write itself
+            }
+            // Verify the bytes actually stuck — a silent bad write is
+            // worse than an explicit retry.
+            try {
+              const back = await readOp(rel);
+              if (back !== finalText) {
+                onFilesChanged();
+                return { ok: false, detail: t("chErrSomething"), mutated: true, openPath: rel };
+              }
+            } catch {
+              // re-read failed (permissions/race) — write itself succeeded
+            }
             onFilesChanged();
             return {
               ok: true,
@@ -746,11 +870,17 @@ export default function Chat({
           }
           case "makeDir": {
             await mkdirOp(rel);
+            try {
+              recordUndo(createMkdirEntry(rel));
+            } catch {
+              // recording must never break the op itself
+            }
             onFilesChanged();
             return { ok: true, detail: `Created "${shortName(rel)}".`, mutated: true };
           }
           case "deletePath": {
-            // Deleting can't be undone — review modal, not a bare confirm().
+            // Review modal first (not a bare confirm()), then snapshot the
+            // old bytes BEFORE deleting so Undo can restore them.
             const verdict = await reviewChange({
               kind: "delete",
               path: rel,
@@ -759,7 +889,23 @@ export default function Chat({
             });
             if (!verdict.ok)
               return { ok: false, detail: t("chKept", { name: shortName(rel) }), mutated: false };
+            let backup = null;
+            try {
+              backup = await snapshotForDelete(
+                { list: listOp, read: readOp, readBinary: readBinaryOp },
+                rel,
+              );
+            } catch {
+              backup = null;
+            }
             await deleteOp(rel);
+            if (backup) {
+              try {
+                recordUndo(backup);
+              } catch {
+                // recording must never break the op itself
+              }
+            }
             onFilesChanged();
             return { ok: true, detail: `Deleted "${shortName(rel)}".`, mutated: true };
           }
@@ -774,12 +920,9 @@ export default function Chat({
     let lastTouched: string | null = null;
     try {
       if (!canTouchFiles) {
-        // No folder: answer normally. Mention the folder ONLY if the user
-        // actually asked for a file operation — never nag on plain questions
-        // (phones can never pick a folder at all).
-        const full = await runModelTurn(
-          `No folder is connected (can't touch files). Mention picking a folder or attaching a file only if asked about files; otherwise just answer.\n\n${buildUserTurn(prompt)}${replyIn}`,
-        );
+        // No folder: send the bare user text. Any instruction block here
+        // (folder hints, reply checklists) gets echoed back as deliberation.
+        const full = await runModelTurn(prompt);
         const clean = sanitizeAnswer(stripToolCalls(full).trim());
         if (clean) {
           rememberClean(clean);
@@ -803,7 +946,11 @@ export default function Chat({
         rootListing = "(could not list workspace)";
       }
 
-      let nextPrompt = `${buildAgentPreamble(rootListing)}\n\n${buildUserTurn(prompt)}${replyIn}`;
+      // Capable cloud/local models mirror long instructions back as
+      // "thinking" — they get the short preamble; only tiny on-device
+      // Gemma needs the explicit one.
+      const verbosePreamble = provider !== "cloud" && provider !== "ollama";
+      let nextPrompt = `${buildAgentPreamble(rootListing, verbosePreamble)}\n\n${prompt}`;
       let finalAnswer: string | null = null;
 
       for (let step = 0; step < AGENT_MAX_STEPS; step++) {
@@ -912,6 +1059,7 @@ export default function Chat({
     // No early key gate: generateHFImage() tries the server trial key
     // first (/api/hf-draw) and only needs the user's own key as fallback
     // (501 no-server-key) or after the trial budget is spent.
+    // (Members bypass the trial via cookie, so this covers them too.)
     busyRef.current = "chat";
     setStreaming(true);
     setInput("");
@@ -995,6 +1143,12 @@ export default function Chat({
     }
     onFilesChanged();
     try {
+      // Timestamped names are unique — undo is simply deleting the file.
+      recordUndo(createWriteEntry(rel, null, false));
+    } catch {
+      // recording must never break the save itself
+    }
+    try {
       setDraws(recordDraw());
     } catch {
       // tracking unavailable — picture still saved
@@ -1073,8 +1227,7 @@ export default function Chat({
         `User question: ${prompt}\n\n` +
         (results.length > 0
           ? "Instructions: Answer using the Web Search Results above. Do NOT claim you lack real-time access when results are provided. Cite sources by URL. If the results contain the answer (e.g. weather), state it directly."
-          : "Instructions: No search results were available. Answer from your own knowledge and say that live search failed.") +
-        replyIn;
+          : "Instructions: No search results were available. Answer from your own knowledge and say that live search failed.");
       const stream = sessionRef.current.promptStreaming(fullPrompt);
       for await (const chunk of stream) {
         full += chunk;
@@ -1252,6 +1405,7 @@ export default function Chat({
           <textarea
             id="prompt-input"
             ref={inputRef}
+            autoFocus
             placeholder={
               listening
                 ? t("vcListening")
@@ -1329,13 +1483,24 @@ export default function Chat({
           {!workspace.connected && workspace.supported ? (
             <span style={{ fontSize: 12, opacity: 0.7 }}>{t("chAgentHint")}</span>
           ) : null}
+          {undoCount > 0 ? (
+            <button
+              className="task-chip"
+              onClick={() => onUndo()}
+              disabled={streaming}
+              title={undoLabel ?? t("udUndo")}
+              style={{ marginLeft: "auto" }}
+            >
+              {undoLabel ? t("udUndoFile", { name: undoLabel }) : t("udUndo")} ({undoCount})
+            </button>
+          ) : null}
         </div>
         <div className={`quota-box input-quota${quotaLow ? " low" : ""}`} title="SerpAPI searches remaining this month">
           <span id="quota-text">{quota}</span>
           {provider === "cloud" && tokens > 0 ? (
             <span className="token-meter">{t("tkTokens", { n: fmtTokens(tokens) })}</span>
           ) : null}
-          <span className="token-meter">{t("usDraws", { n: draws })}</span>
+          <span className="token-meter">{t("usDrawEngine", { m: HF_DRAW_LABEL, n: draws })}</span>
           <button className="quota-refresh" onClick={() => void loadQuota()} title="Refresh quota">
             ↻
           </button>

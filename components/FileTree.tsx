@@ -5,8 +5,16 @@ import {
   deletePath as serverDeletePath,
   listFiles as serverListFiles,
   makeDir as serverMakeDir,
+  readFile as serverReadFile,
+  readFileBinary as serverReadBinary,
   writeFile as serverWriteFile,
 } from "@/lib/api";
+import {
+  createMkdirEntry,
+  createWriteEntry,
+  snapshotForDelete,
+  type UndoInput,
+} from "@/lib/undo";
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { FileEntry } from "@/lib/types";
 import type { TFn } from "@/lib/i18n";
@@ -151,12 +159,15 @@ export default function FileTree({
   version,
   onMutated,
   workspace,
+  recordUndo,
   t,
 }: {
   onOpenFile: (path: string) => void;
   version: number;
   onMutated: () => void;
   workspace: WorkspaceApi;
+  /** Backup-before-write: every create/delete records its old state. */
+  recordUndo: (e: UndoInput) => void;
   t: TFn;
 }) {
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
@@ -178,6 +189,16 @@ export default function FileTree({
   const createFile = useCallback(
     (p: string, content: string): Promise<void> =>
       localMode ? workspace.writeFile(p, content) : serverWriteFile(p, content),
+    [localMode, workspace],
+  );
+  const readText = useCallback(
+    (p: string): Promise<string> =>
+      localMode ? workspace.readFile(p) : serverReadFile(p),
+    [localMode, workspace],
+  );
+  const readBin = useCallback(
+    (p: string): Promise<Blob> =>
+      localMode ? workspace.readBinary(p) : serverReadBinary(p),
     [localMode, workspace],
   );
   const createDir = useCallback(
@@ -325,7 +346,22 @@ export default function FileTree({
                     const fname = prompt(t("trFileName"));
                     if (!fname) return;
                     const p = joinPath(menu.fullPath, fname);
+                    // May overwrite an existing file of the same name —
+                    // snapshot first so it stays revertable.
+                    let oldText: string | null = null;
+                    let existed = false;
+                    try {
+                      oldText = await readText(p);
+                      existed = true;
+                    } catch {
+                      existed = false;
+                    }
                     await createFile(p, "");
+                    try {
+                      recordUndo(createWriteEntry(p, oldText, existed));
+                    } catch {
+                      // recording must never break the op itself
+                    }
                     refreshAfter();
                     onOpenFile(p);
                   })
@@ -337,7 +373,13 @@ export default function FileTree({
                   runAction(async () => {
                     const fname = prompt(t("trFolderName"));
                     if (!fname) return;
-                    await createDir(joinPath(menu.fullPath, fname));
+                    const p = joinPath(menu.fullPath, fname);
+                    await createDir(p);
+                    try {
+                      recordUndo(createMkdirEntry(p));
+                    } catch {
+                      // recording must never break the op itself
+                    }
                     refreshAfter();
                   })
                 }
@@ -362,7 +404,23 @@ export default function FileTree({
                 runAction(async () => {
                   const name = menu.fullPath.split("/").pop();
                   if (!confirm(t("trDelConfirm", { name: name ?? menu.fullPath }))) return;
+                  let backup = null;
+                  try {
+                    backup = await snapshotForDelete(
+                      { list: loadEntries, read: readText, readBinary: readBin },
+                      menu.fullPath,
+                    );
+                  } catch {
+                    backup = null;
+                  }
                   await removeEntry(menu.fullPath);
+                  if (backup) {
+                    try {
+                      recordUndo(backup);
+                    } catch {
+                      // recording must never break the op itself
+                    }
+                  }
                   refreshAfter();
                 })
               }

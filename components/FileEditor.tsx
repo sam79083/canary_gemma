@@ -5,6 +5,7 @@ import type { RefObject } from "react";
 import { readFile as serverReadFile, writeFile as serverWriteFile } from "@/lib/api";
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import { stripCodeFences, summarizeDiff } from "@/lib/diff";
+import { createWriteEntry, type UndoInput } from "@/lib/undo";
 import type { LanguageModelSession } from "@/lib/prompt-api.d";
 import type { BusyKind } from "@/hooks/useLanguageModel";
 import type { ChatMessage } from "@/lib/types";
@@ -21,6 +22,12 @@ interface Props {
   appendInput: (text: string) => void;
   readInput: () => string;
   persistChat: () => void;
+  /** Backup-before-write: record old state so any save can be undone. */
+  recordUndo: (e: UndoInput) => void;
+  /** True when the shared stack holds a revert for this path. */
+  hasUndoForPath: boolean;
+  /** Undo the most recent change touching this path. */
+  onUndoPath: () => void;
   t: TFn;
 }
 
@@ -35,6 +42,9 @@ export default function FileEditor({
   appendInput,
   readInput,
   persistChat,
+  recordUndo,
+  hasUndoForPath,
+  onUndoPath,
   t,
 }: Props) {
   const [content, setContent] = useState("");
@@ -49,6 +59,9 @@ export default function FileEditor({
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Whether the file existed when loaded (vs. brand-new). Captured at load
+  // so a later save records the right undo shape (restore vs. delete).
+  const existedRef = useRef(true);
 
   const dirty = content !== original;
   const lines = content === "" ? 0 : content.split("\n").length;
@@ -91,9 +104,11 @@ export default function FileEditor({
         if (cancelled) return;
         setContent(text);
         setOriginal(text);
+        existedRef.current = true;
         setStatus("");
       } catch (e) {
         if (cancelled) return;
+        existedRef.current = false;
         setStatus(t("edReadFail", { msg: e instanceof Error ? e.message : String(e) }));
       }
       textareaRef.current?.focus();
@@ -117,12 +132,25 @@ export default function FileEditor({
     setStatusOk(false);
     setFreshNotice(false);
     console.log("[Save]", localMode ? "local workspace" : "POST /api/file", path, content.length + " chars");
+    // Backup-before-write: capture the pre-save state, record only if the
+    // write actually succeeds (a failed write must not pollute Undo).
+    const prevText = original;
+    const prevExisted = existedRef.current;
+    const recordSave = () => {
+      try {
+        recordUndo(createWriteEntry(path, prevText, prevExisted));
+      } catch {
+        // recording must never break the save itself
+      }
+      existedRef.current = true;
+    };
     try {
       await writeActive(path, content);
       try {
         const verify = await readActive(path);
         if (verify === content) {
           setOriginal(content);
+          recordSave();
           const where = localMode ? t("edWhereLocal") : t("edWhereDisk");
           const msg = t("edSaved", {
             path,
@@ -141,9 +169,12 @@ export default function FileEditor({
         }
         setStatus(t("edVerifyMismatch"));
         showToast(t("edVerifyMismatchToast"), true);
+        // Bytes changed without verifying — still undoable.
+        recordSave();
         return false;
       } catch (ve) {
         setOriginal(content);
+        recordSave();
         setStatus(t("edVerifyReadFail", { time: new Date().toLocaleTimeString() }));
         setStatusOk(true);
         setFreshNotice(true);
@@ -233,11 +264,20 @@ export default function FileEditor({
       const saveOk = await (async () => {
         // inline save of the new content to keep verify logic in one place
         setStatus(t("edSaving"));
+        // Backup-before-write: `backup` is the pre-AI bytes on success of
+        // the pre-save above (or the loaded bytes when nothing was dirty).
+        const preWriteExisted = existedRef.current;
         try {
           await writeActive(path, result);
           const verify = await readActive(path);
           if (verify === result) {
             setOriginal(result);
+            try {
+              recordUndo(createWriteEntry(path, backup, preWriteExisted));
+            } catch {
+              // recording must never break the save itself
+            }
+            existedRef.current = true;
             const where = localMode ? t("edWhereLocal") : t("edWhereDisk");
             const msg = t("edSaved", {
               path,
@@ -253,6 +293,12 @@ export default function FileEditor({
             return true as const;
           }
           setStatus(t("edVerifyMismatch"));
+          try {
+            recordUndo(createWriteEntry(path, backup, preWriteExisted));
+          } catch {
+            // recording must never break the save itself
+          }
+          existedRef.current = true;
           return false as const;
         } catch (e) {
           setStatus(t("edSaveFail", { msg: e instanceof Error ? e.message : String(e) }));
@@ -370,6 +416,15 @@ export default function FileEditor({
             {t("edHint", { lines, chars: content.length })}
           </div>
           <div className="editor-actions">
+            {hasUndoForPath ? (
+              <button
+                className="editor-btn"
+                onClick={() => onUndoPath()}
+                title={t("udUndo")}
+              >
+                {t("udUndo")}
+              </button>
+            ) : null}
             <button className="editor-btn" onClick={close}>{t("edCancel")}</button>
             <button className="editor-btn primary" onClick={() => void save()}>{t("edSave")}</button>
             <button

@@ -25,12 +25,29 @@ function readIndex(): SessionInfo[] {
     return parsed.filter(
       (s): s is SessionInfo =>
         typeof s?.filename === "string" &&
+        s.filename.trim() !== "" &&
         typeof s?.title === "string" &&
         typeof s?.timestamp === "number",
     );
   } catch {
     return [];
   }
+}
+
+/**
+ * Never store or show a blank title: trim, cap, and fall back to a dated
+ * label so every row in Manage chats stays identifiable. Exported for the
+ * workspace backend, the page title helper, and tests.
+ */
+export function normalizeTitle(title: unknown, timestamp: number): string {
+  const clean = (typeof title === "string" ? title : "").trim().slice(0, 80);
+  if (clean) return clean;
+  return `Chat ${new Date(timestamp).toLocaleString()}`;
+}
+
+/** Display fallback for entries that predate title normalization. */
+export function displayTitle(s: { title: string; filename: string }): string {
+  return s.title && s.title.trim() ? s.title : s.filename;
 }
 
 function writeIndex(sessions: SessionInfo[]): void {
@@ -57,7 +74,7 @@ export async function saveLocalSession(
       ? existingFilename
       : `session_${stamp()}.json`;
   const payload: StoredSession = {
-    title: title || "New conversation",
+    title: normalizeTitle(title, timestamp),
     messages,
     timestamp,
   };
@@ -86,6 +103,17 @@ export async function saveLocalSession(
 export async function listLocalSessions(): Promise<SessionInfo[]> {
   const index = readIndex();
   index.sort((a, b) => b.timestamp - a.timestamp);
+  // Self-heal: entries saved before title normalization (blank titles)
+  // get a dated label once, so Manage chats never shows blank rows again.
+  let repaired = false;
+  for (const s of index) {
+    const fixed = normalizeTitle(s.title, s.timestamp);
+    if (fixed !== s.title) {
+      s.title = fixed;
+      repaired = true;
+    }
+  }
+  if (repaired) writeIndex(index);
   return index;
 }
 

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { HF_IMAGE_MODEL } from "@/lib/cloud-model";
+import { isAuthenticated } from "@/lib/auth";
 import { trialUse } from "@/lib/trial";
 
 // POST /api/hf-draw {prompt} — HD drawing with the SERVER's HF token.
 // The token never leaves the server: the browser sends only the prompt.
 // 501 = no server key configured (client falls back to the user's own key).
-// 429 {error:"trial-over"} = visitor budget spent (bring your own key).
+// 429 {error:"trial-over"} = visitor budget spent (members bypass it).
 export async function POST(req: Request) {
   const token = process.env.HF_TOKEN;
   if (!token) return NextResponse.json({ error: "no-server-key" }, { status: 501 });
@@ -17,7 +18,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Empty body" }, { status: 400 });
   }
   if (!prompt) return NextResponse.json({ error: "Empty prompt" }, { status: 400 });
-  const remaining = await trialUse(req, "hf");
+  const remaining = await trialUse(req, "hf", isAuthenticated(req));
   if (remaining < 0)
     return NextResponse.json({ error: "trial-over" }, { status: 429 });
   try {

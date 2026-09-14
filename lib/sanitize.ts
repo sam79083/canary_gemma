@@ -1,13 +1,13 @@
-// Display-side safety net for chatty models.
+// Display-side safety net: extract only the final result.
 //
-// Some models narrate their compliance checklist ("* User asks: …",
-// "* Is it short? Yes.") or think out loud in prose
-// ("The user's question is an identity question. I must identify as ….
-// So, I will answer in Korean: …") before the real answer despite
-// instructions. sanitizeAnswer() removes that leading analysis plus
-// accidental repeats and English translation asides.
-// It NEVER touches code output or toolcall blocks — callers apply it only
-// to final natural-language answers, after tool parsing.
+// Doctrine: NO question-specific or instruction-specific vocabulary here.
+// Hardcoded phrase lists ("the user said …", "I must …", "reply in X")
+// only work for the exact questions they were written for. Instead this
+// file uses shape only — repeats, quoted drafts, `Label:` headers,
+// yes/no pairs, code fences, dedupe — which works for ANY question.
+// Prompts carry no behavior lectures either, so there is little left
+// for a model to deliberate about in the first place.
+// Callers apply this only to final natural-language answers.
 
 /** True for CJK text (Korean/Japanese/Chinese) — the reply language. */
 function hasCJK(s: string): boolean {
@@ -70,7 +70,7 @@ function extractAnswerTail(text: string): string | null {
   let headers = 0;
   for (const s of rest) {
     const b = s.replace(/^[*•\-]\s+/, "").trim();
-    if (isHeaderShape(b) || /^\((note|system|internal)/i.test(b)) headers++;
+    if (isHeaderShape(b)) headers++;
   }
   let qa = false;
   for (let k = 0; k + 1 < rest.length; k++) {
@@ -80,9 +80,19 @@ function extractAnswerTail(text: string): string | null {
     }
   }
   if (!(headers >= 2 || (headers >= 1 && qa))) return null;
-  const cleaned = run.map((p) =>
-    p.trim().replace(/^["“”'‘’]+\s*|\s*["“”'‘’]+$/g, ""),
-  );
+  const cleaned = run.map((p, idx) => {
+    let c = p.trim().replace(/^["“”'‘’]+\s*|\s*["“”'‘’]+$/g, "");
+    // The run was already proven scaffolding-adjacent, so a label on its
+    // first sentence (`Response: …`) is residue, not content. Later
+    // sentences keep their colons (`Name: Sam.` survives elsewhere).
+    if (idx === 0) {
+      c = c
+        .replace(/^[*•\-]\s+/, "")
+        .replace(/^[A-Za-z가-힣][^:?\n]{1,30}:\s*/, "")
+        .trim();
+    }
+    return c;
+  });
   const kept: string[] = [];
   for (let i = cleaned.length - 1; i >= 0; i--) {
     const c = cleaned[i];
@@ -141,77 +151,6 @@ function extractTracedAnswer(text: string): string | null {
   return parts[n - 1].replace(/^["“”'‘’⤴\s]+|["“”'‘’⤴\s]+$/g, "").trim() || null;
 }
 
-/**
- * A sentence that talks ABOUT the answer instead of being the answer:
- * third-person narration ("The user's question …"), self-planning
- * ("I must identify …", "So, I will answer …"), or echoes of the
- * reply-language instruction. Never matches normal first-person answers
- * like "I will help you …" — only meta planning verbs.
- */
-function isMetaSentence(s: string): boolean {
-  // Sentences inside a bullet checklist carry "* " prefixes.
-  const t = s.trim().replace(/^[*•\-]\s+/, "");
-  if (!t) return false;
-  // Third-person narration of the request = thinking, not answering.
-  if (/the user'?s (question|prompt|request)/i.test(t)) return true;
-  if (/\buser question\b/i.test(t)) return true;
-  if (/\bidentity question\b/i.test(t)) return true;
-  if (/for the .*response/i.test(t)) return true;
-  if (/it is (still )?not natural/i.test(t)) return true;
-  // Self-planning before answering.
-  if (/\bi must identify\b/i.test(t)) return true;
-  if (/\bi (must|should|need to) (answer|reply|respond|follow)\b/i.test(t)) return true;
-  if (/\bi will (answer|respond|reply)\b/i.test(t)) return true;
-  if (/^so,?\s*i will\b/i.test(t)) return true;
-  if (/asks me to reply/i.test(t)) return true;
-  if (/(prompt|instruction) asks/i.test(t)) return true;
-  // English-only echo of the reply-language instruction.
-  if (/reply in (korean|english|japanese|chinese|spanish|french|german|portuguese|vietnamese|indonesian)/i.test(t) && !hasCJK(t))
-    return true;
-  // Compliance-checklist Q&A: "Is it short? Yes."
-  if (/\?\s*(yes|no|네|아니요)\.?\s*$/i.test(t)) return true;
-  // Quoted instruction fragments the model is "checking off".
-  if (/system instruction|my system prompt|according to my system/i.test(t)) return true;
-  return false;
-}
-
-/** A leading line that is clearly model-thinking, not user-facing text. */
-function isMetaLine(line: string): boolean {
-  const t = line.trim();
-  if (!t) return false;
-  // "Response:" / "Answer:" / "Final String:" label prefix — handled by stripping, not dropping.
-  if (/^(?:final\s+(?:answer|string)|draft response|response|answer)\s*:\s*\S/i.test(t)) return false;
-  // Bare analysis headers.
-  if (/^(thinking|thought|analysis|reasoning|internal monologue)\s*:?$/i.test(t)) return true;
-  // Echoes of instruction blocks: Context:/Constraint N:/Formatting:/Truthfulness:
-  if (/^(context|constraints?(\s+\d+)?|formatting|truthfulness)\s*:/i.test(t)) return true;
-  // Draft scaffolding: Option N:/Draft:/Self-Correction during X:/Final Answer:
-  // (a few trailing words allowed before the colon).
-  if (/^(options?(\s+\d+)?|draft|self[\s-]+corrections?|corrections?|final answers?|knowledge checks?)(\s+[a-z]+){0,3}\s*:/i.test(t)) return true;
-  // "User instruction:" / "System prompt:" style headers.
-  if (/^(user|system)\s+(instruction|request|question|prompt|status)\s*:/i.test(t)) return true;
-  // Parenthesized asides like "(Note: …".
-  if (/^\((note|system|internal)/i.test(t)) return true;
-  const bulleted = t.match(/^\s*[*•\-]\s+(.*)$/);
-  const body = (bulleted ? bulleted[1] : t).trim();
-  // Compliance-checklist Q&A: "* Is it short? Yes."
-  if (/\?\s*(yes|no|네|아니요)\.?\s*$/i.test(body)) return true;
-  // Echoes of the prompt structure.
-  if (
-    /^(user (asks|question|request|status|is asking)|system instruction|the user (is asking|asks|provided|question)|context\/constraints|constraints?|conditions?|instructions?|language constraint|language:|reply in |according to my system)/i.test(
-      body,
-    )
-  )
-    return true;
-  // Quoted instruction fragments the model is "checking off".
-  if (/system instruction|my system prompt/i.test(body)) return true;
-  // Bare bullets that only restate the request, e.g. '* "gemma가 아니야?"'.
-  if (bulleted && /^["'«“].*["'»”]\s*(\([^)]*\))?\s*$/.test(body)) return true;
-  // Prose reasoning ("The user's question … is an identity question.").
-  if (isMetaSentence(body)) return true;
-  return false;
-}
-
 /** Drop consecutive duplicate sentences and exact-duplicated halves. */
 function dedupe(text: string): string {
   // Whole-text doubled (answer printed twice back-to-back).
@@ -266,70 +205,43 @@ export function sanitizeAnswer(raw: string): string {
   const traced = extractTracedAnswer(text);
   if (traced) return dedupe(traced);
 
-  // "So, I will answer in Korean: "quoted answer" …" — the meta lead and the
-  // answer share one line, so line-stripping can't see it. Cut the lead and
-  // keep the quoted answer plus whatever follows it.
-  const lead = text.match(/(?:so,?\s*)?i will answer[^:]{0,80}:\s*(["“])/i);
-  if (lead && lead.index !== undefined) {
-    const q = lead[1];
-    const qPos = text.indexOf(q, lead.index);
-    if (qPos >= 0) text = text.slice(qPos).trim();
-  }
+  // Deliberation + quoted drafts + repeated tail (`Label:` scaffolding,
+  // `"Draft?"`, analysis, `"Answer."Answer.`) — the repeated final run
+  // is the answer. Gated on scaffolding proof, so normal text passes
+  // through untouched.
+  const finalRepeat = extractFinalRepeat(text);
+  if (finalRepeat) return finalRepeat;
 
-  // "… Final String: <answer>" (or Response:/Final Answer:/Draft response:)
-  // — a deliberation trace that ends with its answer under a label, so
-  // line-stripping would drop the answer with the trace and the all-stripped
-  // fallback would restore the whole mess. Per the user's rule: just take
-  // what's after the LAST such marker; the steps below unwrap quotes and
-  // dedupe. (First-marker cutting fails: an early "* Answer: <draft>" still
-  // leaves pages of deliberation behind it.)
-  let lastIdx = -1;
-  for (const m of text.matchAll(/[\s*](?:final\s+(?:answer|string)|draft response|response|answer)\s*:\s*\S/gi)) {
-    if (m.index !== undefined) lastIdx = m.index;
-  }
-  if (lastIdx >= 0) {
-    const tail = text
-      .slice(lastIdx)
-      .replace(/^(?:[\s*]*)(?:final\s+(?:answer|string)|draft response|response|answer)\s*:\s*/i, "")
-      .trim();
-    // Only cut when something answer-like follows (avoid gutting a normal
-    // reply that merely mentions the word "answer:").
-    if (tail.length > 0 && (hasCJK(tail) || tail.length < text.length / 2)) {
-      text = tail;
-      // Draft + final back-to-back ("A. B. A'. B'") — keep the later half.
-      // Scoped to this isolated region ONLY: bare similarity is unsafe in
-      // general (distinct facts like "오늘/내일 날씨가 좋아요" score 0.80,
-      // right between real draft/final pairs), but after a Final String: /
-      // Response: label the tail IS the answer dump.
-      text = collapseDoubledHalves(text);
-    }
-  }
+  // Quoted draft + bare repeat (`"Answer." … Answer.`): the quoted copy
+  // is the draft, the final is the answer. Any language, any question.
+  const quotedDraft = extractQuotedDraft(text);
+  if (quotedDraft) return quotedDraft;
 
-  const cutLines = text.split("\n");
-  let i = 0;
-  while (i < cutLines.length && (cutLines[i].trim() === "" || isMetaLine(cutLines[i]))) i++;
-  text = cutLines.slice(i).join("\n").trim();
-  if (!text) text = raw.replace(/\r\n/g, "\n").trim();
+  // Trace that ends with its answer under a `Label:` — take just the
+  // tail. Generic: ANY label words, but only with plural proof (>= 2
+  // headers) plus content proof (the tail repeats earlier content, or a
+  // ?-yes/no pair exists). Single labels ("Name: Sam.") and titled prose
+  // pass through untouched.
+  const labeled = extractLastLabeled(text);
+  if (labeled !== null) text = labeled;
 
-  // Glued boundaries from streaming ("…it.)저는…") — split CJK joints only,
-  // so decimals/URLs like 3.14 stay intact.
+  // Leading whole-line scaffolding (bare analysis headers, labeled
+  // parenthesized asides) carries no content — drop it. Anything left
+  // standing is shown as-is; nothing left means chDidntGet downstream.
+  const leadLines = text.split("\n");
+  while (leadLines.length > 0 && (leadLines[0].trim() === "" || isScaffoldLine(leadLines[0]))) {
+    leadLines.shift();
+  }
+  text = leadLines.join("\n").trim();
+  if (!text) return "";
+
+  // Glued boundaries from streaming ("…it.)저는…", `"Hi!"Hi!`) — split
+  // CJK joints and quote/paren glue. Decimals/URLs like 3.14 stay intact:
+  // the glue needs punctuation + a closer before the join.
   text = text
     .replace(/([.!?。！？)\]”"])(?=[가-힣])/g, "$1 ")
-    .replace(/([가-힣])(?=["“‘(\[])/g, "$1 ");
-
-  // Sentence-level: the whole first paragraph can be several English
-  // reasoning sentences on one line. Drop leading meta sentences.
-  // The boundary also splits after a closer (")", "]") so a translation
-  // aside like "(I am …) Answer." becomes its own sentence.
-  const parts = text.split(/(?<=[.!?。！？][)\]”"]?)\s+/);
-  let j = 0;
-  while (j < parts.length && isMetaSentence(parts[j])) j++;
-  if (j > 0 && j < parts.length) {
-    text = parts.slice(j).join(" ").trim();
-  } else if (j === parts.length) {
-    // Pure reasoning, no answer — let callers fall back to chDidntGet.
-    return "";
-  }
+    .replace(/([가-힣])(?=["“‘(\[])/g, "$1 ")
+    .replace(/([.!?]["”'’)\]])(?=[A-Za-z0-9“"(\[])/g, "$1 ");
 
   // Unwrap the first quoted segment: `"저는 …입니다." (trans) 저는 …입니다.`
   // → `저는 …입니다. (trans) 저는 …입니다.` so the steps below can finish it.
@@ -402,6 +314,173 @@ function collapseDoubledHalves(text: string): string {
     }
   }
   return parts.slice(half).join(" ").trim();
+}
+
+/**
+ * Deliberation + quoted drafts + repeated tail
+ * (`Label:` scaffolding, `"Draft?"`, analysis, `"Answer."Answer.`): the
+ * repeated final run IS the answer.
+ * Fires only with hard scaffolding proof, so legit text survives:
+ * - single paragraph (multi-paragraph text passes through untouched),
+ * - the tail is a doubled window (quote-insensitive): the last w
+ *   sentences repeat the w before them (w = 1..3), or a quoted fuller
+ *   copy carries the final,
+ * - the head (everything before the run) holds >= 2 structural
+ *   markers (Label: headers, quoted draft spans, ?-yes/no pairs).
+ * Returns the run de-quoted, or null.
+ */
+function extractFinalRepeat(text: string): string | null {
+  if (text.includes("\n")) return null;
+  const unglued = text.replace(/([.!?]["”'’)\]])(?=[A-Za-z0-9“"(\[])/g, "$1 ");
+  const parts = unglued
+    .split(/(?<=[.!?。！？][)\]”"]?)\s+/)
+    .map((p) => p.trim())
+    .filter((p) => p && normSent(p).length > 0);
+  const n = parts.length;
+  if (n < 3) return null;
+  const final = normSent(parts[n - 1]);
+  if (final.length <= 4) return null;
+  const dequote = (p: string): string =>
+    p
+      .trim()
+      .replace(/^["“”'‘’⤴\s]+|["“”'‘’⤴\s]+$/g, "")
+      .trim();
+  // Smallest doubled window first (w=1 subsumes the plain repeat).
+  for (let w = 1; w <= 3 && 2 * w <= n; w++) {
+    let ok = true;
+    for (let j = 0; j < w; j++) {
+      if (normSent(parts[n - 2 * w + j]) !== normSent(parts[n - w + j])) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    const k = n - w;
+    if (k === 0) return null;
+    if (!scaffoldedHead(parts.slice(0, k))) continue;
+    return parts.slice(k).join(" ").trim().replace(/^["“”'‘’\s]+|["“”'‘’\s]+$/g, "").trim() || null;
+  }
+  // Quoted fuller copy carrying a short final (`"Yo! How can…?"` +
+  // `How can…?` when the window match above missed on length).
+  if (n >= 3) {
+    const prev = parts[n - 2];
+    const pn = normSent(prev);
+    if (
+      /^["“'‘’]/.test(prev.trim()) &&
+      pn.endsWith(final) &&
+      pn.length > final.length &&
+      pn.length <= final.length + 40 &&
+      scaffoldedHead(parts.slice(0, n - 1))
+    ) {
+      return dequote(prev) || null;
+    }
+  }
+  return null;
+}
+
+/** A whole line that is pure scaffolding, never content: a bare analysis
+ * header, or a parenthesized aside LABEL (`(Note: …)`). Whole-line only —
+ * inline uses stay untouched. */
+function isScaffoldLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) return false;
+  if (/^(thinking|thought|analysis|reasoning|internal monologue)\s*:?$/i.test(t)) return true;
+  if (/^\((note|system|internal)\b[^()\n]{0,200}\)\.?$/i.test(t)) return true;
+  return false;
+}
+
+/**
+ * Generic labeled-answer take: a trace that ends with its answer under a
+ * `Label:` takes just the tail — any label words, any language. Proof
+ * required, so titled prose survives: >= 2 headers in the text, plus
+ * content proof (the tail repeats earlier content, or a ?-yes/no pair
+ * exists). Single labels ("Name: Sam.") always pass through untouched.
+ */
+function extractLastLabeled(text: string): string | null {
+  const parts = text
+    .split(/(?<=[.!?。！？][)\]”"]?)\s+|\n+/)
+    .map((p) => p.trim())
+    .filter((p) => p && normSent(p).length > 0);
+  if (parts.length < 3) return null;
+  const headerIdx: number[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    if (isHeaderShape(parts[i].replace(/^[*•\-]\s+/, "").trim())) headerIdx.push(i);
+  }
+  if (headerIdx.length < 2) return null;
+  const last = headerIdx[headerIdx.length - 1];
+  const tail = parts
+    .slice(last)
+    .join(" ")
+    .replace(/^[*•\-]\s+/, "")
+    .replace(/^[A-Za-z가-힣][^:?\n]{1,30}:\s*/, "")
+    .trim();
+  if (!tail) return null;
+  const tailNorms = tail
+    .split(/(?<=[.!?。！？][)\]”"]?)\s+/)
+    .map((p) => normSent(p))
+    .filter((n) => n.length > 4);
+  if (tailNorms.length === 0) return null;
+  const headNorms = new Set(parts.slice(0, last).map((p) => normSent(p)));
+  const repeats = tailNorms.some((tn) => headNorms.has(tn));
+  let qa = false;
+  for (let i = 0; i + 1 < parts.length; i++) {
+    if (endsQShape(parts[i]) && isYesNoShape(parts[i + 1])) {
+      qa = true;
+      break;
+    }
+  }
+  if (!repeats && !qa) return null;
+  return collapseDoubledHalves(tail) || null;
+}
+
+/**
+ * Quoted draft + bare repeat: some earlier `"quoted span"` says exactly
+ * what the final sentence says (any language, any question). The quoted
+ * copy is the draft, the final is the answer — return the final.
+ * Proof required: >= 2 structural markers with at least the matching
+ * draft among them (a lone quote + echo is just emphasis, keep it).
+ */
+function extractQuotedDraft(text: string): string | null {
+  const parts = text
+    .split(/(?<=[.!?。！？][)\]”"]?)\s+|\n+/)
+    .map((p) => p.trim())
+    .filter((p) => p && normSent(p).length > 0);
+  if (parts.length < 3) return null;
+  const final = normSent(parts[parts.length - 1]);
+  if (final.length <= 4) return null;
+  const head = parts.slice(0, parts.length - 1);
+  const drafts = head.join(" ").match(/["“][^"”]{8,}["”]/g) ?? [];
+  if (!drafts.some((d) => normSent(d) === final)) return null;
+  let markers = drafts.length;
+  for (const p of head) {
+    if (isHeaderShape(p.replace(/^[*•\-]\s+/, "").trim())) markers++;
+  }
+  for (let i = 0; i + 1 < head.length; i++) {
+    if (endsQShape(head[i]) && isYesNoShape(head[i + 1])) {
+      markers++;
+      break;
+    }
+  }
+  if (markers < 2) return null;
+  return parts[parts.length - 1].replace(/^["“”'‘’\s]+|["“”'‘’\s]+$/g, "").trim() || null;
+}
+
+/** Scaffolding proof: >= 2 structural markers, no vocabulary involved. */
+function scaffoldedHead(head: string[]): boolean {  if (head.length === 0) return false;
+  let markers = 0;
+  for (const p of head) {
+    if (isHeaderShape(p.replace(/^[*•\-]\s+/, "").trim())) markers++;
+  }
+  const flat = head.join(" ");
+  const drafts = flat.match(/["“][^"”]{8,}["”]/g);
+  if (drafts) markers += drafts.length;
+  for (let i = 0; i + 1 < head.length; i++) {
+    if (endsQShape(head[i]) && isYesNoShape(head[i + 1])) {
+      markers++;
+      break;
+    }
+  }
+  return markers >= 2;
 }
 
 /**

@@ -75,11 +75,16 @@ function store(key: string, value: string): void {
  * - "ollama": any Ollama-compatible local server (/api/tags + /api/chat).
  * Both expose the same LanguageModelSession shape, so chat/file tools work
  * unchanged. All user-facing status goes through t() (Korean default).
+ *
+ * `member` = logged-in via /api/auth: server-key (trial) sessions are
+ * unlimited, so status shows member mode instead of trial mode.
  */
-export function useLanguageModel(lang: Lang, t: TFn) {
+export function useLanguageModel(lang: Lang, t: TFn, member = false) {
   const sessionRef = useRef<LanguageModelSession | null>(null);
   const busyRef = useRef<BusyKind>(null);
   const creatingRef = useRef(false);
+  const memberRef = useRef(member);
+  memberRef.current = member;
 
   const [status, setStatus] = useState(t("stStarting"));
   const [online, setOnline] = useState(false);
@@ -248,8 +253,9 @@ export function useLanguageModel(lang: Lang, t: TFn) {
   const supported = useCallback(async (): Promise<string> => {
     if (providerRef.current === "cloud") {
       if (!geminiKeyRef.current) {
-        // No key: trial mode through the server key (capped per visitor).
-        setStatus(t("stTrialMode", { n: TRIAL_GEMINI_LIMIT }));
+        // No key: trial mode through the server key (capped per visitor,
+        // unlimited for logged-in members).
+        setStatus(memberRef.current ? t("stMemberMode") : t("stTrialMode", { n: TRIAL_GEMINI_LIMIT }));
         setOnline(true);
         setAvailability("available");
         return "available";
@@ -316,11 +322,12 @@ export function useLanguageModel(lang: Lang, t: TFn) {
       setReady(false);
       try {
         if (!geminiKeyRef.current) {
-          // Trial mode: server key, visitor-capped. Model is fixed.
+          // Trial mode: server key, visitor-capped (members unlimited).
+          // Model is fixed.
           sessionRef.current = new TrialChatSession();
           geminiModelRef.current = DEFAULT_GEMINI_MODEL;
           setGeminiModelState(DEFAULT_GEMINI_MODEL);
-          setStatus(t("stTrialMode", { n: TRIAL_GEMINI_LIMIT }));
+          setStatus(memberRef.current ? t("stMemberMode") : t("stTrialMode", { n: TRIAL_GEMINI_LIMIT }));
           setOnline(true);
           setReady(true);
           return true;
@@ -335,7 +342,8 @@ export function useLanguageModel(lang: Lang, t: TFn) {
         sessionRef.current = new GeminiSession(
           geminiKeyRef.current,
           geminiModelRef.current,
-          t("sysIdentityCloud", { m: geminiModelRef.current }),
+          // Designation fact only — no behavior lectures to echo back.
+          `You are '${geminiModelRef.current}'.`,
         );
         setStatus(t("stCloudReady", { m: geminiModelRef.current }));
         setOnline(true);
@@ -367,7 +375,8 @@ export function useLanguageModel(lang: Lang, t: TFn) {
         sessionRef.current = new OllamaSession(
           ollamaUrlRef.current,
           ollamaModelRef.current,
-          t("sysIdentityLocal", { m: ollamaModelRef.current }),
+          // Designation fact only — no behavior lectures to echo back.
+          `You are '${ollamaModelRef.current}'.`,
         );
         setStatus(t("stOllamaReady", { m: ollamaModelRef.current }));
         setOnline(true);
@@ -391,7 +400,8 @@ export function useLanguageModel(lang: Lang, t: TFn) {
       const outputLanguage = outputLangFor(lang);
       sessionRef.current = await LanguageModel.create({
         ...(outputLanguage ? { outputLanguage } : null),
-        initialPrompts: [{ role: "system", content: t("sysIdentityBuiltIn") }],
+        // Designation fact only — no behavior lectures to echo back.
+        initialPrompts: [{ role: "system", content: "You are 'Gemma 4'." }],
         monitor(m) {
           m.addEventListener("downloadprogress", (ev: Event) => {
             const loaded = (ev as unknown as { loaded?: number }).loaded ?? 0;
@@ -439,7 +449,7 @@ export function useLanguageModel(lang: Lang, t: TFn) {
             sessionRef.current = s;
             geminiModelRef.current = DEFAULT_GEMINI_MODEL;
             setGeminiModelState(DEFAULT_GEMINI_MODEL);
-            setStatus(t("stTrialMode", { n: TRIAL_GEMINI_LIMIT }));
+            setStatus(memberRef.current ? t("stMemberMode") : t("stTrialMode", { n: TRIAL_GEMINI_LIMIT }));
             setOnline(true);
             setReady(true);
             return true;
@@ -455,7 +465,8 @@ export function useLanguageModel(lang: Lang, t: TFn) {
           const s = new GeminiSession(
             geminiKeyRef.current,
             geminiModelRef.current,
-            t("sysIdentityCloud", { m: geminiModelRef.current }),
+            // Designation fact only — no behavior lectures to echo back.
+            `You are '${geminiModelRef.current}'.`,
           );
           for (const msg of history) {
             await s.append(
@@ -486,7 +497,8 @@ export function useLanguageModel(lang: Lang, t: TFn) {
           const s = new OllamaSession(
             ollamaUrlRef.current,
             ollamaModelRef.current,
-            t("sysIdentityLocal", { m: ollamaModelRef.current }),
+            // Designation fact only — no behavior lectures to echo back.
+            `You are '${ollamaModelRef.current}'.`,
           );
           for (const msg of history) {
             await s.append(

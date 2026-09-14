@@ -363,6 +363,8 @@ export class TrialChatSession implements LanguageModelSession {
  *  their provider→model mapping — the router has no provider-less route,
  *  and big names like FLUX/Qwen were dropped from this provider). */
 export const HF_IMAGE_MODEL = "stabilityai/stable-diffusion-3-medium-diffusers";
+/** Short display label for the meter (model names are never translated). */
+export const HF_DRAW_LABEL = "SD 3.5 Medium";
 /** Provider-pinned router path (this exact shape is what hf-inference serves). */
 const HF_ROUTER = "https://router.huggingface.co/hf-inference/models";
 

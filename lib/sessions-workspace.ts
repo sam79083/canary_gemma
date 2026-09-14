@@ -1,5 +1,6 @@
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { ChatMessage, SessionInfo } from "./types";
+import { normalizeTitle } from "./sessions-local";
 
 // Sessions live inside the user's picked folder, so history is real files
 // on disk — not browser localStorage, not the Render server.
@@ -35,10 +36,11 @@ export async function saveWorkspaceSession(
       ? existingFilename
       : `session_${stamp()}.json`;
   await ws.makeDir(SESSIONS_ROOT);
+  const timestamp = Date.now();
   const payload = {
-    title: title || "New conversation",
+    title: normalizeTitle(title, timestamp),
     messages,
-    timestamp: Date.now(),
+    timestamp,
   };
   await ws.writeFile(pathFor(filename), JSON.stringify(payload, null, 2));
   return filename;
@@ -63,11 +65,14 @@ export async function listWorkspaceSessions(
         title?: string;
         timestamp?: number;
       };
+      const timestamp = typeof data.timestamp === "number" ? data.timestamp : 0;
+      const rawTitle = typeof data.title === "string" ? data.title.trim().slice(0, 80) : "";
       sessions.push({
         filename: e.name,
-        title:
-          typeof data.title === "string" && data.title ? data.title : e.name,
-        timestamp: typeof data.timestamp === "number" ? data.timestamp : 0,
+        // Pre-normalization files may carry a blank title — show a dated
+        // label (or the filename) instead of an empty row.
+        title: rawTitle || (timestamp ? normalizeTitle("", timestamp) : e.name),
+        timestamp,
       });
     } catch {
       sessions.push({ filename: e.name, title: e.name, timestamp: 0 });

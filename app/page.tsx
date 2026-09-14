@@ -4,8 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Chat from "@/components/Chat";
 import FileEditor from "@/components/FileEditor";
 import FileTree from "@/components/FileTree";
+import LoginDialog from "@/components/LoginDialog";
 import Onboarding from "@/components/Onboarding";
 import UsageBlock from "@/components/UsageBlock";
+import { useAuth } from "@/hooks/useAuth";
 import { useLanguageModel, type Provider } from "@/hooks/useLanguageModel";
 import { useLanguage } from "@/hooks/useLanguage";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -13,11 +15,30 @@ import { LANGS, isLang } from "@/lib/i18n";
 import type { TFn } from "@/lib/i18n";
 import { summarizeDiff } from "@/lib/diff";
 import { fetchQuota, readFileBinary } from "@/lib/api";
+import {
+  deletePath as serverDeletePath,
+  listFiles as serverListFiles,
+  makeDir as serverMakeDir,
+  readFile as serverReadFile,
+  writeFile as serverWriteFile,
+  writeFileBinary as serverWriteFileBinary,
+} from "@/lib/api";
+import {
+  applyUndo,
+  loadUndoStack,
+  saveUndoStack,
+  undoDisplayName,
+  withTimestamp,
+  type UndoEntry,
+  type UndoInput,
+} from "@/lib/undo";
 import { folderCapLine, getFolderCap } from "@/lib/capabilities";
 import {
   deleteLocalSession,
+  displayTitle,
   listLocalSessions,
   loadLocalSession,
+  normalizeTitle,
   renameLocalSession,
   saveLocalSession,
 } from "@/lib/sessions-local";
@@ -37,7 +58,10 @@ const ONBOARD_KEY = "canary-onboard";
 function titleFor(messages: ChatMessage[], t: TFn): string {
   const first = messages.find((m) => m.role === "user");
   if (!first) return t("pgNewChat").replace(/^\+ /, "");
-  const text = first.content.slice(0, 50);
+  // Guard against blank/whitespace-only openers (voice slips, file sends):
+  // a blank title would render as an empty Manage-chats row.
+  const text = (typeof first.content === "string" ? first.content : "").trim().slice(0, 50);
+  if (!text) return normalizeTitle("", Date.now());
   return text.length >= 50 ? text + "…" : text;
 }
 
@@ -78,6 +102,7 @@ function ReviewCard({
             </div>
             <textarea
               className="review-edit"
+              autoFocus
               value={edited}
               onChange={(e) => setEdited(e.target.value)}
               spellCheck={false}
@@ -113,7 +138,9 @@ function CheckRow({ label, ok, bad }: { label: string; ok: boolean; bad: boolean
 
 export default function Home() {
   const { lang, setLang, t } = useLanguage();
-  const model = useLanguageModel(lang, t);
+  const auth = useAuth();
+  const member = auth.user !== null;
+  const model = useLanguageModel(lang, t, member);
   const workspace = useWorkspace();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -142,10 +169,10 @@ export default function Home() {
   const [capLine, setCapLine] = useState("…");
   const setupRef = useRef<HTMLDetailsElement>(null);
   const [currentFile, setCurrentFile] = useState<string | null>(null);
-  // Trial budget display (keyless cloud visitors only).
+  // Trial budget display (keyless cloud visitors only — never members).
   const [trialLeft, setTrialLeft] = useState<{ gemini: number; hf: number } | null>(null);
   useEffect(() => {
-    if (model.provider !== "cloud" || model.geminiKey) {
+    if (model.provider !== "cloud" || model.geminiKey || member) {
       setTrialLeft(null);
       return;
     }
@@ -164,7 +191,26 @@ export default function Home() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model.provider, model.geminiKey, messages.length]);
+  }, [model.provider, model.geminiKey, messages.length, member]);
+
+  // Member login popup (upper-right button).
+  const [loginOpen, setLoginOpen] = useState(false);
+
+  // When the member session resolves/changes, refresh the cloud status line
+  // (trial mode <-> member mode) without touching the chat session itself —
+  // the server session is the same endpoint, now unlimited via cookie.
+  useEffect(() => {
+    if (auth.loading || !model.hydrated) return;
+    if (model.provider !== "cloud" || model.geminiKey) return;
+    if (model.busyRef.current) return;
+    void model.supported();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.loading, auth.user, model.hydrated]);
+
+  const handleLogout = useCallback(() => {
+    void auth.logout();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // HuggingFace token for HD drawing (browser-only, like the Gemini key).
   const [hfKey, setHfKey] = useState("");
   useEffect(() => {
@@ -195,6 +241,33 @@ export default function Home() {
   }, []);
   // Picture viewer (images never open in the text editor).
   const [viewImage, setViewImage] = useState<{ name: string; url: string } | null>(null);
+
+  // ---- Revert safety net: backup-before-write for every mutation ----
+  // Shared across chat agent, file editor, and file tree so ANY edit can
+  // be undone — even when the new contents are bad. Memory + best-effort
+  // localStorage (see lib/undo.ts for caps).
+  const [undoStack, setUndoStack] = useState<UndoEntry[]>(() => {
+    try {
+      return loadUndoStack();
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    try {
+      saveUndoStack(undoStack);
+    } catch {
+      // memory-only — undo still works this session
+    }
+  }, [undoStack]);
+
+  const recordUndo = useCallback((e: UndoInput) => {
+    try {
+      setUndoStack((prev) => [...prev.slice(-19), withTimestamp(e)]);
+    } catch {
+      // recording must never break the write itself
+    }
+  }, []);
 
   /** Ask the user to Keep/Undo a file change. Resolves with the verdict. */
   const reviewChange: ReviewFn = useCallback((r: PendingReview) => {
@@ -248,6 +321,41 @@ export default function Home() {
       }
     })();
   }, []);
+
+  // Live server-disk meter (sessions/, uploads/, fs free). Refreshes when
+  // files change; hidden when the ping fails.
+  const [storageLine, setStorageLine] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/storage", { cache: "no-store" });
+        const data = (await res.json()) as {
+          sessions?: { files?: number; bytes?: number };
+          uploads?: { files?: number; bytes?: number };
+          fs?: { free?: number; total?: number } | null;
+        };
+        if (cancelled || !res.ok) return;
+        const fmt = (n: number): string => {
+          if (!Number.isFinite(n)) return "?";
+          if (n < 1024) return `${n}B`;
+          if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
+          if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)}MB`;
+          return `${(n / 1024 / 1024 / 1024).toFixed(2)}GB`;
+        };
+        const a = `${data.sessions?.files ?? 0} (${fmt(data.sessions?.bytes ?? 0)})`;
+        const b = `${data.uploads?.files ?? 0} (${fmt(data.uploads?.bytes ?? 0)})`;
+        const c = data.fs && typeof data.fs.free === "number" ? fmt(data.fs.free) : "?";
+        if (!cancelled) setStorageLine(t("sgLine", { a, b, c }));
+      } catch {
+        if (!cancelled) setStorageLine(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeVersion, t]);
 
   // Auto-open the Setup section when the AI can't run — that's when it's needed.
   useEffect(() => {
@@ -304,6 +412,20 @@ export default function Home() {
     [],
   );
 
+  const handleLogin = useCallback(
+    async (id: string, pw: string): Promise<boolean> => {
+      const ok = await auth.login(id, pw);
+      if (ok) {
+        // auth.user state lands a beat later — greet with the typed id.
+        pushMessage("assistant", t("lgLoggedIn", { user: id.trim() }));
+        persistChat();
+      }
+      return ok;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [t],
+  );
+
   // Persist chat to localStorage on every change (after initial hydration).
   // Image previews are live object URLs — persist text only.
   useEffect(() => {
@@ -350,6 +472,104 @@ export default function Home() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.connected, t]);
+
+  /** Undo one entry against the active backend (workspace or server). */
+  const applyUndoEntry = useCallback(
+    async (entry: UndoEntry): Promise<void> => {
+      const base64ToBlob = (b64: string, mime?: string | null): Blob => {
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return new Blob([bytes.buffer as ArrayBuffer], {
+          type: mime || "application/octet-stream",
+        });
+      };
+      if (workspace.connected) {
+        await applyUndo(entry, {
+          write: (p, c) => workspace.writeFile(p, c),
+          del: (p) => workspace.deletePath(p),
+          mkdir: (p) => workspace.makeDir(p),
+          writeBinary: async (p, b64) =>
+            workspace.writeBinary(p, base64ToBlob(b64)),
+        });
+      } else {
+        await applyUndo(entry, {
+          write: (p, c) => serverWriteFile(p, c),
+          del: (p) => serverDeletePath(p),
+          mkdir: (p) => serverMakeDir(p),
+          writeBinary: (p, b64) => serverWriteFileBinary(p, b64),
+        });
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workspace],
+  );
+
+  const describeUndoError = useCallback(
+    (e: unknown): string => {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/no-backup/i.test(msg)) return t("udNoBackup");
+      return msg;
+    },
+    [t],
+  );
+
+  /** Undo the most recent change (LIFO — keeps dependent edits ordered). */
+  const handleUndo = useCallback(async () => {
+    const entry = undoStack[undoStack.length - 1];
+    if (!entry) {
+      pushMessage("assistant", t("udNothing"));
+      return;
+    }
+    try {
+      await applyUndoEntry(entry);
+      setUndoStack((prev) => prev.slice(0, -1));
+      setTreeVersion((v) => v + 1);
+      // If the undone file is open in the editor, its content is now stale
+      // — bump the tree; the editor reloads on path change, and the chat
+      // line tells the user what happened.
+      pushMessage(
+        "assistant",
+        t("udUndone", { name: undoDisplayName(entry.path) || entry.path }) +
+          (entry.truncated ? " " + t("udPartial") : ""),
+      );
+      persistChat();
+    } catch (e) {
+      pushMessage("assistant", t("udFail", { msg: describeUndoError(e) }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [undoStack, applyUndoEntry, t]);
+
+  /** Undo the most recent change touching `path` (out-of-order allowed). */
+  const handleUndoPath = useCallback(
+    async (path: string) => {
+      const idx = [...undoStack]
+        .map((e, i) => ({ e, i }))
+        .reverse()
+        .find(({ e }) => e.path === path || (e.dirFiles ?? []).some((f) => f.path === path))
+        ?.i;
+      if (idx === undefined) {
+        pushMessage("assistant", t("udNothing"));
+        return;
+      }
+      const entry = undoStack[idx];
+      try {
+        await applyUndoEntry(entry);
+        setUndoStack((prev) => prev.filter((_, i) => i !== idx));
+        setTreeVersion((v) => v + 1);
+        pushMessage(
+          "assistant",
+          t("udUndone", { name: undoDisplayName(entry.path) || entry.path }) +
+            (entry.truncated ? " " + t("udPartial") : ""),
+        );
+        persistChat();
+      } catch (e) {
+        pushMessage("assistant", t("udFail", { msg: describeUndoError(e) }));
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [undoStack, applyUndoEntry, t],
+  );
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -453,6 +673,7 @@ export default function Home() {
       if (avail !== "unavailable" && avail !== "unsupported")
         void model.createSession();
     });
+    setTimeout(() => document.getElementById("prompt-input")?.focus(), 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -495,6 +716,7 @@ export default function Home() {
       } catch (e) {
         console.error("Failed to load session:", e);
       }
+      setTimeout(() => document.getElementById("prompt-input")?.focus(), 0);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [workspace.connected],
@@ -591,7 +813,7 @@ export default function Home() {
 
   const readInput = useCallback(() => input, [input]);
 
-  const closeEditor = useCallback((focusChat = false) => {
+  const closeEditor = useCallback((focusChat = true) => {
     setEditorPath(null);
     if (focusChat) {
       setTimeout(
@@ -810,6 +1032,11 @@ export default function Home() {
           ) : null}
           {model.provider === "cloud" ? (
             <>
+              {member && !model.geminiKey ? (
+                <div className="workspace-hint" style={{ color: "#2e7d32", fontWeight: 600 }}>
+                  {t("lgMember", { user: auth.user ?? "" })}
+                </div>
+              ) : null}
               <input
                 className="sidebar-btn small"
                 style={{ width: "100%", cursor: "text" }}
@@ -862,7 +1089,7 @@ export default function Home() {
                 </a>
                 {" — "}{t("pgGeminiHint")}
               </div>
-              {showKeyHelp || !model.geminiKey ? (
+              {showKeyHelp || (!model.geminiKey && !member) ? (
                 <div className="workspace-hint" style={{ lineHeight: 1.6 }}>
                   <div>{t("kgS1")}</div>
                   <div>{t("kgS2")}</div>
@@ -936,23 +1163,42 @@ export default function Home() {
           <option value="">
             {sessionList.length > 0 ? t("pgPastChats") : t("pgNoPastChats")}
           </option>
-          {sessionList.map((s) => (
-            <option key={s.filename} value={s.filename}>
-              {s.title} ({new Date(s.timestamp).toLocaleString()})
-            </option>
-          ))}
+          {sessionList
+            .filter((s) => s.filename && s.filename.trim())
+            .map((s) => (
+              <option key={s.filename} value={s.filename}>
+                {displayTitle(s)} ({new Date(s.timestamp).toLocaleString()})
+              </option>
+            ))}
         </select>
 
         {sessionList.length > 0 ? (
           <details className="side-group" style={{ marginTop: 6 }}>
             <summary style={{ fontSize: 11 }}>{t("ssManage")}</summary>
             <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4, maxHeight: 180, overflowY: "auto" }}>
-              {sessionList.map((s) => (
+          {sessionList
+            .filter((s) => s.filename && s.filename.trim())
+            .map((s) => {
+              // Belt-and-braces: title → filename → date, so a row can
+              // never render blank (plus a visible date to tell chats apart).
+              const label =
+                displayTitle(s).trim() || new Date(s.timestamp).toLocaleString();
+              const d = new Date(s.timestamp);
+              const when = s.timestamp
+                ? `${d.toLocaleDateString()} ${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`
+                : "?";
+              return (
                 <div
                   key={s.filename}
                   style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}
                 >
                   <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => void handleLoadSessionFile(s.filename)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void handleLoadSessionFile(s.filename);
+                    }}
                     style={{
                       flex: 1,
                       overflow: "hidden",
@@ -960,21 +1206,29 @@ export default function Home() {
                       whiteSpace: "nowrap",
                       opacity: s.filename === currentFile ? 1 : 0.75,
                       fontWeight: s.filename === currentFile ? 700 : 400,
+                      cursor: "pointer",
                     }}
-                    title={s.title}
+                    title={`${label} (${s.filename}) — click to open`}
                   >
-                    {s.title}
+                    {label}
+                  </span>
+                  <span style={{ flex: "0 0 auto", fontSize: 11, opacity: 0.55 }}>
+                    {when}
                   </span>
                   <button
                     className="sidebar-btn small"
                     style={{ flex: "0 0 auto", padding: "2px 8px" }}
                     title={t("trDelete")}
-                    onClick={() => void handleDeleteOneChat(s.filename)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleDeleteOneChat(s.filename);
+                    }}
                   >
                     🗑️
                   </button>
                 </div>
-              ))}
+              );
+            })}
               <button
                 className="sidebar-btn small"
                 style={{ justifyContent: "center", marginTop: 4 }}
@@ -1005,11 +1259,17 @@ export default function Home() {
                 opacity: 0.8,
               }}
               title={
-                sessionList.find((s) => s.filename === currentFile)?.title ?? currentFile
+                (() => {
+                  const cur = sessionList.find((s) => s.filename === currentFile);
+                  return cur ? displayTitle(cur) : (currentFile ?? "");
+                })()
               }
             >
               💬{" "}
-              {sessionList.find((s) => s.filename === currentFile)?.title ?? currentFile}
+              {(() => {
+                const cur = sessionList.find((s) => s.filename === currentFile);
+                return cur ? displayTitle(cur) : currentFile;
+              })()}
             </span>
             <button
               className="sidebar-btn small"
@@ -1034,6 +1294,11 @@ export default function Home() {
           <summary>{t("grpFiles")}</summary>
           <div className="workspace-box" id="hf-box" style={{ marginTop: 8 }}>
             <div className="workspace-name">🖼️ SD 3.5 Medium (HD)</div>
+            {member && !hfKey ? (
+              <div className="workspace-hint" style={{ color: "#2e7d32", fontWeight: 600 }}>
+                {t("lgMember", { user: auth.user ?? "" })}
+              </div>
+            ) : null}
             <input
               className="sidebar-btn small"
               style={{ width: "100%", cursor: "text" }}
@@ -1122,6 +1387,7 @@ export default function Home() {
           version={treeVersion}
           onMutated={() => setTreeVersion((v) => v + 1)}
           workspace={workspace}
+          recordUndo={recordUndo}
           t={t}
         />
         </details>
@@ -1168,6 +1434,11 @@ export default function Home() {
             <div style={{ fontSize: 11, opacity: 0.7, fontFamily: "monospace" }}>
               {capLine}
             </div>
+            {storageLine ? (
+              <div style={{ fontSize: 11, opacity: 0.7, fontFamily: "monospace" }}>
+                {storageLine}
+              </div>
+            ) : null}
           </div>
 
           {showFlags ? (
@@ -1284,6 +1555,25 @@ export default function Home() {
           </span>
           <span id="model-status">{model.status}</span>
           <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {member ? (
+              <button
+                className="theme-toggle"
+                title={t("lgLogout")}
+                onClick={handleLogout}
+                style={{ cursor: "pointer", fontWeight: 700 }}
+              >
+                👤 {auth.user} ✓
+              </button>
+            ) : (
+              <button
+                className="theme-toggle"
+                title={t("lgLogin")}
+                onClick={() => setLoginOpen(true)}
+                style={{ cursor: "pointer" }}
+              >
+                {t("lgLogin")}
+              </button>
+            )}
             <select
               className="theme-toggle"
               title={t("pgLangTitle")}
@@ -1331,6 +1621,14 @@ export default function Home() {
           onFilesChanged={() => setTreeVersion((v) => v + 1)}
           onOpenFile={openFileAndCloseDrawer}
           reviewChange={reviewChange}
+          recordUndo={recordUndo}
+          undoCount={undoStack.length}
+          undoLabel={
+            undoStack.length > 0
+              ? undoDisplayName(undoStack[undoStack.length - 1].path)
+              : null
+          }
+          onUndo={() => void handleUndo()}
           provider={model.provider}
           ensureVision={model.ensureVisionSession}
           onTrialOver={() => {
@@ -1352,10 +1650,20 @@ export default function Home() {
         />
       </div>
 
+      {loginOpen ? (
+        <LoginDialog
+          checking={auth.checking}
+          error={auth.error}
+          onLogin={handleLogin}
+          onClose={() => setLoginOpen(false)}
+          t={t}
+        />
+      ) : null}
+
       {editorPath ? (
         <FileEditor
           path={editorPath}
-          onClose={() => closeEditor(false)}
+          onClose={() => closeEditor(true)}
           onSaved={() => setTreeVersion((v) => v + 1)}
           workspace={workspace}
           sessionRef={model.sessionRef}
@@ -1367,6 +1675,13 @@ export default function Home() {
           }}
           readInput={readInput}
           persistChat={persistChat}
+          recordUndo={recordUndo}
+          hasUndoForPath={undoStack.some(
+            (e) =>
+              e.path === editorPath ||
+              (e.dirFiles ?? []).some((f) => f.path === editorPath),
+          )}
+          onUndoPath={() => void handleUndoPath(editorPath)}
           t={t}
         />
       ) : null}
@@ -1410,6 +1725,7 @@ export default function Home() {
                 onClick={() => {
                   URL.revokeObjectURL(viewImage.url);
                   setViewImage(null);
+                  setTimeout(() => document.getElementById("prompt-input")?.focus(), 0);
                 }}
               >
                 {t("edClose")}

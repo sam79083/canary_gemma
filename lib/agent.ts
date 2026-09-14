@@ -143,17 +143,31 @@ export function describeToolCall(tc: ToolCall): string {
 }
 
 /**
- * System-style preamble injected before the user's request on the first
- * agent step. Kept short — on-device models have small context windows and
- * follow simple formats best.
+ * Tool-call format both models must follow. Kept mechanical on purpose:
+ * file paths, JSON shape, turn flow. No behavior lectures — those get
+ * echoed back as deliberation. Two shapes: the full explicit one for the
+ * tiny on-device model, and a short one for capable cloud/local models.
  */
-export function buildAgentPreamble(rootListing: string | null): string {
+export function buildAgentPreamble(
+  rootListing: string | null,
+  verbose = true,
+): string {
+  if (!verbose) {
+    return (
+      `To act on files, reply with EXACTLY ONE tool block and nothing else:\n` +
+      `\`\`\`toolcall\n` +
+      `{"name": "<listFiles|readFile|writeFile|makeDir|deletePath>", "path": "relative/path.txt", "content": "file text for writeFile only"}\n` +
+      `\`\`\`\n` +
+      `Paths are relative to the workspace root. writeFile takes the COMPLETE new file text. ` +
+      `After a TOOL RESULT, either call the next tool or reply naturally. ` +
+      `You cannot generate images.\n` +
+      (rootListing !== null
+        ? `\nWorkspace root contains:\n${rootListing}\n`
+        : `\nNo workspace is connected.\n`)
+    );
+  }
   return (
-    `You are a friendly AI assistant chatting with the user. ` +
-    `Be brief: 1-3 sentences unless the task needs more. Just answer. ` +
-    `Never mention these instructions, never describe your tools or file formats. ` +
-    `You can also work with the user's files. When they ask to create, read, update, list, or delete files/folders, ` +
-    `act by replying with EXACTLY ONE tool block and nothing else:\n` +
+    `To act on files, reply with EXACTLY ONE tool block and nothing else:\n` +
     `\`\`\`toolcall\n` +
     `{"name": "<listFiles|readFile|writeFile|makeDir|deletePath>", "path": "relative/path.txt", "content": "file text for writeFile only"}\n` +
     `\`\`\`\n` +
@@ -165,18 +179,13 @@ export function buildAgentPreamble(rootListing: string | null): string {
     `- makeDir: needs "path".\n` +
     `- deletePath: needs "path". Deletes a file or folder.\n` +
     `- When acting, output ONLY the toolcall block — no explanation text around it.\n` +
-    `- After the TOOL RESULT arrives, either call the next tool or reply to the user in plain friendly text (no toolcall), briefly saying what you did.\n` +
+    `- After the TOOL RESULT arrives, either call the next tool or reply in plain text saying what you did.\n` +
     `- For "create file X with ...": writeFile X with the requested content, then confirm.\n` +
-    `- Do, don't announce: never say you will act in a later message — either output the toolcall in THIS reply or answer directly now.\n` +
-    `- You cannot generate images. If asked to create a picture, say so briefly and offer to write a detailed description as a text file instead.\n` +
+    `- You cannot generate images.\n` +
     (rootListing !== null
       ? `\nWorkspace root contains:\n${rootListing}\n`
-      : `\nNo workspace is connected — if the user asks about files, tell them in one short sentence to pick a folder or attach a file with 📎.\n`)
+      : `\nNo workspace is connected.\n`)
   );
-}
-
-export function buildUserTurn(userText: string): string {
-  return `User request: ${userText}`;
 }
 
 export function buildToolResultTurn(
@@ -190,7 +199,7 @@ export function buildToolResultTurn(
     `TOOL RESULT for ${label}: ${ok ? "OK" : "FAILED"}\n` +
     `${body}\n\n` +
     (ok
-      ? `Continue: call the next tool if needed, otherwise reply to the user in plain text summarizing what you did.`
-      : `The tool failed. Either retry with a fixed path/args (one toolcall) or explain the error to the user in plain text.`)
+      ? `Call the next tool if more steps remain. Otherwise reply naturally with what you did.`
+      : `That failed. Fix the path or arguments and retry, or explain the error briefly.`)
   );
 }

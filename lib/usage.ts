@@ -31,7 +31,7 @@ interface Store {
   days: Record<string, DayBucket>; // key: `${model}|${pacificDate}`
   stamps: Record<string, Stamp[]>; // key: model
   limits: Record<string, ModelLimits>; // key: model
-  draws: Record<string, number>; // key: pacificDate → free-draw count
+  draws: Record<string, number>; // key: pacificDate → draw count
 }
 
 function pacificDate(d = new Date()): string {
@@ -130,7 +130,7 @@ export function fmtNum(n: number): string {
   return `${n}`;
 }
 
-/** Free-draw counter (Pollinations publishes no quota API either). */
+/** Daily draw counter (the image API publishes no quota endpoint). */
 export function recordDraw(): number {
   const s = load();
   const key = pacificDate();

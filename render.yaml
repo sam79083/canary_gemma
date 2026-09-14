@@ -16,3 +16,9 @@ services:
         sync: false
       - key: HF_TOKEN
         sync: false
+      # Member login (ID/PW checked server-side only). Set both values in
+      # the Render dashboard — the app falls back to sam/1227 when unset.
+      - key: SAM_ID
+        sync: false
+      - key: SAM_PW
+        sync: false
