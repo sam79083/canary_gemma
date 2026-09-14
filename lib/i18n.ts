@@ -321,6 +321,12 @@ const ko: Dict = {
   ckKey: "클라우드 키",
   ckSearchHint: "서버에 SERPAPI_KEY가 필요해요 (Render 대시보드 → Environment).",
   sgLine: "💾 서버: 채팅 {a} · 업로드 {b} · 디스크 여유 {c}",
+  cmChats: "채팅",
+  cmActions: "동작",
+  cmSearch: "채팅 · 동작 검색…",
+  trCreated: "만들었어요 ✓",
+  trDeleted: "삭제했어요 ✓",
+  lgOut: "로그아웃됐어요",
   grpFiles: "📂 파일",
 };
 
@@ -605,6 +611,12 @@ const en: Dict = {
   ckKey: "Cloud key",
   ckSearchHint: "Server needs SERPAPI_KEY (Render dashboard → Environment).",
   sgLine: "💾 Server: chats {a} · uploads {b} · disk {c} free",
+  cmChats: "Chats",
+  cmActions: "Actions",
+  cmSearch: "Search chats & actions…",
+  trCreated: "Created ✓",
+  trDeleted: "Deleted ✓",
+  lgOut: "Logged out",
   grpFiles: "📂 Files",
 };
 

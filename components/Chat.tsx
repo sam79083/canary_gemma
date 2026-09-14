@@ -29,6 +29,8 @@ import { estimateTokens, getDrawsToday, recordDraw, recordUsage } from "@/lib/us
 import { renderMarkdown } from "@/lib/markdown";
 import { sanitizeAnswer } from "@/lib/sanitize";
 import { generateHFImage, HF_DRAW_LABEL } from "@/lib/cloud-model";
+import Tip from "@/components/Tip";
+import { motion } from "motion/react";
 import {
   AGENT_MAX_STEPS,
   buildAgentPreamble,
@@ -1286,7 +1288,13 @@ export default function Chat({
     <>
       <div className="messages" id="messages">
         {messages.map((m, i) => (
-          <div key={i} className={`message ${m.role}`}>
+          <motion.div
+            key={i}
+            className={`message ${m.role}`}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18 }}
+          >
             <div className="avatar">{m.role === "user" ? "U" : "G"}</div>
             {m.role === "assistant" ? (
               <div
@@ -1321,10 +1329,15 @@ export default function Chat({
                 {copiedIdx === i ? "✓" : "⤴"}
               </button>
             ) : null}
-          </div>
+          </motion.div>
         ))}
         {streamText !== null ? (
-          <div className="message assistant">
+          <motion.div
+            className="message assistant"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18 }}
+          >
             <div className="avatar">G</div>
             <div className="content md" id="streaming-content">
               {streamText ? (
@@ -1337,7 +1350,7 @@ export default function Chat({
                 </span>
               )}
             </div>
-          </div>
+          </motion.div>
         ) : null}
         <div ref={bottomRef} />
       </div>
@@ -1410,24 +1423,28 @@ export default function Chat({
               e.target.value = "";
             }}
           />
-          <button
-            className="send-btn secondary"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={streaming}
-            title={t("upAttach")}
-          >
-            📎
-          </button>
-          {speechOK ? (
+          <Tip label={t("upAttach")}>
             <button
               className="send-btn secondary"
-              onClick={() => toggleVoice()}
-              disabled={streaming && !listening}
-              title={listening ? t("vcStop") : t("vcMic")}
-              style={listening ? { background: "#c62828" } : undefined}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={streaming}
+              title={t("upAttach")}
             >
-              {listening ? "⏺" : "🎤"}
+              📎
             </button>
+          </Tip>
+          {speechOK ? (
+            <Tip label={listening ? t("vcStop") : t("vcMic")}>
+              <button
+                className="send-btn secondary"
+                onClick={() => toggleVoice()}
+                disabled={streaming && !listening}
+                title={listening ? t("vcStop") : t("vcMic")}
+                style={listening ? { background: "#c62828" } : undefined}
+              >
+                {listening ? "⏺" : "🎤"}
+              </button>
+            </Tip>
           ) : null}
           <textarea
             id="prompt-input"
@@ -1453,12 +1470,13 @@ export default function Chat({
               }
             }}
           />
-          <button
-            className="send-btn secondary"
-            onClick={() => void handleSearch()}
-            disabled={searchDisabled}
-            title={t("chLooking")}
-          >
+          <Tip label={t("chLooking")}>
+            <button
+              className="send-btn secondary"
+              onClick={() => void handleSearch()}
+              disabled={searchDisabled}
+              title={t("chLooking")}
+            >
             {streaming ? (
               "⏳"
             ) : (
@@ -1482,14 +1500,17 @@ export default function Chat({
               </svg>
             )}
           </button>
-          <button
-            className="send-btn secondary"
-            onClick={() => void handleDraw()}
-            disabled={streaming || !input.trim()}
-            title={t("cfHFDraw")}
-          >
-            🖼️
-          </button>
+          </Tip>
+          <Tip label={t("cfHFDraw")}>
+            <button
+              className="send-btn secondary"
+              onClick={() => void handleDraw()}
+              disabled={streaming || !input.trim()}
+              title={t("cfHFDraw")}
+            >
+              🖼️
+            </button>
+          </Tip>
           <button className="send-btn" onClick={() => void handleSend()} disabled={sendDisabled}>
             {streaming ? "●" : "➤"}
           </button>

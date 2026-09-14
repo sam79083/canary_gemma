@@ -2,12 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Chat from "@/components/Chat";
+import CommandPalette from "@/components/CommandPalette";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import FileEditor from "@/components/FileEditor";
 import FileTree from "@/components/FileTree";
 import LoginDialog from "@/components/LoginDialog";
 import Onboarding from "@/components/Onboarding";
+import Tip from "@/components/Tip";
 import UsageBlock from "@/components/UsageBlock";
 import { useAuth } from "@/hooks/useAuth";
+import { useConfirm } from "@/hooks/useConfirm";
 import { useLanguageModel, type Provider } from "@/hooks/useLanguageModel";
 import { useLanguage } from "@/hooks/useLanguage";
 import { useWorkspace } from "@/hooks/useWorkspace";
@@ -48,6 +52,9 @@ import {
   saveWorkspaceSession,
 } from "@/lib/sessions-workspace";
 import type { ChatMessage, PendingReview, ReviewFn, ReviewResult, SessionInfo } from "@/lib/types";
+import { MotionConfig } from "motion/react";
+import * as Tooltip from "@radix-ui/react-tooltip";
+import { Toaster, toast } from "sonner";
 
 const HISTORY_KEY = "gemma4-chat-history";
 const THEME_KEY = "theme";
@@ -193,6 +200,20 @@ export default function Home() {
 
   // Member login popup (upper-right button).
   const [loginOpen, setLoginOpen] = useState(false);
+  // Accessible confirm modal (promise-based, replaces window.confirm).
+  const confirmCtl = useConfirm();
+  // Command palette (Ctrl+K quick switcher).
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   // When the member session resolves/changes, refresh the cloud status line
   // (trial mode <-> member mode) without touching the chat session itself —
@@ -206,9 +227,15 @@ export default function Home() {
   }, [auth.loading, auth.user, model.hydrated]);
 
   const handleLogout = useCallback(() => {
-    void auth.logout();
+    void auth.logout().then(() => {
+      try {
+        toast(t("lgOut"));
+      } catch {
+        // toasts are best-effort
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [t]);
   // HuggingFace token for HD drawing (browser-only, like the Gemini key).
   const [hfKey, setHfKey] = useState("");
   useEffect(() => {
@@ -733,7 +760,7 @@ export default function Home() {
   const handleDeleteChat = useCallback(async () => {
     const filename = currentSessionFileRef.current;
     if (!filename) return;
-    if (!confirm(t("ssDelete"))) return;
+    if (!(await confirmCtl.confirm(t("ssDelete"), "", t("trDelete")))) return;
     try {
       if (workspace.connected)
         await deleteWorkspaceSession(workspace, filename);
@@ -745,13 +772,18 @@ export default function Home() {
     // The list must reflect the delete even for the active chat —
     // otherwise its row lingers as a ghost that can never open.
     await refreshSessions();
+    try {
+      toast(t("trDeleted"));
+    } catch {
+      // toasts are best-effort
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.connected, t, handleNewChat]);
 
   const handleDeleteOneChat = useCallback(
     async (filename: string) => {
       if (!filename) return;
-      if (!confirm(t("ssDelete"))) return;
+      if (!(await confirmCtl.confirm(t("ssDelete"), "", t("trDelete")))) return;
       try {
         if (workspace.connected)
           await deleteWorkspaceSession(workspace, filename);
@@ -766,13 +798,18 @@ export default function Home() {
       // it was the active chat (handleNewChat alone leaves a ghost row
       // that throws "Not found" when opened).
       await refreshSessions();
+      try {
+        toast(t("trDeleted"));
+      } catch {
+        // toasts are best-effort
+      }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [workspace.connected, t, handleNewChat],
   );
 
   const handleDeleteAllChats = useCallback(async () => {
-    if (!confirm(t("ssDeleteAllConfirm"))) return;
+    if (!(await confirmCtl.confirm(t("ssDeleteAllConfirm"), "", t("ssDeleteAll")))) return;
     try {
       const list = workspace.connected
         ? await listWorkspaceSessions(workspace).catch(() => [])
@@ -791,6 +828,11 @@ export default function Home() {
     }
     handleNewChat();
     setSessionList([]);
+    try {
+      toast(t("trDeleted"));
+    } catch {
+      // toasts are best-effort
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.connected, t, handleNewChat]);
 
@@ -892,7 +934,22 @@ export default function Home() {
     model.availability !== "unsupported";
 
   return (
-    <>
+    <MotionConfig reducedMotion="user">
+      <Tooltip.Provider delayDuration={400}>
+      <Toaster
+        position="bottom-center"
+        theme={dark ? "dark" : "light"}
+        gap={8}
+        toastOptions={{
+          style: {
+            background: "var(--model-bar-bg)",
+            color: "var(--text)",
+            border: "1px solid var(--border)",
+            borderRadius: "6px",
+            fontSize: 13,
+          },
+        }}
+      />
       {model.download.show ? (
         <div id="download-overlay" className="download-overlay">
           <div className="download-card">
@@ -1636,15 +1693,37 @@ export default function Home() {
         />
       </div>
 
-      {loginOpen ? (
-        <LoginDialog
-          checking={auth.checking}
-          error={auth.error}
-          onLogin={handleLogin}
-          onClose={() => setLoginOpen(false)}
-          t={t}
-        />
-      ) : null}
+      <LoginDialog
+        open={loginOpen}
+        checking={auth.checking}
+        error={auth.error}
+        onLogin={handleLogin}
+        onClose={() => setLoginOpen(false)}
+        t={t}
+      />
+
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        sessions={sessionList}
+        currentFile={currentFile}
+        onPickChat={(filename) => void handleLoadSessionFile(filename)}
+        onNewChat={handleNewChat}
+        onSaveChat={() => void handleSaveChatAsFile()}
+        canSave={messages.length > 0}
+        loggedIn={member}
+        user={auth.user}
+        onLoginClick={() => setLoginOpen(true)}
+        onLogoutClick={handleLogout}
+        t={t}
+      />
+
+      <ConfirmDialog
+        req={confirmCtl.req}
+        cancelLabel={t("trCancel")}
+        onSettle={confirmCtl.settle}
+        t={t}
+      />
 
       {editorPath ? (
         <FileEditor
@@ -1729,6 +1808,7 @@ export default function Home() {
           onSettle={settleReview}
         />
       ) : null}
-    </>
+      </Tooltip.Provider>
+    </MotionConfig>
   );
 }

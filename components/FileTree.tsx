@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   deletePath as serverDeletePath,
   listFiles as serverListFiles,
@@ -362,6 +363,11 @@ export default function FileTree({
                     } catch {
                       // recording must never break the op itself
                     }
+                    try {
+                      toast(t("trCreated"));
+                    } catch {
+                      // toasts are best-effort
+                    }
                     refreshAfter();
                     onOpenFile(p);
                   })
@@ -380,6 +386,11 @@ export default function FileTree({
                     } catch {
                       // recording must never break the op itself
                     }
+                    try {
+                      toast(t("trCreated"));
+                    } catch {
+                      // toasts are best-effort
+                    }
                     refreshAfter();
                   })
                 }
@@ -392,7 +403,16 @@ export default function FileTree({
                 label={t("trCopyPath")}
                 onClick={() => {
                   setMenu(null);
-                  void navigator.clipboard.writeText(menu.fullPath);
+                  void navigator.clipboard.writeText(menu.fullPath).then(
+                    () => {
+                      try {
+                        toast(t("shCopied"));
+                      } catch {
+                        // toasts are best-effort
+                      }
+                    },
+                    () => {},
+                  );
                 }}
               />
             </>
@@ -420,6 +440,11 @@ export default function FileTree({
                     } catch {
                       // recording must never break the op itself
                     }
+                  }
+                  try {
+                    toast(t("trDeleted"));
+                  } catch {
+                    // toasts are best-effort
                   }
                   refreshAfter();
                 })
