@@ -130,6 +130,33 @@ export function fmtNum(n: number): string {
   return `${n}`;
 }
 
+/**
+ * Heuristic token estimate for turns that report no usage metadata (some
+ * models omit it). Roughly 4 chars/token for Latin scripts; CJK characters
+ * carry far more meaning each, so they count extra. Exact whenever the
+ * API reports real usage — this is only the fallback so the meter reflects
+ * activity instead of sitting at zero.
+ */
+export function estimateTokens(text: string): number {
+  if (!text) return 0;
+  let ascii = 0;
+  let cjk = 0;
+  let other = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code < 128) ascii++;
+    else if (
+      (code >= 0xac00 && code <= 0xd7af) || // Hangul
+      (code >= 0x3040 && code <= 0x30ff) || // Hiragana/Katakana
+      (code >= 0x4e00 && code <= 0x9fff) || // CJK Unified
+      (code >= 0xff00 && code <= 0xffef) // Fullwidth forms
+    )
+      cjk++;
+    else other++;
+  }
+  return Math.max(1, Math.round(ascii / 4 + cjk * 1.5 + other / 2));
+}
+
 /** Daily draw counter (the image API publishes no quota endpoint). */
 export function recordDraw(): number {
   const s = load();

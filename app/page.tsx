@@ -1201,18 +1201,20 @@ export default function Home() {
                     }}
                     style={{
                       flex: 1,
+                      minWidth: 0,
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
-                      opacity: s.filename === currentFile ? 1 : 0.75,
+                      opacity: s.filename === currentFile ? 1 : 0.85,
                       fontWeight: s.filename === currentFile ? 700 : 400,
                       cursor: "pointer",
+                      color: "var(--text)",
                     }}
                     title={`${label} (${s.filename}) — click to open`}
                   >
                     {label}
                   </span>
-                  <span style={{ flex: "0 0 auto", fontSize: 11, opacity: 0.55 }}>
+                  <span style={{ flex: "0 0 auto", fontSize: 11, opacity: 0.65, color: "var(--text)" }}>
                     {when}
                   </span>
                   <button

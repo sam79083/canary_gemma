@@ -8,8 +8,9 @@ import { trialUse } from "@/lib/trial";
 const TRIAL_SYSTEM = `You are '${DEFAULT_GEMINI_MODEL}'.`;
 
 // POST /api/gemini-chat {contents} — trial chat with the SERVER's Gemini key.
-// Non-streaming (trial simplicity): returns {text}. The key never leaves
-// the server. 501 = no server key; 429 {error:"trial-over"} = budget spent.
+// Non-streaming (trial simplicity): returns {text, remaining, usage}.
+// The key never leaves the server. 501 = no server key;
+// 429 {error:"trial-over"} = budget spent.
 // Logged-in members bypass the budget (cookie-authenticated).
 export async function POST(req: Request) {
   const key = process.env.GEMINI_KEY;
@@ -60,7 +61,23 @@ export async function POST(req: Request) {
       .flatMap((c) => c.content?.parts ?? [])
       .map((p) => p.text ?? "")
       .join("");
-    return NextResponse.json({ text, remaining });
+    // Pass usage through (may be absent for some models) so the client
+    // usage meter works on the trial/member path too — never the key.
+    const meta = data.usageMetadata;
+    const usage =
+      meta &&
+      (typeof meta.promptTokenCount === "number" ||
+        typeof meta.candidatesTokenCount === "number" ||
+        typeof meta.totalTokenCount === "number")
+        ? {
+            in: meta.promptTokenCount ?? 0,
+            out: meta.candidatesTokenCount ?? 0,
+            total:
+              meta.totalTokenCount ??
+              (meta.promptTokenCount ?? 0) + (meta.candidatesTokenCount ?? 0),
+          }
+        : null;
+    return NextResponse.json({ text, remaining, usage });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Chat failed" },

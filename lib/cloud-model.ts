@@ -312,6 +312,8 @@ export interface GeneratedImage {
 export class TrialChatSession implements LanguageModelSession {
   private history: Content[] = [];
   private destroyed = false;
+  /** Tokens used by the most recent request (null until first call). */
+  lastUsage: TokenUsage | null = null;
 
   async append(text: string): Promise<void> {
     const m = text.match(/^(User|Assistant):\s*([\s\S]*)$/);
@@ -346,8 +348,15 @@ export class TrialChatSession implements LanguageModelSession {
       throw new Error(data?.error || "trial-over");
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as { text?: string };
+    const data = (await res.json()) as { text?: string; usage?: TokenUsage };
     const text = data.text ?? "";
+    // Reset every turn: no usage reported means unknown, never the
+    // previous turn's numbers (which would double-count downstream).
+    const u = data.usage;
+    this.lastUsage =
+      u && typeof u.total === "number" && u.total > 0
+        ? { in: u.in ?? 0, out: u.out ?? 0, total: u.total }
+        : null;
     this.history.push({ role: "user", parts: [{ text: prompt }] });
     this.history.push({ role: "model", parts: [{ text }] });
     yield text;

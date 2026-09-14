@@ -25,7 +25,7 @@ import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { ChatMessage, ReviewFn } from "@/lib/types";
 import { type Lang, type TFn } from "@/lib/i18n";
 import { TRIAL_GEMINI_LIMIT, TRIAL_HF_LIMIT } from "@/lib/trial-limits";
-import { getDrawsToday, recordDraw, recordUsage } from "@/lib/usage";
+import { estimateTokens, getDrawsToday, recordDraw, recordUsage } from "@/lib/usage";
 import { renderMarkdown } from "@/lib/markdown";
 import { sanitizeAnswer } from "@/lib/sanitize";
 import { generateHFImage, HF_DRAW_LABEL } from "@/lib/cloud-model";
@@ -581,6 +581,7 @@ export default function Chat({
   async function runModelTurn(prompt: string): Promise<string> {
     const session = sessionRef.current;
     if (!session) throw new Error("Model session not ready");
+    resetUsage();
     let full = "";
     try {
       const stream = session.promptStreaming(prompt);
@@ -593,13 +594,28 @@ export default function Chat({
       full = (await session.prompt(prompt)) ?? "";
       showStream(full);
     }
-    collectUsage();
+    collectUsage(prompt, full);
     return full;
   }
 
-  function collectUsage(): void {
+  /** Clear last turn's usage so a turn that reports nothing can't
+   * re-record stale numbers (double counting). Best-effort. */
+  function resetUsage(): void {
+    try {
+      const s = sessionRef.current as unknown as Record<string, unknown> | null;
+      if (s && typeof s === "object" && "lastUsage" in s) {
+        (s as { lastUsage: unknown }).lastUsage = null;
+      }
+    } catch {
+      // usage tracking is best-effort
+    }
+  }
+
+  function collectUsage(promptText: string, replyText: string): void {
     // Cloud sessions report token usage — accumulate for the meter and
-    // record for the usage tracker.
+    // record for the usage tracker. When a turn reports nothing (some
+    // models omit usage metadata), fall back to a local estimate so the
+    // meter reflects real activity instead of staying at zero.
     try {
       const s = sessionRef.current as unknown as {
         lastUsage?: { total?: number };
@@ -608,6 +624,14 @@ export default function Chat({
       if (u && typeof u.total === "number" && u.total > 0) {
         setTokens((prev) => prev + (u.total as number));
         if (usageModel) recordUsage(usageModel, u.total as number);
+        return;
+      }
+      if (usageModel && (promptText || replyText)) {
+        const est = estimateTokens(promptText) + estimateTokens(replyText);
+        if (est > 0) {
+          setTokens((prev) => prev + est);
+          recordUsage(usageModel, est);
+        }
       }
     } catch {
       // usage unavailable (e.g. on-device) — meter stays hidden
@@ -651,6 +675,7 @@ export default function Chat({
         setInput("");
         pushMessage("user", `${prompt}\n\n📷 ${names}`);
         setStreamText("");
+        resetUsage();
         try {
           let full = "";
           const stream = session.promptWithImages(prompt, imgs);
@@ -658,7 +683,7 @@ export default function Chat({
             full += chunk;
             setStreamText(full);
           }
-          collectUsage();
+          collectUsage(prompt, full);
           const photoClean = sanitizeAnswer(stripToolCalls(full).trim());
           if (photoClean) {
             try {
@@ -1228,11 +1253,13 @@ export default function Chat({
         (results.length > 0
           ? "Instructions: Answer using the Web Search Results above. Do NOT claim you lack real-time access when results are provided. Cite sources by URL. If the results contain the answer (e.g. weather), state it directly."
           : "Instructions: No search results were available. Answer from your own knowledge and say that live search failed.");
+      resetUsage();
       const stream = sessionRef.current.promptStreaming(fullPrompt);
       for await (const chunk of stream) {
         full += chunk;
         setStreamText(full);
       }
+      collectUsage(fullPrompt, full);
       if (full.trim()) {
         const clean = sanitizeAnswer(full) || t("chDidntGet");
         rememberClean(clean);
