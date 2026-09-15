@@ -119,8 +119,7 @@ export function useLanguageModel(lang: Lang, t: TFn, member = false) {
   const [hydrated, setHydrated] = useState(false);
 
   // Load persisted settings once after mount (localStorage is client-only).
-  useEffect(() => {
-    const p = storedProvider();
+  useEffect(() => {    const p = storedProvider();
     providerRef.current = p;
     setProviderState(p);
     const ou = stored(OLLAMA_URL_KEY) || DEFAULT_OLLAMA_URL;
@@ -141,6 +140,20 @@ export function useLanguageModel(lang: Lang, t: TFn, member = false) {
     geminiErrorRef.current = e;
     setGeminiError(e);
   }, []);
+
+  // A key saved in another tab of the same site must show up here too —
+  // otherwise one tab chats keyless (trial) while another holds the key,
+  // and the key row disagrees between them.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== GEMINI_KEY || e.newValue === null) return;
+      geminiKeyRef.current = e.newValue;
+      setGeminiKeyState(e.newValue);
+      setGemErr(null);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [setGemErr]);
 
   // Re-translate the "connected" status when the UI language changes.
   useEffect(() => {

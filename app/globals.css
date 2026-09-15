@@ -1,8 +1,9 @@
 /* ==========================================================================
-   Gemma 4 Chat — Styles
+   Gemma 4 Chat ??Styles
    ========================================================================== */
 
 :root {
+    color-scheme: light;
     --bg: #ffffff;
     --text: #37352f;
     --sidebar-bg: #f7f7f5;
@@ -23,7 +24,8 @@
     --green-light: #e9f2fc;
 }
 
-body.dark {
+body[data-theme="dark"] {
+    color-scheme: dark;
     --bg: #191919;
     --text: #d4d4d4;
     --sidebar-bg: #202020;
@@ -42,6 +44,70 @@ body.dark {
     --icon-bg-hover: rgba(82, 156, 202, 0.28);
     --green: #529cca;
     --green-light: rgba(82, 156, 202, 0.16);
+}
+
+body[data-theme="midnight"] {
+    color-scheme: dark;
+    --bg: #000000;
+    --text: #e8e8e8;
+    --sidebar-bg: #0d0d0d;
+    --border: #262626;
+    --model-bar-bg: #000000;
+    --user-msg-bg: transparent;
+    --assistant-msg-bg: transparent;
+    --input-bg: #0d0d0d;
+    --note-bg: #141414;
+    --note-text: #8a8a8a;
+    --status-bg: #141414;
+    --status-text: #8a8a8a;
+    --typing-dot: #777777;
+    --icon-color: #529cca;
+    --icon-bg: rgba(82, 156, 202, 0.16);
+    --icon-bg-hover: rgba(82, 156, 202, 0.28);
+    --green: #529cca;
+    --green-light: rgba(82, 156, 202, 0.16);
+}
+
+body[data-theme="sepia"] {
+    --bg: #fbf6ec;
+    --text: #433422;
+    --sidebar-bg: #f4edde;
+    --border: #e3d7bd;
+    --model-bar-bg: #fbf6ec;
+    --user-msg-bg: transparent;
+    --assistant-msg-bg: transparent;
+    --input-bg: #fbf6ec;
+    --note-bg: #f1e7d0;
+    --note-text: #7a6a4f;
+    --status-bg: #f1e7d0;
+    --status-text: #7a6a4f;
+    --typing-dot: #a89a7c;
+    --icon-color: #8a6d2f;
+    --icon-bg: #ece0c4;
+    --icon-bg-hover: #e0d2ae;
+    --green: #8a6d2f;
+    --green-light: #ece0c4;
+}
+
+body[data-theme="forest"] {
+    --bg: #f3f5f1;
+    --text: #2f3a2e;
+    --sidebar-bg: #e7ece4;
+    --border: #d8e0d5;
+    --model-bar-bg: #f3f5f1;
+    --user-msg-bg: transparent;
+    --assistant-msg-bg: transparent;
+    --input-bg: #f3f5f1;
+    --note-bg: #e4eae1;
+    --note-text: #5c6b5a;
+    --status-bg: #e4eae1;
+    --status-text: #5c6b5a;
+    --typing-dot: #8a9889;
+    --icon-color: #2e7d32;
+    --icon-bg: #dce9db;
+    --icon-bg-hover: #c8dcc6;
+    --green: #2e7d32;
+    --green-light: #dce9db;
 }
 
 * {
@@ -290,7 +356,7 @@ body {
 }
 
 .file-tree-folder.open > .file-tree-item .icon {
-    content: '📂';
+    content: '?��';
 }
 
 .file-tree-item.folder > .name {
@@ -516,7 +582,8 @@ body {
     word-break: break-all;
 }
 
-body.dark .message .content.md a {
+body[data-theme="dark"] .message .content.md a,
+body[data-theme="midnight"] .message .content.md a {
     color: #529cca;
 }
 
@@ -788,12 +855,21 @@ body.dark .message .content.md a {
 }
 
 .side-group > summary::before {
-    content: "▸ ";
-    font-size: 10px;
+    content: "";
+    display: inline-block;
+    width: 0;
+    height: 0;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    border-left: 6px solid currentColor;
+    margin-right: 6px;
+    vertical-align: 1px;
+    transition: transform 0.15s ease;
 }
 
 .side-group[open] > summary::before {
-    content: "▾ ";
+    content: "";
+    transform: rotate(90deg);
 }
 
 .side-group > summary:hover {
@@ -1137,7 +1213,7 @@ body.dark .message .content.md a {
     font-weight: 600;
 }
 
-/* Command palette (cmdk) — Notion-style quick switcher */
+/* Command palette (cmdk) ??Notion-style quick switcher */
 .cmdk-panel {
     width: 100%;
     max-width: 520px;
@@ -1224,7 +1300,8 @@ body.dark .message .content.md a {
     animation: tip-in 0.12s ease;
 }
 
-body.dark .tip-card {
+body[data-theme="dark"] .tip-card,
+body[data-theme="midnight"] .tip-card {
     background: #e8e8e6;
     color: #37352f;
 }
@@ -1233,7 +1310,8 @@ body.dark .tip-card {
     fill: #37352f;
 }
 
-body.dark .tip-card .tip-arrow {
+body[data-theme="dark"] .tip-card .tip-arrow,
+body[data-theme="midnight"] .tip-card .tip-arrow {
     fill: #e8e8e6;
 }
 
@@ -1322,7 +1400,9 @@ body.dark .tip-card .tip-arrow {
     border-radius: 3px;
 }
 
-body.dark .messages::-webkit-scrollbar-thumb,
-body.dark .file-tree::-webkit-scrollbar-thumb {
+body[data-theme="dark"] .messages::-webkit-scrollbar-thumb,
+body[data-theme="dark"] .file-tree::-webkit-scrollbar-thumb,
+body[data-theme="midnight"] .messages::-webkit-scrollbar-thumb,
+body[data-theme="midnight"] .file-tree::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.1);
 }

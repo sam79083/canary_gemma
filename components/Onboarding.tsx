@@ -45,7 +45,7 @@ export default function Onboarding({
         ) : (
           <>
             <button className="sidebar-btn" onClick={onPickFolder} style={{ width: "100%", justifyContent: "center" }}>
-              {folderChosen ? `📂 ${folderName} ✓` : t("pgChooseFolder")}
+                  {folderChosen ? `${folderName} ✓` : t("pgChooseFolder")}
             </button>
             {folderError ? (
               <div className="workspace-error" style={{ marginTop: 6 }}>

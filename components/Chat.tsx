@@ -69,6 +69,9 @@ interface Props {
   usageModel: string;
   /** HF token for HD drawing. Empty = members use the server key. */
   hfKey?: string;
+  /** Opt-in style line appended on direct-answer turns only ("" = none).
+   * Never sent on agent tool-loop turns, where it could corrupt format. */
+  personalityLine?: string;
   /** Called when a trial budget runs out (open the key guide for them). */
   onTrialOver?: () => void;
   /** Cloud-draw key (Gemini image model, any device). Empty = local only. */
@@ -192,6 +195,7 @@ export default function Chat({
   ensureVision,
   usageModel,
   hfKey = "",
+  personalityLine = "",
   onTrialOver,
   t,
   lang,
@@ -680,7 +684,7 @@ export default function Chat({
         resetUsage();
         try {
           let full = "";
-          const stream = session.promptWithImages(prompt, imgs);
+          const stream = session.promptWithImages(prompt + personalityLine, imgs);
           for await (const chunk of stream) {
             full += chunk;
             setStreamText(full);
@@ -732,7 +736,7 @@ export default function Chat({
             {
               role: "user",
               content: [
-                { type: "text", value: prompt },
+                { type: "text", value: prompt + personalityLine },
                 ...blobs.map((b) => ({ type: "image" as const, value: b })),
               ],
             },
@@ -782,7 +786,7 @@ export default function Chat({
       setStreamText("");
       let full = "";
       try {
-        full = await runModelTurn(prompt);
+        full = await runModelTurn(prompt + personalityLine);
         const clean = sanitizeAnswer(stripToolCalls(full).trim());
         if (clean) {
           rememberClean(clean);
@@ -949,7 +953,7 @@ export default function Chat({
       if (!canTouchFiles) {
         // No folder: send the bare user text. Any instruction block here
         // (folder hints, reply checklists) gets echoed back as deliberation.
-        const full = await runModelTurn(prompt);
+        const full = await runModelTurn(prompt + personalityLine);
         const clean = sanitizeAnswer(stripToolCalls(full).trim());
         if (clean) {
           rememberClean(clean);
@@ -1254,7 +1258,8 @@ export default function Chat({
         `User question: ${prompt}\n\n` +
         (results.length > 0
           ? "Instructions: Answer using the Web Search Results above. Do NOT claim you lack real-time access when results are provided. Cite sources by URL. If the results contain the answer (e.g. weather), state it directly."
-          : "Instructions: No search results were available. Answer from your own knowledge and say that live search failed.");
+          : "Instructions: No search results were available. Answer from your own knowledge and say that live search failed.") +
+        personalityLine;
       resetUsage();
       const stream = sessionRef.current.promptStreaming(fullPrompt);
       for await (const chunk of stream) {

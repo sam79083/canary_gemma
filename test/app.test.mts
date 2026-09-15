@@ -511,11 +511,11 @@ describe("cloud SSE parser", () => {
 });
 
 describe("trial budgets", () => {
-  it("allows N uses then refuses, localhost bypasses", async () => {
+  it("allows N uses then refuses, members bypass", async () => {
     const { join } = await import("node:path");
     const { tmpdir } = await import("node:os");
     process.env.TRIAL_FILE = join(tmpdir(), `canary-trial-test-${Date.now()}.json`);
-    const { trialUse, isLocalRequest, clientIp } = await import("../lib/trial.ts");
+    const { trialUse, trialPeek, clientIp } = await import("../lib/trial.ts");
     const mkReq = (ip: string) =>
       new Request("https://example.com/api/x", {
         headers: { "x-forwarded-for": ip },
@@ -527,11 +527,11 @@ describe("trial budgets", () => {
     assert.equal(await trialUse(mkReq("9.9.9.9"), "gemini"), -1);
     // Other IP unaffected.
     assert.ok((await trialUse(mkReq("8.8.8.8"), "gemini")) >= 0);
-    // Localhost bypass (undici forbids a real host header in tests, stub it).
-    const stub = (host: string | null) =>
-      ({ headers: { get: (k: string) => (k === "host" ? host : null) } }) as unknown as Request;
-    assert.equal(isLocalRequest(stub("localhost:3000")), true);
-    assert.equal(isLocalRequest(stub("example.com")), false);
+    // No localhost exception: local requests count like any other.
+    assert.ok((await trialUse(mkReq("127.0.0.1"), "gemini")) >= 0);
+    // Members bypass counting entirely (peek and use).
+    assert.ok((await trialUse(mkReq("9.9.9.9"), "gemini", true)) > TRIAL_GEMINI_LIMIT);
+    assert.ok((await trialPeek(mkReq("9.9.9.9"), true)).gemini > TRIAL_GEMINI_LIMIT);
     assert.equal(clientIp(mkReq("9.9.9.9")), "9.9.9.9");
     delete process.env.TRIAL_FILE;
   });

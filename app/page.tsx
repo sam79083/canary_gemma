@@ -37,6 +37,9 @@ import {
   type UndoInput,
 } from "@/lib/undo";
 import { folderCapLine, getFolderCap } from "@/lib/capabilities";
+import { TRIAL_GEMINI_LIMIT, TRIAL_HF_LIMIT } from "@/lib/trial-limits";
+import { isTheme, isDarkTheme, type Theme } from "@/lib/theme";
+import { isPersonalityId, personalityPrompt } from "@/lib/personalities";
 import {
   deleteLocalSession,
   displayTitle,
@@ -150,7 +153,8 @@ export default function Home() {
   const workspace = useWorkspace();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [dark, setDark] = useState(false);
+  const [theme, setThemeState] = useState<Theme>("light");
+  const [personality, setPersonalityState] = useState("default");
   const [sessionList, setSessionList] = useState<SessionInfo[]>([]);
   const [editorPath, setEditorPath] = useState<string | null>(null);
   const [treeVersion, setTreeVersion] = useState(0);
@@ -178,6 +182,12 @@ export default function Home() {
   const [currentFile, setCurrentFile] = useState<string | null>(null);
   // Trial budget display (keyless cloud visitors only — never members).
   const [trialLeft, setTrialLeft] = useState<{ gemini: number; hf: number } | null>(null);
+  // Trial counts above the real limits (localhost/member bypass reports
+  // 999999) mean unlimited — show no badge instead of an absurd number.
+  const trialLimited =
+    trialLeft !== null &&
+    trialLeft.gemini <= TRIAL_GEMINI_LIMIT &&
+    trialLeft.hf <= TRIAL_HF_LIMIT;
   useEffect(() => {
     if (model.provider !== "cloud" || model.geminiKey || member) {
       setTrialLeft(null);
@@ -330,9 +340,36 @@ export default function Home() {
   // chat doesn't spam 50 files (the old server API created one per save).
   const currentSessionFileRef = useRef<string | null>(null);
 
-  // Theme: load once, apply to body
+  // Theme + personality: load once, apply theme to body.
+  // Old "dark"/"light" stored values keep working (same key, subset).
   useEffect(() => {
-    setDark(localStorage.getItem(THEME_KEY) === "dark");
+    try {
+      const storedTheme = localStorage.getItem(THEME_KEY);
+      if (isTheme(storedTheme)) setThemeState(storedTheme);
+      const storedPers = localStorage.getItem("canary-personality");
+      if (isPersonalityId(storedPers)) setPersonalityState(storedPers);
+    } catch {
+      // storage unavailable — keep defaults
+    }
+  }, []);
+
+  const setTheme = useCallback((next: Theme) => {
+    setThemeState(next);
+    try {
+      localStorage.setItem(THEME_KEY, next);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const setPersonality = useCallback((next: string) => {
+    if (!isPersonalityId(next)) return;
+    setPersonalityState(next);
+    try {
+      localStorage.setItem("canary-personality", next);
+    } catch {
+      // ignore
+    }
   }, []);
 
   // One lightweight search-health ping for the setup checklist
@@ -420,8 +457,9 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace]);
   useEffect(() => {
-    document.body.classList.toggle("dark", dark);
-  }, [dark]);
+    document.body.classList.remove("dark");
+    document.body.dataset.theme = theme;
+  }, [theme]);
 
   const pushMessage = useCallback(
     (role: ChatMessage["role"], content: string, image?: ChatMessage["image"]) => {
@@ -931,7 +969,7 @@ export default function Home() {
       <Tooltip.Provider delayDuration={400}>
       <Toaster
         position="bottom-center"
-        theme={dark ? "dark" : "light"}
+        theme={isDarkTheme(theme) ? "dark" : "light"}
         gap={8}
         toastOptions={{
           style: {
@@ -1005,6 +1043,29 @@ export default function Home() {
             >
               {t("pgCloud")}
             </button>
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2 }}>
+            <span style={{ fontSize: 12, opacity: 0.75, flex: "0 0 auto" }}>{t("thPersonality")}</span>
+            <select
+              className="sidebar-btn small"
+              value={personality}
+              onChange={(e) => setPersonality(e.target.value)}
+              style={{ flex: 1, cursor: "pointer" }}
+            >
+              {(
+                [
+                  ["default", t("psDefault")],
+                  ["concise", t("psConcise")],
+                  ["pirate", t("psPirate")],
+                  ["poet", t("psPoet")],
+                  ["buddy", t("psBuddy")],
+                ] as Array<[string, string]>
+              ).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
           </div>
           {model.provider === "ollama" ? (
             <>
@@ -1094,6 +1155,11 @@ export default function Home() {
               {model.geminiKey ? (
                 <div className="workspace-hint" style={{ color: "#2e7d32", fontWeight: 600 }}>
                   {t("kgSaved", { last4: model.geminiKey.slice(-4) })}
+                </div>
+              ) : null}
+              {!model.geminiKey && geminiKeyDraft.trim() ? (
+                <div className="workspace-hint" style={{ color: "#e65100", fontWeight: 600 }}>
+                  {t("kgApply")}
                 </div>
               ) : null}
               <div style={{ display: "flex", gap: 6 }}>
@@ -1382,7 +1448,7 @@ export default function Home() {
             workspace.connected ? (
               <>
                 <div className="workspace-name" title={workspace.rootName ?? ""}>
-                  📂 {workspace.rootName}
+                  {workspace.rootName}
                 </div>
                 <div className="workspace-actions">
                   <button
@@ -1486,11 +1552,17 @@ export default function Home() {
               <div style={{ fontSize: 11, opacity: 0.8 }}>{t("ckSearchHint")}</div>
             ) : null}
             {model.provider === "cloud" ? (
-              <CheckRow label={t("ckKey")} ok={!!model.geminiKey} bad={false} />
+              <CheckRow
+                label={t("ckKey")}
+                ok={!!model.geminiKey && !model.geminiError}
+                bad={!!model.geminiKey && model.geminiError === "bad-key"}
+              />
             ) : null}
             {trialLeft && !model.geminiKey ? (
               <div style={{ fontSize: 11, opacity: 0.8 }}>
-                💬 {t("trLeft", { n: trialLeft.gemini })} · 🖼️ {t("trLeft", { n: trialLeft.hf })}
+                {trialLimited
+                  ? <>💬 {t("trLeft", { n: trialLeft.gemini })} · 🖼️ {t("trLeft", { n: trialLeft.hf })}</>
+                  : <>💬 · 🖼️ {t("trUnlimited")}</>}
               </div>
             ) : null}
             <div style={{ fontSize: 11, opacity: 0.7, fontFamily: "monospace" }}>
@@ -1597,6 +1669,34 @@ export default function Home() {
         <div className="status" id="sidebar-status">
           {model.status}
         </div>
+        <div
+          style={{
+            marginTop: 8,
+            paddingTop: 8,
+            borderTop: "1px solid var(--border)",
+            fontSize: 11,
+            opacity: 0.7,
+            textAlign: "center",
+          }}
+        >
+          <a
+            href="https://github.com/sam79083"
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: "inherit" }}
+          >
+            GitHub
+          </a>
+          {" · "}
+          <a
+            href="https://samori.tistory.com/"
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: "inherit" }}
+          >
+            Blog
+          </a>
+        </div>
       </div>
 
       {sideOpen ? (
@@ -1616,6 +1716,17 @@ export default function Home() {
             {model.provider === "gemma" ? "Gemma 4" : model.provider === "ollama" ? (model.ollamaModel || "Local") : (model.geminiModel.split("-").slice(0, 2).join("-") || "Cloud")}
           </span>
           <span id="model-status">{model.status}</span>
+          {model.provider === "cloud" && !model.geminiKey && !member && trialLeft ? (
+            <span
+              id="trial-badge"
+              title={trialLimited ? `${t("trLeft", { n: trialLeft.gemini })} · ${t("trLeft", { n: trialLeft.hf })}` : t("trUnlimited")}
+              style={{ fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}
+            >
+              {trialLimited
+                ? <>💬 {trialLeft.gemini} · 🖼️ {trialLeft.hf}</>
+                : <>💬 · 🖼️ {t("trUnlimited")}</>}
+            </span>
+          ) : null}
           <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
             {member ? (
               <DropdownMenu.Root>
@@ -1673,18 +1784,48 @@ export default function Home() {
                 </option>
               ))}
             </select>
-            <button
-              className="theme-toggle"
-              title={t("pgTheme")}
-              onClick={() => {
-                setDark((d) => {
-                  localStorage.setItem(THEME_KEY, d ? "light" : "dark");
-                  return !d;
-                });
-              }}
-            >
-              {dark ? "☀️" : "🌙"}
-            </button>
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  className="theme-toggle"
+                  title={`${t("thTheme")}: ${{ light: t("thLight"), dark: t("thDark"), midnight: t("thMidnight"), sepia: t("thSepia"), forest: t("thForest") }[theme]}`}
+                  style={{ cursor: "pointer" }}
+                >
+                  🎨
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  className="menu-content"
+                  side="bottom"
+                  align="end"
+                  sideOffset={6}
+                >
+                  <DropdownMenu.Label className="menu-label">
+                    {t("thTheme")}
+                  </DropdownMenu.Label>
+                  <DropdownMenu.Separator className="menu-separator" />
+                  {(
+                    [
+                      ["light", t("thLight")],
+                      ["dark", t("thDark")],
+                      ["midnight", t("thMidnight")],
+                      ["sepia", t("thSepia")],
+                      ["forest", t("thForest")],
+                    ] as Array<[Theme, string]>
+                  ).map(([value, label]) => (
+                    <DropdownMenu.Item
+                      key={value}
+                      className="menu-item"
+                      onSelect={() => setTheme(value)}
+                    >
+                      <span style={{ width: 16 }}>{theme === value ? "✓" : ""}</span>
+                      {label}
+                    </DropdownMenu.Item>
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
           </span>
         </div>
 
@@ -1729,6 +1870,7 @@ export default function Home() {
           }
           geminiKey={model.provider === "cloud" ? model.geminiKey : ""}
           hfKey={hfKey}
+          personalityLine={personalityPrompt(personality)}
           t={t}
           lang={lang}
         />

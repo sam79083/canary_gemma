@@ -2,7 +2,7 @@
 // free uses of the server keys, then must bring their own.
 // Logged-in members bypass budgets (routes pass member=true; see lib/auth).
 // Per-IP counters in the OS temp dir (ephemeral on Render — self-cleaning).
-// Localhost bypasses counting entirely (the owner's own use).
+// No localhost exception: the 10-use rule holds everywhere alike.
 
 import fs from "fs/promises";
 import os from "os";
@@ -53,9 +53,6 @@ export async function trialPeek(
   req: Request,
   member = false,
 ): Promise<{ gemini: number; hf: number }> {
-  if (isLocalRequest(req)) return { gemini: 999999, hf: 999999 };
-  // Logged-in members use the server keys without limits (see lib/auth.ts;
-  // routes pass the membership in so this module stays dependency-free).
   if (member) return { gemini: 999999, hf: 999999 };
   try {
     const s = await load();
@@ -69,25 +66,15 @@ export async function trialPeek(
   }
 }
 
-export function isLocalRequest(req: Request): boolean {
-  const host = (req.headers.get("host") || "").toLowerCase();
-  return (
-    host.startsWith("localhost") ||
-    host.startsWith("127.0.0.1") ||
-    host.startsWith("[::1]")
-  );
-}
-
 /**
  * Count one trial use. Returns remaining (>=0), or -1 when the budget
- * is exhausted. Localhost is unlimited (returns a large number).
+ * is exhausted. Members bypass (returns a large number).
  * Fail-open: storage errors allow the request through.
  */export async function trialUse(
   req: Request,
   kind: Kind,
   member = false,
 ): Promise<number> {
-  if (isLocalRequest(req)) return 999999;
   if (member) return 999999;
   const limit = kind === "gemini" ? TRIAL_GEMINI_LIMIT : TRIAL_HF_LIMIT;
   try {
