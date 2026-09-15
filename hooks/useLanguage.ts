@@ -6,26 +6,8 @@ import { isLang, makeT, type Lang, type TFn } from "@/lib/i18n";
 const LANG_KEY = "canary-lang";
 export const DEFAULT_LANG: Lang = "ko";
 
-/** First visit: guess from the browser, fall back to Korean. */
-function detectBrowserLang(): Lang {
-  try {
-    const b = (navigator.language || "").toLowerCase();
-    if (b.startsWith("ko")) return "ko";
-    if (b.startsWith("en")) return "en";
-    if (b.startsWith("ja")) return "ja";
-    if (b.startsWith("zh")) return "zh";
-    if (b.startsWith("es")) return "es";
-    if (b.startsWith("fr")) return "fr";
-    if (b.startsWith("de")) return "de";
-    if (b.startsWith("pt")) return "pt";
-    if (b.startsWith("vi")) return "vi";
-    if (b.startsWith("id")) return "id";
-  } catch {
-    // ignore
-  }
-  return DEFAULT_LANG;
-}
-
+/** Korean default. A stored choice (user-picked) wins; otherwise Korean —
+ * no browser sniffing on startup. */
 export function useLanguage(): { lang: Lang; setLang: (l: Lang) => void; t: TFn } {
   const [lang, setLangState] = useState<Lang>(DEFAULT_LANG);
 
@@ -35,10 +17,7 @@ export function useLanguage(): { lang: Lang; setLang: (l: Lang) => void; t: TFn 
       if (isLang(stored)) {
         setLangState(stored);
       } else {
-        // First visit — adopt the browser language (Korean fallback).
-        const detected = detectBrowserLang();
-        setLangState(detected);
-        localStorage.setItem(LANG_KEY, detected);
+        localStorage.setItem(LANG_KEY, DEFAULT_LANG);
       }
     } catch {
       // storage unavailable — keep default

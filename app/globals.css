@@ -1272,6 +1272,44 @@ body.dark .tip-card .tip-arrow {
     to { opacity: 1; }
 }
 
+/* Radix dropdown menu (user menu) */
+.menu-content {
+    background: var(--model-bar-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 0;
+    min-width: 180px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    animation: tip-in 0.12s ease;
+}
+
+.menu-label {
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--status-text);
+    user-select: none;
+}
+
+.menu-separator {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
+}
+
+.menu-item {
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+    outline: none;
+}
+
+.menu-item[data-highlighted] {
+    background: var(--status-bg);
+}
+
 /* Scrollbar */
 .messages::-webkit-scrollbar,
 .file-tree::-webkit-scrollbar {

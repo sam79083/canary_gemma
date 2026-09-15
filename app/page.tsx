@@ -54,6 +54,7 @@ import {
 import type { ChatMessage, PendingReview, ReviewFn, ReviewResult, SessionInfo } from "@/lib/types";
 import { MotionConfig } from "motion/react";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Toaster, toast } from "sonner";
 
 const HISTORY_KEY = "gemma4-chat-history";
@@ -170,6 +171,7 @@ export default function Home() {
   const [onboardOpen, setOnboardOpen] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [showKeyHelp, setShowKeyHelp] = useState(false);
+  const [showHfHelp, setShowHfHelp] = useState(false);
   const [searchOk, setSearchOk] = useState<boolean | null>(null);
   const [capLine, setCapLine] = useState("…");
   const setupRef = useRef<HTMLDetailsElement>(null);
@@ -417,15 +419,6 @@ export default function Home() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace]);
-
-  const handleOnboardTryTask = useCallback(
-    (prompt: string) => {
-      setInput(prompt);
-      closeOnboard();
-      setTimeout(() => document.getElementById("prompt-input")?.focus(), 0);
-    },
-    [closeOnboard],
-  );
   useEffect(() => {
     document.body.classList.toggle("dark", dark);
   }, [dark]);
@@ -1357,6 +1350,32 @@ export default function Home() {
                 {t("kgSaved", { last4: hfKey.slice(-4) })}
               </div>
             ) : null}
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                className="sidebar-btn small"
+                style={{ flex: 1, justifyContent: "center" }}
+                onClick={() => setShowHfHelp((v) => !v)}
+              >
+                {t("hgTitle")}
+              </button>
+            </div>
+            <div className="workspace-hint">
+              <a
+                href="https://huggingface.co/settings/tokens"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t("hgGetToken")}
+              </a>
+              {" — "}{t("hgHint")}
+            </div>
+            {showHfHelp || (!hfKey && !member) ? (
+              <div className="workspace-hint" style={{ lineHeight: 1.6 }}>
+                <div>{t("hgS1")}</div>
+                <div>{t("hgS2")}</div>
+                <div>{t("hgS3")}</div>
+              </div>
+            ) : null}
           </div>
           <div className="workspace-box" id="workspace-box">
           {workspace.supported ? (
@@ -1599,14 +1618,36 @@ export default function Home() {
           <span id="model-status">{model.status}</span>
           <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
             {member ? (
-              <button
-                className="theme-toggle"
-                title={t("lgLogout")}
-                onClick={handleLogout}
-                style={{ cursor: "pointer", fontWeight: 700 }}
-              >
-                👤 {auth.user} ✓
-              </button>
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <button
+                    className="theme-toggle"
+                    title={auth.user ?? ""}
+                    style={{ cursor: "pointer", fontWeight: 700 }}
+                  >
+                    👤 {auth.user} ✓
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    className="menu-content"
+                    side="bottom"
+                    align="end"
+                    sideOffset={6}
+                  >
+                    <DropdownMenu.Label className="menu-label">
+                      {t("lgMember", { user: auth.user ?? "" })}
+                    </DropdownMenu.Label>
+                    <DropdownMenu.Separator className="menu-separator" />
+                    <DropdownMenu.Item
+                      className="menu-item"
+                      onSelect={() => handleLogout()}
+                    >
+                      {t("lgLogout")}
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
             ) : (
               <button
                 className="theme-toggle"
@@ -1754,14 +1795,11 @@ export default function Home() {
       {onboardOpen ? (
         <Onboarding
           t={t}
-          lang={lang}
-          setLang={setLang}
           folderChosen={workspace.connected}
           folderName={workspace.rootName}
           folderSupported={workspace.supported}
           folderError={workspace.error}
           onPickFolder={handleOnboardPickFolder}
-          onTryTask={handleOnboardTryTask}
           onDone={closeOnboard}
           onSkip={closeOnboard}
         />

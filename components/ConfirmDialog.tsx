@@ -1,6 +1,6 @@
 "use client";
 
-import * as AlertDialog from "@radix-ui/react-alert-dialog";
+import { useEffect } from "react";
 import type { ConfirmRequest } from "@/hooks/useConfirm";
 import type { TFn } from "@/lib/i18n";
 
@@ -11,55 +11,56 @@ interface Props {
   t: TFn;
 }
 
-/** Accessible confirm modal driven by useConfirm(). */
+/**
+ * Accessible confirm modal driven by useConfirm(). Plain elements on
+ * purpose (see LoginDialog): the card is a child of the dim layer, so
+ * backdrop clicks land on the layer (Cancel) and the card always wins
+ * hit-testing. No modal-layer library side effects.
+ */
 export default function ConfirmDialog({ req, cancelLabel, onSettle, t }: Props) {
+  useEffect(() => {
+    if (!req) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onSettle(false);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [req, onSettle]);
+
+  if (!req) return null;
+
   return (
-    <AlertDialog.Root
-      open={req !== null}
-      onOpenChange={(open) => {
-        if (!open) onSettle(false);
+    <div
+      className="review-overlay"
+      role="alertdialog"
+      aria-modal="true"
+      aria-label={req.title}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onSettle(false);
       }}
     >
-      <AlertDialog.Portal>
-        <AlertDialog.Overlay className="review-overlay" />
-        <AlertDialog.Content
-          className="review-card"
-          style={{ maxWidth: 360 }}
-          aria-describedby={undefined}
-        >
-          <AlertDialog.Title asChild>
-            <h3>{req?.title ?? ""}</h3>
-          </AlertDialog.Title>
-          {req?.desc ? (
-            <AlertDialog.Description asChild>
-              <div className="review-note">{req.desc}</div>
-            </AlertDialog.Description>
-          ) : (
-            <AlertDialog.Description style={{ display: "none" }}>
-              {req?.title ?? ""}
-            </AlertDialog.Description>
-          )}
-          <div className="review-actions">
-            <AlertDialog.Cancel asChild>
-              <button
-                className="editor-btn"
-                onClick={() => onSettle(false)}
-                autoFocus
-              >
-                {cancelLabel}
-              </button>
-            </AlertDialog.Cancel>
-            <AlertDialog.Action asChild>
-              <button
-                className="editor-btn primary"
-                onClick={() => onSettle(req !== null)}
-              >
-                {req?.okLabel ?? t("trDelete")}
-              </button>
-            </AlertDialog.Action>
-          </div>
-        </AlertDialog.Content>
-      </AlertDialog.Portal>
-    </AlertDialog.Root>
+      <div className="review-card" style={{ maxWidth: 360 }}>
+        <h3>{req.title}</h3>
+        {req.desc ? <div className="review-note">{req.desc}</div> : null}
+        <div className="review-actions">
+          <button
+            className="editor-btn"
+            onClick={() => onSettle(false)}
+            autoFocus
+          >
+            {cancelLabel}
+          </button>
+          <button
+            className="editor-btn primary"
+            onClick={() => onSettle(true)}
+          >
+            {req.okLabel || t("trDelete")}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
