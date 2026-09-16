@@ -193,6 +193,17 @@ body {
     background: var(--icon-bg-hover);
 }
 
+.sidebar .sidebar-btn.primary {
+    background: #2383e6;
+    color: #fff;
+    justify-content: center;
+    font-weight: 600;
+}
+
+.sidebar .sidebar-btn.primary:hover {
+    background: #1b6fc4;
+}
+
 .sidebar .sidebar-btn.small {
     font-size: 12px;
     padding: 8px 12px;

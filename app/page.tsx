@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Chat from "@/components/Chat";
 import CommandPalette from "@/components/CommandPalette";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import DownloadsPanel from "@/components/DownloadsPanel";
 import FileEditor from "@/components/FileEditor";
 import FileTree from "@/components/FileTree";
 import LoginDialog from "@/components/LoginDialog";
@@ -283,14 +284,21 @@ export default function Home() {
   // Shared across chat agent, file editor, and file tree so ANY edit can
   // be undone — even when the new contents are bad. Memory + best-effort
   // localStorage (see lib/undo.ts for caps).
-  const [undoStack, setUndoStack] = useState<UndoEntry[]>(() => {
-    try {
-      return loadUndoStack();
-    } catch {
-      return [];
-    }
-  });
+  const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  // Hydration-safe: localStorage differs between server ([]) and client.
+  // Load after mount, and don't persist until the load has happened —
+  // otherwise the first save would wipe the stored stack with [].
+  const undoHydrated = useRef(false);
   useEffect(() => {
+    try {
+      setUndoStack(loadUndoStack());
+    } catch {
+      // memory-only — undo still works this session
+    }
+    undoHydrated.current = true;
+  }, []);
+  useEffect(() => {
+    if (!undoHydrated.current) return;
     try {
       saveUndoStack(undoStack);
     } catch {
@@ -1479,7 +1487,7 @@ export default function Home() {
               </>
             ) : (
               <button
-                className="sidebar-btn"
+                className="sidebar-btn primary"
                 id="workspace-pick-btn"
                 onClick={() => {
                   void workspace.pick().then((ok) => {
@@ -1487,7 +1495,7 @@ export default function Home() {
                   });
                 }}
               >
-                {t("pgChooseFolder")}
+                📁 {t("pgChooseFolder")}
               </button>
             )
           ) : (
@@ -1509,6 +1517,15 @@ export default function Home() {
             </div>
           ) : null}
         </div>
+
+        {!workspace.connected ? (
+          <DownloadsPanel
+            version={treeVersion}
+            onChanged={() => setTreeVersion((v) => v + 1)}
+            onOpenFile={openFileAndCloseDrawer}
+            t={t}
+          />
+        ) : null}
 
         <FileTree
           onOpenFile={openFileAndCloseDrawer}
@@ -1696,6 +1713,7 @@ export default function Home() {
           >
             Blog
           </a>
+          <div style={{ marginTop: 4 }}>© 2026 Sam Oh</div>
         </div>
       </div>
 

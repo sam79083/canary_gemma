@@ -807,12 +807,22 @@ export default function Chat({
     }
 
     // --- Agentic path: chat + workspace CRUD in one loop ---
+    // Workspace connected -> user's folder. Otherwise -> server temp
+    // (uploads/), shown in the ⬇️ Downloads panel for browser download.
     const useWorkspaceFiles = workspace.connected;
-    const serverFallback = !workspace.supported;
-    const canTouchFiles = useWorkspaceFiles || serverFallback;
+
+    // Without a workspace every path is jailed under uploads/ so the
+    // model can never touch project files and everything stays
+    // downloadable via /api/download.
+    const jail = (p: string): string => {
+      if (useWorkspaceFiles) return p;
+      const c0 = cleanRelPath(p);
+      const clean = c0 === "uploads" ? "" : c0.replace(/^uploads\//, "");
+      return clean ? `uploads/${clean}` : "uploads";
+    };
 
     const listOp = (p: string) =>
-      useWorkspaceFiles ? workspace.list(p) : serverListFiles(p);
+      useWorkspaceFiles ? workspace.list(p) : serverListFiles(p ? jail(p) : "uploads");
     const readOp = (p: string) =>
       useWorkspaceFiles ? workspace.readFile(p) : serverReadFile(p);
     const writeOp = (p: string, c: string) =>
@@ -825,7 +835,9 @@ export default function Chat({
       useWorkspaceFiles ? workspace.readBinary(p) : serverReadBinary(p);
 
     async function executeTool(tc: ToolCall): Promise<{ ok: boolean; detail: string; mutated: boolean; openPath?: string }> {
-      const rel = cleanRelPath(tc.path);
+      const rawRel = cleanRelPath(tc.path);
+      // Jail server-temp mode under uploads/ (workspace mode untouched).
+      const rel = tc.name === "listFiles" ? rawRel : jail(rawRel);
       if (tc.name === "listFiles") {
         try {
           const entries = await listOp(rel);
@@ -948,20 +960,7 @@ export default function Chat({
     }
 
     setStreamText("");
-    let lastTouched: string | null = null;
     try {
-      if (!canTouchFiles) {
-        // No folder: send the bare user text. Any instruction block here
-        // (folder hints, reply checklists) gets echoed back as deliberation.
-        const full = await runModelTurn(prompt + personalityLine);
-        const clean = sanitizeAnswer(stripToolCalls(full).trim());
-        if (clean) {
-          rememberClean(clean);
-          pushMessage("assistant", clean);
-        }
-        return;
-      }
-
       // Ground the model with a top-level listing (best effort).
       let rootListing: string | null = null;
       try {
@@ -981,7 +980,10 @@ export default function Chat({
       // "thinking" — they get the short preamble; only tiny on-device
       // Gemma needs the explicit one.
       const verbosePreamble = provider !== "cloud" && provider !== "ollama";
-      let nextPrompt = `${buildAgentPreamble(rootListing, verbosePreamble)}\n\n${prompt}`;
+      const deliverHint = useWorkspaceFiles
+        ? `When the user asks for a file deliverable (e.g. "make me an md file"), save it under downloads/ (e.g. "downloads/report.md") so it lands in their Downloads folder.`
+        : `No workspace folder is connected: temp mode. When the user asks for a file deliverable (e.g. "make me an md file"), save it under uploads/ (e.g. "uploads/report.md") — it appears in their ⬇️ Downloads panel for browser download. Never write outside uploads/.`;
+      let nextPrompt = `${buildAgentPreamble(rootListing, verbosePreamble)}\n${deliverHint}\n\n${prompt}`;
       let finalAnswer: string | null = null;
 
       for (let step = 0; step < AGENT_MAX_STEPS; step++) {
@@ -1025,8 +1027,6 @@ export default function Chat({
         setStreamText(liveText);
 
         const result = await executeTool(tc);
-        if (result.openPath && (tc.name === "writeFile" || tc.name === "readFile"))
-          lastTouched = result.openPath;
 
         // Plain-language progress line in chat (UI only, not model history).
         pushMessage("assistant", friendlyStep(t, tc, result.ok, result.detail));
@@ -1043,10 +1043,9 @@ export default function Chat({
         finalAnswer = t("chAllDone");
       }
       pushMessage("assistant", finalAnswer);
-      if (lastTouched) {
-        onOpenFile(lastTouched);
-        onFilesChanged();
-      }
+      // Never auto-open the editor — the user opens files by clicking
+      // (FileTree / Downloads panel). Just refresh the listings.
+      onFilesChanged();
     } catch (e) {
       pushMessage("assistant", friendlyError(t, e));
     } finally {

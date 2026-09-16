@@ -78,7 +78,9 @@ export default function FileEditor({
     };
   }, []);
 
-  const localMode = workspace.supported;
+  // Connected folder -> local FS; otherwise -> server temp (uploads/).
+  // (supported !== connected: a capable browser with no folder picked yet.)
+  const localMode = workspace.connected;
   const readActive = useCallback(
     (p: string): Promise<string> =>
       localMode ? workspace.readFile(p) : serverReadFile(p),

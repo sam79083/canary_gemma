@@ -51,3 +51,14 @@ export interface ReviewResult {
 }
 
 export type ReviewFn = (r: PendingReview) => Promise<ReviewResult>;
+
+export interface DownloadFile {
+  name: string;
+  kind: string;
+}
+
+export interface DownloadState {
+  visible: boolean;
+  files: DownloadFile[];
+  loading: boolean;
+}

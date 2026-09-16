@@ -1,5 +1,7 @@
 import type {
   ChatMessage,
+  DownloadFile,
+  DownloadState,
   FileEntry,
   QuotaInfo,
   SearchResult,
@@ -119,4 +121,35 @@ export async function webSearch(
 export async function fetchQuota(): Promise<QuotaInfo> {
   const res = await fetch("/api/quota");
   return json<QuotaInfo>(res);
+}
+
+/** List server temp files (workspace NOT connected case) for browser download. */
+export async function listDownloads(): Promise<DownloadFile[]> {
+  try {
+    const res = await fetch("/api/downloads", { cache: "no-store" });
+    if (!res.ok) return [];
+    const data = await json<{ entries?: DownloadFile[] }>(res);
+    return (data.entries ?? []).filter((f) => f.kind === "file");
+  } catch {
+    return [];
+  }
+}
+
+/** Trigger a browser download via /api/download/[base64url]. */
+export function triggerDownload(name: string): void {
+  const bytes = new TextEncoder().encode(name);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  const encoded = btoa(bin)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  const url = `/api/download/${encoded}`;
+  const a = document.createElement("a");
+  a.href = url;
+  a.setAttribute("download", name);
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
