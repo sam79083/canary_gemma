@@ -55,6 +55,10 @@ interface Props {
   pushMessage: (role: ChatMessage["role"], content: string, image?: ChatMessage["image"], files?: ChatMessage["files"]) => void;
   /** Drop the trailing assistant message (for answer regen). */
   removeLastAssistant: () => void;
+  /** Delete one message bubble (chat context menu). */
+  deleteMessage: (idx: number) => void;
+  /** Save one message bubble as a file (chat context menu). */
+  saveMessageAsFile: (idx: number) => void;
   /** Fired with the number of files written in a turn (celebrations). */
   onFilesCreated?: (n: number) => void;
   persistChat: () => void;
@@ -191,6 +195,8 @@ export default function Chat({
   setModelStatus,
   pushMessage,
   removeLastAssistant,
+  deleteMessage,
+  saveMessageAsFile,
   onFilesCreated,
   persistChat,
   workspace,
@@ -219,6 +225,10 @@ export default function Chat({
   const [draws, setDraws] = useState(0);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  /** Chat bubble context menu (right-click). */
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; idx: number } | null>(null);
+  /** Assistant bubble showing raw markdown instead of rendered HTML. */
+  const [rawIdx, setRawIdx] = useState<number | null>(null);
   const [photos, setPhotos] = useState<{ name: string; mime: string; data: string }[]>([]);
   const [speechOK, setSpeechOK] = useState(false);
   const [listening, setListening] = useState(false);
@@ -346,9 +356,47 @@ export default function Chat({
     [],
   );
 
+  /** Plain-text copy with ✓ feedback (chat context menu). */
+  const copyText = useCallback(async (text: string, idx: number) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIdx(idx);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopiedIdx(null), 2000);
+    } catch {
+      // clipboard unavailable — nothing more we can do
+    }
+  }, []);
+
+  /** Right-click on a bubble: open the context menu for that message. */
+  const onBubbleMenu = useCallback(
+    (e: React.MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      const bubble = el?.closest?.(".message[data-idx]") as HTMLElement | null;
+      if (!bubble) return;
+      const idx = Number(bubble.getAttribute("data-idx"));
+      if (!Number.isInteger(idx) || !messages[idx]) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setCtxMenu({
+        x: Math.min(e.clientX, window.innerWidth - 200),
+        y: Math.min(e.clientY, window.innerHeight - 260),
+        idx,
+      });
+    },
+    [messages],
+  );
+
+  // Close the bubble menu on any outside click.
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    document.addEventListener("click", close, { once: true });
+    return () => document.removeEventListener("click", close);
+  }, [ctxMenu]);
+
   /** Code-fence copy buttons are injected HTML — catch clicks by delegation. */
-  const onCodeCopy = useCallback((e: React.MouseEvent) => {
-    const el = e.target as HTMLElement | null;
+  const onCodeCopy = useCallback((e: React.MouseEvent) => {    const el = e.target as HTMLElement | null;
     const btn = el?.closest?.("button.md-copy") as HTMLButtonElement | null;
     if (!btn) return;
     e.preventDefault();
@@ -1462,21 +1510,31 @@ export default function Chat({
   return (
     <>
       <MouseOrb active={messages.length === 0 && !streaming} />
-      <div className="messages" id="messages" onClick={onCodeCopy}>
+      <div
+        className="messages"
+        id="messages"
+        onClick={onCodeCopy}
+        onContextMenu={onBubbleMenu}
+      >
         {messages.map((m, i) => (
           <motion.div
             key={i}
             className={`message ${m.role}`}
+            data-idx={i}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.18 }}
           >
             <div className="avatar">{m.role === "user" ? "U" : "G"}</div>
             {m.role === "assistant" ? (
+              rawIdx === i ? (
+                <pre className="content" style={{ fontSize: 12 }}>{m.content}</pre>
+              ) : (
               <div
                 className="content md"
                 dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content, t("mdCopy")) }}
               />
+              )
             ) : (
               <div className="content">{m.content}</div>
             )}
@@ -1542,6 +1600,91 @@ export default function Chat({
             ) : null}
           </motion.div>
         ))}
+        {ctxMenu && messages[ctxMenu.idx] ? (
+          <div
+            id="chat-context-menu"
+            style={{
+              position: "fixed",
+              left: ctxMenu.x,
+              top: ctxMenu.y,
+              background: "var(--model-bar-bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              padding: "4px 0",
+              zIndex: 1000,
+              minWidth: 180,
+              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            {(
+              [
+                {
+                  label: copiedIdx === ctxMenu.idx ? "✓" : `📋 ${t("ctxCopy")}`,
+                  run: () => void copyText(messages[ctxMenu.idx].content, ctxMenu.idx),
+                },
+                ...(messages[ctxMenu.idx].role === "assistant"
+                  ? [
+                      {
+                        label: rawIdx === ctxMenu.idx ? `🖥 ${t("ctxRendered")}` : `👁 ${t("ctxRaw")}`,
+                        run: () =>
+                          setRawIdx((v) => (v === ctxMenu.idx ? null : ctxMenu.idx)),
+                      },
+                      {
+                        label: `💾 ${t("ctxSaveFile")}`,
+                        run: () => saveMessageAsFile(ctxMenu.idx),
+                      },
+                      {
+                        label: `⤴ ${t("shShare")}`,
+                        run: () => void shareMsg(messages[ctxMenu.idx].content, ctxMenu.idx),
+                      },
+                      ...(ctxMenu.idx === messages.length - 1
+                        ? [
+                            {
+                              label: `↻ ${t("chRegen")}`,
+                              run: () => handleRegen(),
+                            },
+                          ]
+                        : []),
+                    ]
+                  : [
+                      {
+                        label: `✏️ ${t("ctxEditAgain")}`,
+                        run: () => {
+                          setInput(messages[ctxMenu.idx].content);
+                          inputRef.current?.focus();
+                        },
+                      },
+                      {
+                        label: `💾 ${t("ctxSaveFile")}`,
+                        run: () => saveMessageAsFile(ctxMenu.idx),
+                      },
+                      {
+                        label: `🗑️ ${t("ctxDelete")}`,
+                        run: () => {
+                          setRawIdx((v) => (v === ctxMenu.idx ? null : v));
+                          deleteMessage(ctxMenu.idx);
+                        },
+                      },
+                    ]),
+              ] as { label: string; run: () => void }[]
+            ).map((item) => (
+              <div
+                key={item.label}
+                onClick={() => {
+                  setCtxMenu(null);
+                  item.run();
+                }}
+                onMouseOver={(e) => ((e.target as HTMLElement).style.background = "var(--border)")}
+                onMouseOut={(e) => ((e.target as HTMLElement).style.background = "transparent")}
+                style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13 }}
+              >
+                {item.label}
+              </div>
+            ))}
+          </div>
+        ) : null}
         {streamText !== null ? (
           <motion.div
             className="message assistant"

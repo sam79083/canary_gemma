@@ -1064,6 +1064,49 @@ export default function Home() {
     setInput((prev) => (prev.trim() ? prev.trimEnd() + "\n\n" + text : text));
   }, []);
 
+  /** Chat context menu: delete one message bubble. */
+  const deleteMessage = useCallback(
+    (idx: number) => {
+      setMessages((prev) =>
+        idx >= 0 && idx < prev.length ? prev.filter((_, i) => i !== idx) : prev,
+      );
+      setTimeout(() => persistChat(), 0);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  /** Chat context menu: save one message bubble as a file. */
+  const saveMessageAsFile = useCallback(
+    async (idx: number) => {
+      const m = messagesRef.current[idx];
+      if (!m || typeof m.content !== "string" || !m.content.trim()) return;
+      const stamp = new Date()
+        .toISOString()
+        .slice(0, 16)
+        .replace("T", "-")
+        .replace(":", "");
+      const filename = `msg-${stamp}.md`;
+      const body = m.content.trimEnd() + "\n";
+      try {
+        if (workspace.connected) {
+          const rel = `downloads/${filename}`;
+          await workspace.makeDir("downloads").catch(() => {});
+          await workspace.writeFile(rel, body);
+          setTreeVersion((v) => v + 1);
+        } else {
+          await serverWriteFile(`uploads/${filename}`, body);
+          setTreeVersion((v) => v + 1);
+        }
+        toast(t("svSaved", { name: filename }));
+      } catch (e) {
+        toast(t("trActionFail", { msg: e instanceof Error ? e.message : String(e) }));
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workspace.connected, t],
+  );
+
   const readInput = useCallback(() => input, [input]);
 
   const closeEditor = useCallback((focusChat = true) => {
@@ -2073,6 +2116,8 @@ export default function Home() {
                 : prev,
             )
           }
+          deleteMessage={deleteMessage}
+          saveMessageAsFile={(idx) => void saveMessageAsFile(idx)}
           persistChat={persistChat}
           workspace={workspace}
           onFilesChanged={() => setTreeVersion((v) => v + 1)}
