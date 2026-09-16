@@ -123,20 +123,43 @@ export async function fetchQuota(): Promise<QuotaInfo> {
   return json<QuotaInfo>(res);
 }
 
+/** Fetch a public page as plain text for summarization (SSRF-guarded server-side). */
+export async function fetchPage(
+  url: string,
+): Promise<{ title: string; text: string; url: string }> {
+  const res = await fetch("/api/fetch-url", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  const data = await json<{
+    title?: string;
+    text?: string;
+    url?: string;
+    error?: string;
+  }>(res);
+  if (!res.ok || !data.text)
+    throw new Error(data.error || `HTTP ${res.status}`);
+  return { title: data.title ?? "", text: data.text, url: data.url ?? url };
+}
+
 /** List server temp files (workspace NOT connected case) for browser download. */
-export async function listDownloads(): Promise<DownloadFile[]> {
+export async function listDownloads(): Promise<{ files: DownloadFile[]; ttlMs: number }> {
   try {
     const res = await fetch("/api/downloads", { cache: "no-store" });
-    if (!res.ok) return [];
-    const data = await json<{ entries?: DownloadFile[] }>(res);
-    return (data.entries ?? []).filter((f) => f.kind === "file");
+    if (!res.ok) return { files: [], ttlMs: 0 };
+    const data = await json<{ entries?: DownloadFile[]; ttlMs?: number }>(res);
+    return {
+      files: (data.entries ?? []).filter((f) => f.kind === "file"),
+      ttlMs: data.ttlMs ?? 0,
+    };
   } catch {
-    return [];
+    return { files: [], ttlMs: 0 };
   }
 }
 
-/** Trigger a browser download via /api/download/[base64url]. */
-export function triggerDownload(name: string): void {
+/** Browser URL that downloads a server temp file as an attachment. */
+export function downloadHref(name: string): string {
   const bytes = new TextEncoder().encode(name);
   let bin = "";
   for (const b of bytes) bin += String.fromCharCode(b);
@@ -144,7 +167,12 @@ export function triggerDownload(name: string): void {
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
-  const url = `/api/download/${encoded}`;
+  return `/api/download/${encoded}`;
+}
+
+/** Trigger a browser download via /api/download/[base64url]. */
+export function triggerDownload(name: string): void {
+  const url = downloadHref(name);
   const a = document.createElement("a");
   a.href = url;
   a.setAttribute("download", name);

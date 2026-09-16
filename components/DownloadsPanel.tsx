@@ -26,10 +26,13 @@ export default function DownloadsPanel({
   t: TFn;
 }) {
   const [files, setFiles] = useState<DownloadFile[] | null>(null);
+  const [ttlMs, setTtlMs] = useState(0);
 
   const load = useCallback(async () => {
     try {
-      setFiles(await listDownloads());
+      const { files, ttlMs } = await listDownloads();
+      setFiles(files);
+      setTtlMs(ttlMs);
     } catch {
       setFiles([]);
     }
@@ -62,11 +65,20 @@ export default function DownloadsPanel({
         <div className="workspace-hint">{t("dlEmpty")}</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
-          {files.map((f) => (
+          {files.map((f) => {
+            const left = ttlMs && f.mtimeMs ? ttlMs - (Date.now() - f.mtimeMs) : 0;
+            const expiry =
+              !left || left <= 0
+                ? t("dlExpirySoon")
+                : left < 60 * 60 * 1000
+                  ? t("dlExpiryMins", { n: Math.max(1, Math.round(left / 60000)) })
+                  : t("dlExpiryHours", { n: Math.round(left / 3600000) });
+            return (
             <div
               key={f.name}
-              style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}
+              style={{ display: "flex", flexDirection: "column", gap: 0 }}
             >
+              <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
               <span
                 style={{
                   flex: 1,
@@ -103,8 +115,13 @@ export default function DownloadsPanel({
               >
                 🗑️
               </button>
+              </div>
+              <div style={{ fontSize: 11, opacity: 0.6, paddingLeft: 2 }}>
+                {expiry}
+              </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
       <div style={{ display: "flex", marginTop: 6 }}>

@@ -19,7 +19,7 @@ function inline(s: string): string {
   return out;
 }
 
-export function renderMarkdown(text: string): string {
+export function renderMarkdown(text: string, copyLabel = "복사"): string {
   const lines = esc(text).split("\n");
   let html = "";
   let inFence = false;
@@ -43,7 +43,13 @@ export function renderMarkdown(text: string): string {
   const flushFence = () => {
     const code = fenceBuf.join("\n").replace(/^\n+|\n+$/g, "");
     const cls = fenceLang ? ` class="md-lang-${fenceLang}"` : "";
-    html += `<pre class="md-pre"><code${cls}>${code || " "}</code></pre>`;
+    const lang = fenceLang || "code";
+    // Copy works via click delegation in Chat (no inline handlers — the
+    // HTML is injected). Button text flips to ✓ briefly after copying.
+    html +=
+      `<div class="md-codeblock"><div class="md-codehead"><span>${lang}</span>` +
+      `<button class="md-copy" type="button" data-copy="${esc(copyLabel)}">${esc(copyLabel)}</button></div>` +
+      `<pre class="md-pre"><code${cls}>${code || " "}</code></pre></div>`;
     fenceBuf = [];
     fenceLang = "";
   };

@@ -23,7 +23,8 @@ export async function GET() {
     names.map(async (name) => {
       try {
         const st = await fs.stat(`${target}/${name}`);
-        return { name, kind: st.isDirectory() ? "dir" : "file" };
+        if (st.isDirectory()) return { name, kind: "dir" };
+        return { name, kind: "file", mtimeMs: st.mtimeMs, size: st.size };
       } catch {
         return { name, kind: "file" };
       }
@@ -33,5 +34,6 @@ export async function GET() {
     if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
-  return NextResponse.json({ entries });
+  // Same TTL the janitor (app/api/file/route.ts) enforces.
+  return NextResponse.json({ entries, ttlMs: 24 * 60 * 60 * 1000 });
 }

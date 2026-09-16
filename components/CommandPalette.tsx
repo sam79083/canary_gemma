@@ -1,8 +1,9 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { Command } from "cmdk";
 import { displayTitle } from "@/lib/sessions-local";
-import type { SessionInfo } from "@/lib/types";
+import type { SessionHit, SessionInfo } from "@/lib/types";
 import type { TFn } from "@/lib/i18n";
 
 interface Props {
@@ -18,6 +19,8 @@ interface Props {
   user: string | null;
   onLoginClick: () => void;
   onLogoutClick: () => void;
+  /** Keyword search across saved messages (debounced by the palette). */
+  searchContents: (q: string) => Promise<SessionHit[]>;
   t: TFn;
 }
 
@@ -45,11 +48,38 @@ export default function CommandPalette({
   user,
   onLoginClick,
   onLogoutClick,
+  searchContents,
   t,
 }: Props) {
-  if (!open) return null;
   const close = () => onOpenChange(false);
   const shown = sessions.filter((s) => s.filename && s.filename.trim());
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<SessionHit[]>([]);
+  const searchRef = useRef(0);
+  useEffect(() => {
+    if (!open) return;
+    setQuery("");
+    setHits([]);
+  }, [open ]);
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setHits([]);
+      return;
+    }
+    const id = ++searchRef.current;
+    const timer = setTimeout(() => {
+      void searchContents(q)
+        .then((r) => {
+          if (searchRef.current === id) setHits(r);
+        })
+        .catch(() => {
+          if (searchRef.current === id) setHits([]);
+        });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query, searchContents, open]);
+  if (!open) return null;
 
   return (
     <div
@@ -69,7 +99,7 @@ export default function CommandPalette({
             e.stopPropagation();
           }}
         >
-          <Command.Input placeholder={t("cmSearch")} />
+          <Command.Input placeholder={t("cmSearch")} onValueChange={setQuery} />
           <Command.List>
             <Command.Empty>{t("pgNoPastChats")}</Command.Empty>
             {shown.length > 0 ? (
@@ -101,6 +131,53 @@ export default function CommandPalette({
                     </Command.Item>
                   );
                 })}
+              </Command.Group>
+            ) : null}
+            {hits.length > 0 ? (
+              <Command.Group heading={t("cmContent")}>
+                {hits.map((h) => (
+                  <Command.Item
+                    key={`hit-${h.filename}`}
+                    value={`hit-${h.filename}`}
+                    keywords={[h.title, h.snippet]}
+                    onSelect={() => {
+                      onPickChat(h.filename);
+                      close();
+                    }}
+                  >
+                    <span
+                      style={{
+                        minWidth: 0,
+                        flex: 1,
+                      }}
+                    >
+                      <span
+                        style={{
+                          display: "block",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          fontWeight: h.filename === currentFile ? 700 : 400,
+                        }}
+                      >
+                        {h.filename === currentFile ? "● " : "○ "}
+                        {h.title}
+                      </span>
+                      <span
+                        style={{
+                          display: "block",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          fontSize: 11,
+                          opacity: 0.65,
+                        }}
+                      >
+                        {h.snippet}
+                      </span>
+                    </span>
+                  </Command.Item>
+                ))}
               </Command.Group>
             ) : null}
             <Command.Group heading={t("cmActions")}>

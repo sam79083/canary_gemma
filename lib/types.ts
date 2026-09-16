@@ -18,6 +18,13 @@ export interface SessionInfo {
   timestamp: number;
 }
 
+/** A keyword hit inside a saved session's messages. */
+export interface SessionHit {
+  filename: string;
+  title: string;
+  snippet: string;
+}
+
 export interface SearchResult {
   source: string;
   title: string;
@@ -52,6 +59,8 @@ export interface ReviewResult {
   text: string;
   /** User's revision request — agent regenerates instead of ending. */
   feedback?: string;
+  /** Save as a numbered copy (report-2.md) instead of overwriting. */
+  saveAsNew?: boolean;
 }
 
 export type ReviewFn = (r: PendingReview) => Promise<ReviewResult>;
@@ -59,6 +68,8 @@ export type ReviewFn = (r: PendingReview) => Promise<ReviewResult>;
 export interface DownloadFile {
   name: string;
   kind: string;
+  mtimeMs?: number;
+  size?: number;
 }
 
 export interface DownloadState {

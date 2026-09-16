@@ -55,7 +55,7 @@ import {
   loadWorkspaceSession,
   saveWorkspaceSession,
 } from "@/lib/sessions-workspace";
-import type { ChatMessage, PendingReview, ReviewFn, ReviewResult, SessionInfo } from "@/lib/types";
+import type { ChatMessage, PendingReview, ReviewFn, ReviewResult, SessionHit, SessionInfo } from "@/lib/types";
 import { MotionConfig } from "motion/react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -84,7 +84,7 @@ function ReviewCard({
 }: {
   review: PendingReview;
   t: TFn;
-  onSettle: (ok: boolean, text?: string, feedback?: string) => void;
+  onSettle: (ok: boolean, text?: string, feedback?: string, saveAsNew?: boolean) => void;
 }) {
   const [edited, setEdited] = useState(review.newText);
   const [feedback, setFeedback] = useState("");
@@ -154,6 +154,15 @@ function ReviewCard({
               onClick={() => onSettle(false, undefined, feedback.trim())}
             >
               {t("rvRegen")}
+            </button>
+          ) : null}
+          {review.kind === "write" && !isNew ? (
+            <button
+              className="editor-btn"
+              onClick={() => onSettle(true, edited, undefined, true)}
+              title={t("rvSaveAsNewTitle")}
+            >
+              {t("rvSaveAsNew")}
             </button>
           ) : null}
           <button
@@ -355,11 +364,12 @@ export default function Home() {
   }, []);
 
   const settleReview = useCallback(
-    (ok: boolean, text?: string, feedback?: string) => {
+    (ok: boolean, text?: string, feedback?: string, saveAsNew?: boolean) => {
       reviewResolve.current?.({
         ok,
         text: text ?? review?.newText ?? "",
         feedback: feedback?.trim() ? feedback.trim() : undefined,
+        saveAsNew: saveAsNew || undefined,
       });
       reviewResolve.current = null;
       setReview(null);
@@ -676,8 +686,45 @@ export default function Home() {
     [undoStack, applyUndoEntry, t],
   );
 
-  const refreshSessions = useCallback(async () => {
-    try {
+  /** Keyword search across saved messages (palette content matches). */
+  const searchSessionContents = useCallback(
+    async (q: string): Promise<SessionHit[]> => {
+      const query = q.trim().toLowerCase();
+      if (query.length < 2) return [];
+      const list = (
+        workspace.connected
+          ? await listWorkspaceSessions(workspace).catch(() => [])
+          : await listLocalSessions().catch(() => [])
+      ).filter((s) => s.filename && s.filename.trim());
+      const out: SessionHit[] = [];
+      for (const s of list.slice(0, 30)) {
+        try {
+          const msgs = workspace.connected
+            ? await loadWorkspaceSession(workspace, s.filename)
+            : await loadLocalSession(s.filename);
+          const hit = msgs.find(
+            (m) => typeof m.content === "string" && m.content.toLowerCase().includes(query),
+          );
+          if (!hit || typeof hit.content !== "string") continue;
+          const idx = hit.content.toLowerCase().indexOf(query);
+          const start = Math.max(0, idx - 40);
+          const snippet =
+            (start > 0 ? "…" : "") +
+            hit.content.slice(start, start + 120).replace(/\s+/g, " ") +
+            (start + 120 < hit.content.length ? "…" : "");
+          out.push({ filename: s.filename, title: displayTitle(s), snippet });
+          if (out.length >= 10) break;
+        } catch {
+          // skip one bad session, keep searching the rest
+        }
+      }
+      return out;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workspace.connected],
+  );
+
+  const refreshSessions = useCallback(async () => {    try {
       setSessionList(
         workspace.connected
           ? await listWorkspaceSessions(workspace)
@@ -1900,6 +1947,13 @@ export default function Home() {
             model.setOnline(online);
           }}
           pushMessage={pushMessage}
+          removeLastAssistant={() =>
+            setMessages((prev) =>
+              prev.length > 0 && prev[prev.length - 1].role === "assistant"
+                ? prev.slice(0, -1)
+                : prev,
+            )
+          }
           persistChat={persistChat}
           workspace={workspace}
           onFilesChanged={() => setTreeVersion((v) => v + 1)}
@@ -1957,6 +2011,7 @@ export default function Home() {
         user={auth.user}
         onLoginClick={() => setLoginOpen(true)}
         onLogoutClick={handleLogout}
+        searchContents={searchSessionContents}
         t={t}
       />
 

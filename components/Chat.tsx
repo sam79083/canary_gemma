@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import {
   deletePath as serverDeletePath,
+  downloadHref,
+  fetchPage,
   fetchQuota,
   listFiles as serverListFiles,
   makeDir as serverMakeDir,
@@ -50,6 +52,8 @@ interface Props {
   modelReady: boolean;
   setModelStatus: (s: string, online: boolean) => void;
   pushMessage: (role: ChatMessage["role"], content: string, image?: ChatMessage["image"], files?: ChatMessage["files"]) => void;
+  /** Drop the trailing assistant message (for answer regen). */
+  removeLastAssistant: () => void;
   persistChat: () => void;
   workspace: WorkspaceApi;
   onFilesChanged: () => void;
@@ -183,6 +187,7 @@ export default function Chat({
   modelReady,
   setModelStatus,
   pushMessage,
+  removeLastAssistant,
   persistChat,
   workspace,
   onFilesChanged,
@@ -209,6 +214,7 @@ export default function Chat({
   const [tokens, setTokens] = useState(0);
   const [draws, setDraws] = useState(0);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [photos, setPhotos] = useState<{ name: string; mime: string; data: string }[]>([]);
   const [speechOK, setSpeechOK] = useState(false);
   const [listening, setListening] = useState(false);
@@ -335,6 +341,50 @@ export default function Chat({
     },
     [],
   );
+
+  /** Code-fence copy buttons are injected HTML — catch clicks by delegation. */
+  const onCodeCopy = useCallback((e: React.MouseEvent) => {
+    const el = e.target as HTMLElement | null;
+    const btn = el?.closest?.("button.md-copy") as HTMLButtonElement | null;
+    if (!btn) return;
+    e.preventDefault();
+    const code =
+      btn.closest(".md-codeblock")?.querySelector("code")?.innerText ?? "";
+    if (!code.trim()) return;
+    const done = () => {
+      const orig = btn.getAttribute("data-copy") || "";
+      btn.textContent = "✓";
+      setTimeout(() => {
+        if (document.contains(btn)) btn.textContent = orig;
+      }, 1500);
+    };
+    try {
+      const clip = (
+        navigator as Navigator & {
+          clipboard?: { writeText(s: string): Promise<void> };
+        }
+      ).clipboard;
+      if (clip?.writeText) {
+        void clip.writeText(code).then(done, () => {});
+        return;
+      }
+    } catch {
+      // fall through to the legacy path
+    }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = code;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+      done();
+    } catch {
+      // clipboard unavailable — leave the button as-is
+    }
+  }, []);
 
   const MAX_UPLOAD = 500 * 1024;
   const MAX_PHOTO = 4 * 1024 * 1024;
@@ -654,9 +704,9 @@ export default function Chat({
     }
   }
 
-  const handleSend = useCallback(async () => {
+  const handleSend = useCallback(async (override?: string) => {
     if (busyRef.current) return;
-    const prompt = input.trim();
+    const prompt = (override ?? input).trim();
     if (!prompt) return;
     // No AI session (e.g. phones without built-in AI): explain, don't die silently.
     if (!sessionRef.current) {
@@ -780,12 +830,42 @@ export default function Chat({
     setInput("");
     pushMessage("user", prompt);
 
+    // Link mode: fetch up to 2 public pages in the prompt so the model
+    // answers from their content (failure just falls back to no context).
+    const urls = [
+      ...new Set(
+        (prompt.match(/https?:\/\/[^\s)>\]"']+/gi) ?? []).map((u) =>
+          u.replace(/[.,;:!?]+$/, ""),
+        ),
+      ),
+    ].slice(0, 2);
+    let pageCtx = "";
+    if (urls.length > 0) {
+      setStreamText(t("chReading"));
+      const parts: string[] = [];
+      for (const u of urls) {
+        try {
+          const p = await fetchPage(u);
+          parts.push(
+            `--- Page: ${p.title || p.url}\nURL: ${p.url}\n${p.text}\n--- End page ---`,
+          );
+        } catch {
+          pushMessage("assistant", t("chPageFail"));
+        }
+      }
+      if (parts.length > 0) {
+        pageCtx =
+          `\n\n--- Fetched page content (use this to answer; cite the URL) ---\n` +
+          `${parts.join("\n\n")}\n--- End fetched content ---\n\n`;
+      }
+    }
+
     // Plain chat path — agent toggle off.
     if (!agentMode) {
       setStreamText("");
       let full = "";
       try {
-        full = await runModelTurn(prompt + personalityLine);
+        full = await runModelTurn(pageCtx + prompt + personalityLine);
         const clean = sanitizeAnswer(stripToolCalls(full).trim());
         if (clean) {
           rememberClean(clean);
@@ -832,6 +912,25 @@ export default function Chat({
       useWorkspaceFiles ? workspace.deletePath(p) : serverDeletePath(p);
     const readBinaryOp = (p: string): Promise<Blob> =>
       useWorkspaceFiles ? workspace.readBinary(p) : serverReadBinary(p);
+
+    // First free numbered sibling: report.md -> report-2.md, report-3.md…
+    const uniquePath = async (baseRel: string): Promise<string> => {
+      const slash = baseRel.lastIndexOf("/");
+      const dir = slash >= 0 ? baseRel.slice(0, slash) : "";
+      const file = slash >= 0 ? baseRel.slice(slash + 1) : baseRel;
+      const dot = file.lastIndexOf(".");
+      const stem = dot > 0 ? file.slice(0, dot) : file;
+      const ext = dot > 0 ? file.slice(dot) : "";
+      for (let n = 2; n < 1000; n++) {
+        const cand = (dir ? `${dir}/` : "") + `${stem}-${n}${ext}`;
+        try {
+          await readOp(cand);
+        } catch {
+          return cand; // missing — free to use
+        }
+      }
+      return (dir ? `${dir}/` : "") + `${stem}-${Date.now()}${ext}`;
+    };
 
     async function executeTool(tc: ToolCall): Promise<{ ok: boolean; detail: string; mutated: boolean; openPath?: string }> {
       const rawRel = cleanRelPath(tc.path);
@@ -895,19 +994,20 @@ export default function Chat({
               return { ok: false, detail: t("rvDeclined"), mutated: false };
             }
             const finalText = verdict.text;
-            await writeOp(rel, finalText);
+            const targetRel = verdict.saveAsNew ? await uniquePath(rel) : rel;
+            await writeOp(targetRel, finalText);
             try {
-              recordUndo(createWriteEntry(rel, oldText, existed));
+              recordUndo(createWriteEntry(targetRel, targetRel === rel ? oldText : null, targetRel === rel && existed));
             } catch {
               // recording must never break the write itself
             }
             // Verify the bytes actually stuck — a silent bad write is
             // worse than an explicit retry.
             try {
-              const back = await readOp(rel);
+              const back = await readOp(targetRel);
               if (back !== finalText) {
                 onFilesChanged();
-                return { ok: false, detail: t("chErrSomething"), mutated: true, openPath: rel };
+                return { ok: false, detail: t("chErrSomething"), mutated: true, openPath: targetRel };
               }
             } catch {
               // re-read failed (permissions/race) — write itself succeeded
@@ -915,9 +1015,9 @@ export default function Chat({
             onFilesChanged();
             return {
               ok: true,
-              detail: `Wrote ${rel} (${finalText.length} chars). Verified.`,
+              detail: `Wrote ${targetRel} (${finalText.length} chars). Verified.`,
               mutated: true,
-              openPath: rel,
+              openPath: targetRel,
             };
           }
           case "makeDir": {
@@ -989,10 +1089,22 @@ export default function Chat({
       // "thinking" — they get the short preamble; only tiny on-device
       // Gemma needs the explicit one.
       const verbosePreamble = provider !== "cloud" && provider !== "ollama";
+      // Per-chat work folder (workspace mode): keeps each conversation's
+      // files separate under downloads/<slug>/. Temp mode stays flat in
+      // uploads/ so the Downloads panel keeps listing everything.
+      const chatSlug = (() => {
+        const first = messages.find((m) => m.role === "user");
+        const raw = (typeof first?.content === "string" ? first.content : "")
+          .toLowerCase()
+          .replace(/[^a-z0-9가-힣]+/gu, "-")
+          .replace(/^-+|-+$/g, "")
+          .slice(0, 30);
+        return raw || "chat";
+      })();
       const deliverHint = useWorkspaceFiles
-        ? `When the user asks for a file deliverable (e.g. "make me an md file"), save it under downloads/ (e.g. "downloads/report.md") so it lands in their Downloads folder.`
+        ? `When the user asks for a file deliverable (e.g. "make me an md file"), save it under "downloads/${chatSlug}/" (e.g. "downloads/${chatSlug}/report.md") — one folder per conversation, parent folders are created automatically.`
         : `No workspace folder is connected: temp mode. When the user asks for a file deliverable (e.g. "make me an md file"), save it under uploads/ (e.g. "uploads/report.md") — it appears in their ⬇️ Downloads panel for browser download. Never write outside uploads/.`;
-      let nextPrompt = `${buildAgentPreamble(rootListing, verbosePreamble)}\n${deliverHint}\n\n${prompt}`;
+      let nextPrompt = `${buildAgentPreamble(rootListing, verbosePreamble)}\n${deliverHint}\n${pageCtx}\n${prompt}`;
       let finalAnswer: string | null = null;
       const writtenPaths: string[] = [];
 
@@ -1058,9 +1170,18 @@ export default function Chat({
         name: shortName(p),
         path: p,
       }));
+      // Temp mode: clickable download links right in the answer body
+      // (the route serves them as attachments).
+      let delivered = finalAnswer;
+      if (!useWorkspaceFiles && writtenFiles.length > 0) {
+        const safe = (s: string) => s.replace(/[\[\]()]/g, "_");
+        delivered +=
+          "\n\n" +
+          writtenFiles.map((f) => `- [⬇️ ${safe(f.name)}](${downloadHref(f.name)})`).join("\n");
+      }
       pushMessage(
         "assistant",
-        finalAnswer,
+        delivered,
         undefined,
         writtenFiles.length > 0 ? writtenFiles : undefined,
       );
@@ -1078,7 +1199,21 @@ export default function Chat({
       persistChat();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionRef, busyRef, input, setInput, pushMessage, persistChat, setModelStatus, agentMode, workspace, reviewChange, provider, ensureVision, t, lang]);
+  }, [sessionRef, busyRef, input, messages, setInput, pushMessage, persistChat, setModelStatus, agentMode, workspace, reviewChange, provider, ensureVision, t, lang]);
+
+  /** Drop the last assistant answer and re-ask the last user text (text only). */
+  const handleRegen = useCallback(() => {
+    if (busyRef.current || streaming || !modelReady) return;
+    if (messages.length === 0 || messages[messages.length - 1].role !== "assistant")
+      return;
+    const prevUser = [...messages].reverse().find((m) => m.role === "user");
+    if (!prevUser || prevUser.image) return;
+    const text = prevUser.content.trim();
+    if (!text) return;
+    removeLastAssistant();
+    void handleSend(text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, streaming, modelReady, handleSend, removeLastAssistant]);
 
   const STARTERS = [
     { label: t("chSt1L"), prompt: t("chSt1P") },
@@ -1311,7 +1446,7 @@ export default function Chat({
 
   return (
     <>
-      <div className="messages" id="messages">
+      <div className="messages" id="messages" onClick={onCodeCopy}>
         {messages.map((m, i) => (
           <motion.div
             key={i}
@@ -1324,7 +1459,7 @@ export default function Chat({
             {m.role === "assistant" ? (
               <div
                 className="content md"
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content, t("mdCopy")) }}
               />
             ) : (
               <div className="content">{m.content}</div>
@@ -1379,6 +1514,16 @@ export default function Chat({
                 {copiedIdx === i ? "✓" : "⤴"}
               </button>
             ) : null}
+            {m.role === "assistant" && i === messages.length - 1 ? (
+              <button
+                className="msg-share"
+                title={t("chRegen")}
+                disabled={streaming || !modelReady}
+                onClick={() => handleRegen()}
+              >
+                ↻
+              </button>
+            ) : null}
           </motion.div>
         ))}
         {streamText !== null ? (
@@ -1391,7 +1536,7 @@ export default function Chat({
             <div className="avatar">G</div>
             <div className="content md" id="streaming-content">
               {streamText ? (
-                <span dangerouslySetInnerHTML={{ __html: renderMarkdown(streamText) }} />
+                <span dangerouslySetInnerHTML={{ __html: renderMarkdown(streamText, t("mdCopy")) }} />
               ) : (
                 <span className="typing-indicator">
                   <span className="typing-dot" />
@@ -1404,7 +1549,21 @@ export default function Chat({
         ) : null}
         <div ref={bottomRef} />
       </div>
-      <div className="input-area">
+      <div
+        className="input-area"
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (!streaming) setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          if (!streaming && e.dataTransfer?.files?.length)
+            void handleFiles(e.dataTransfer.files);
+        }}
+        style={dragOver ? { outline: "2px dashed #2383e6", borderRadius: 8 } : undefined}
+      >
         {photos.length > 0 ? (
           <div className="task-row">
             {photos.map((p) => (
