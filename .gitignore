@@ -8,3 +8,4 @@ out/
 .canary/
 *.log
 .env*.local
+tsconfig.tsbuildinfo
