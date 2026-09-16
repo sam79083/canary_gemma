@@ -26,7 +26,7 @@ import type { LanguageModelSession, PromptImage } from "@/lib/prompt-api.d";
 import type { BusyKind, Provider } from "@/hooks/useLanguageModel";
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { ChatMessage, ReviewFn } from "@/lib/types";
-import { type Lang, type TFn } from "@/lib/i18n";
+import { type Lang, LANGS, type TFn } from "@/lib/i18n";
 import { TRIAL_GEMINI_LIMIT, TRIAL_HF_LIMIT } from "@/lib/trial-limits";
 import { estimateTokens, getDrawsToday, recordDraw, recordUsage } from "@/lib/usage";
 import { renderMarkdown } from "@/lib/markdown";
@@ -854,9 +854,12 @@ export default function Chat({
         }
       }
       if (parts.length > 0) {
+        const langName =
+          LANGS.find((l) => l.code === lang)?.modelName ?? "Korean";
         pageCtx =
           `\n\n--- Fetched page content (use this to answer; cite the URL) ---\n` +
-          `${parts.join("\n\n")}\n--- End fetched content ---\n\n`;
+          `${parts.join("\n\n")}\n--- End fetched content ---\n` +
+          `IMPORTANT: Reply in ${langName} regardless of the page language.\n\n`;
       }
     }
 
@@ -1221,10 +1224,11 @@ export default function Chat({
     { label: t("chSt3L"), prompt: t("chSt3P") },
   ];
 
-  const TASKS = [
+  const TASKS: { label: string; prompt: string; cursorBack?: number }[] = [
     { label: t("tk1L"), prompt: t("tk1P") },
     { label: t("tk2L"), prompt: t("tk2P") },
     { label: t("tk3L"), prompt: t("tk3P") },
+    { label: t("tk4L"), prompt: t("tk4P"), cursorBack: 11 },
   ];
 
   function blobToBase64(blob: Blob): Promise<string> {
@@ -1594,6 +1598,21 @@ export default function Chat({
                 onClick={() => {
                   setInput(s.prompt);
                   inputRef.current?.focus();
+                  // Put the caret inside the trailing "[…: ]" placeholder.
+                  if (s.cursorBack) {
+                    const back = s.cursorBack;
+                    setTimeout(() => {
+                      const el = inputRef.current;
+                      if (el) {
+                        const pos = Math.max(0, el.value.length - back);
+                        try {
+                          el.setSelectionRange(pos, pos);
+                        } catch {
+                          // ignore
+                        }
+                      }
+                    }, 0);
+                  }
                 }}
                 title={s.prompt}
               >

@@ -10,6 +10,7 @@ import FileTree from "@/components/FileTree";
 import LoginDialog from "@/components/LoginDialog";
 import Onboarding from "@/components/Onboarding";
 import Tip from "@/components/Tip";
+import TrialOverDialog from "@/components/TrialOverDialog";
 import UsageBlock from "@/components/UsageBlock";
 import { useAuth } from "@/hooks/useAuth";
 import { useConfirm } from "@/hooks/useConfirm";
@@ -254,6 +255,9 @@ export default function Home() {
 
   // Member login popup (upper-right button).
   const [loginOpen, setLoginOpen] = useState(false);
+  // Trial-budget-exhausted popup (429 from /api/gemini-chat).
+  const [trialOverOpen, setTrialOverOpen] = useState(false);
+  const [trialKeySaving, setTrialKeySaving] = useState(false);
   // Accessible confirm modal (promise-based, replaces window.confirm).
   const confirmCtl = useConfirm();
   // Command palette (Ctrl+K quick switcher).
@@ -539,6 +543,24 @@ export default function Home() {
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [t],
+  );
+
+  /** Trial-over popup: save the typed key and reconnect on it. */
+  const handleSaveTrialKey = useCallback(
+    (k: string) => {
+      const key = k.trim();
+      if (!key) return;
+      model.setGeminiKey(key);
+      setGeminiKeyDraft(key);
+      setTrialOverOpen(false);
+      setTrialKeySaving(true);
+      void model
+        .reconnect()
+        .catch(() => {})
+        .finally(() => setTrialKeySaving(false));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [model],
   );
 
   // Persist chat to localStorage on every change (after initial hydration).
@@ -1970,9 +1992,7 @@ export default function Home() {
           provider={model.provider}
           ensureVision={model.ensureVisionSession}
           onTrialOver={() => {
-            // Walk them to the key field: open drawer, expand the guide.
-            setSideOpen(true);
-            setShowKeyHelp(true);
+            setTrialOverOpen(true);
           }}
           usageModel={
             model.provider === "cloud"
@@ -2012,6 +2032,15 @@ export default function Home() {
         onLoginClick={() => setLoginOpen(true)}
         onLogoutClick={handleLogout}
         searchContents={searchSessionContents}
+        t={t}
+      />
+
+      <TrialOverDialog
+        open={trialOverOpen}
+        saving={trialKeySaving}
+        onSaveKey={handleSaveTrialKey}
+        onLoginClick={() => setLoginOpen(true)}
+        onClose={() => setTrialOverOpen(false)}
         t={t}
       />
 
