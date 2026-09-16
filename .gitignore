@@ -4,5 +4,7 @@ out/
 # Saved chats at the repo root only ??must not match app/api/sessions/
 /sessions/
 /uploads/
+# Local dev chat sessions
+.canary/
 *.log
 .env*.local
