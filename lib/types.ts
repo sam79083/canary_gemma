@@ -3,6 +3,8 @@ export interface ChatMessage {
   content: string;
   /** Generated/uploaded picture shown with the message (live view only). */
   image?: { name: string; rel: string; url: string; prompt: string; engine: "hf" };
+  /** Files written during this turn (live view only) — rendered as chips. */
+  files?: { name: string; path: string }[];
 }
 
 export interface FileEntry {
@@ -48,6 +50,8 @@ export interface ReviewResult {
   ok: boolean;
   /** Final content to write (write only; defaults to the proposal). */
   text: string;
+  /** User's revision request — agent regenerates instead of ending. */
+  feedback?: string;
 }
 
 export type ReviewFn = (r: PendingReview) => Promise<ReviewResult>;

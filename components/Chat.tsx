@@ -9,6 +9,7 @@ import {
   makeDir as serverMakeDir,
   readFile as serverReadFile,
   readFileBinary as serverReadBinary,
+  triggerDownload,
   webSearch,
   writeFile as serverWriteFile,
   writeFileBinary as serverWriteFileBinary,
@@ -48,7 +49,7 @@ interface Props {
   busyRef: RefObject<BusyKind>;
   modelReady: boolean;
   setModelStatus: (s: string, online: boolean) => void;
-  pushMessage: (role: ChatMessage["role"], content: string, image?: ChatMessage["image"]) => void;
+  pushMessage: (role: ChatMessage["role"], content: string, image?: ChatMessage["image"], files?: ChatMessage["files"]) => void;
   persistChat: () => void;
   workspace: WorkspaceApi;
   onFilesChanged: () => void;
@@ -402,10 +403,8 @@ export default function Chat({
           }
           continue;
         }
-        if (workspace.supported && !workspace.connected) {
-          pushMessage("assistant", t("upNoSpace"));
-          return;
-        }
+        // No folder: text files go to the server temp (uploads/),
+        // downloadable from the ⬇️ Downloads panel.
         const safeName =
           f.name.replace(/[\\/]/g, "_").replace(/^\.+/, "").slice(0, 100) ||
           "upload.txt";
@@ -883,8 +882,18 @@ export default function Chat({
               oldText: oldText ?? "",
               newText: tc.content,
             });
-            if (!verdict.ok)
+            if (!verdict.ok) {
+              // Revision request: send it back so the model regenerates
+              // instead of ending the turn.
+              if (verdict.feedback) {
+                return {
+                  ok: false,
+                  detail: `User wants changes (nothing saved yet): ${verdict.feedback} — call writeFile for "${rel}" again with content revised accordingly.`,
+                  mutated: false,
+                };
+              }
               return { ok: false, detail: t("rvDeclined"), mutated: false };
+            }
             const finalText = verdict.text;
             await writeOp(rel, finalText);
             try {
@@ -985,6 +994,7 @@ export default function Chat({
         : `No workspace folder is connected: temp mode. When the user asks for a file deliverable (e.g. "make me an md file"), save it under uploads/ (e.g. "uploads/report.md") — it appears in their ⬇️ Downloads panel for browser download. Never write outside uploads/.`;
       let nextPrompt = `${buildAgentPreamble(rootListing, verbosePreamble)}\n${deliverHint}\n\n${prompt}`;
       let finalAnswer: string | null = null;
+      const writtenPaths: string[] = [];
 
       for (let step = 0; step < AGENT_MAX_STEPS; step++) {
         setModelStatus(step === 0 ? t("stThinking") : t("stWorking", { n: step + 1 }), true);
@@ -1027,6 +1037,8 @@ export default function Chat({
         setStreamText(liveText);
 
         const result = await executeTool(tc);
+        if (result.ok && tc.name === "writeFile" && result.openPath)
+          writtenPaths.push(result.openPath);
 
         // Plain-language progress line in chat (UI only, not model history).
         pushMessage("assistant", friendlyStep(t, tc, result.ok, result.detail));
@@ -1042,7 +1054,16 @@ export default function Chat({
       if (finalAnswer === null) {
         finalAnswer = t("chAllDone");
       }
-      pushMessage("assistant", finalAnswer);
+      const writtenFiles = [...new Set(writtenPaths)].map((p) => ({
+        name: shortName(p),
+        path: p,
+      }));
+      pushMessage(
+        "assistant",
+        finalAnswer,
+        undefined,
+        writtenFiles.length > 0 ? writtenFiles : undefined,
+      );
       // Never auto-open the editor — the user opens files by clicking
       // (FileTree / Downloads panel). Just refresh the listings.
       onFilesChanged();
@@ -1323,6 +1344,31 @@ export default function Chat({
                   </button>
                 ) : null}
               </>
+            ) : null}
+            {m.files && m.files.length > 0 ? (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                {m.files.map((f) => (
+                  <span key={f.path} className="task-chip" title={f.path}>
+                    📄 {f.name.length > 24 ? f.name.slice(0, 24) + "…" : f.name}{" "}
+                    {!workspace.connected ? (
+                      <button
+                        className="quota-refresh"
+                        title={t("dlTitle")}
+                        onClick={() => triggerDownload(f.name)}
+                      >
+                        ⬇
+                      </button>
+                    ) : null}{" "}
+                    <button
+                      className="quota-refresh"
+                      title={t("trEdit")}
+                      onClick={() => onOpenFile(f.path)}
+                    >
+                      ✏️
+                    </button>
+                  </span>
+                ))}
+              </div>
             ) : null}
             {m.role === "assistant" ? (
               <button

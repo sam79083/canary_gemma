@@ -5,7 +5,7 @@ import type { RefObject } from "react";
 import { readFile as serverReadFile, writeFile as serverWriteFile } from "@/lib/api";
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import { stripCodeFences, summarizeDiff } from "@/lib/diff";
-import { createWriteEntry, type UndoInput } from "@/lib/undo";
+import { createWriteEntry, type UndoEntry, type UndoInput } from "@/lib/undo";
 import type { LanguageModelSession } from "@/lib/prompt-api.d";
 import type { BusyKind } from "@/hooks/useLanguageModel";
 import type { ChatMessage } from "@/lib/types";
@@ -28,6 +28,8 @@ interface Props {
   hasUndoForPath: boolean;
   /** Undo the most recent change touching this path. */
   onUndoPath: () => void;
+  /** Shared undo stack — version history is derived from it. */
+  undoStack: UndoEntry[];
   t: TFn;
 }
 
@@ -45,6 +47,7 @@ export default function FileEditor({
   recordUndo,
   hasUndoForPath,
   onUndoPath,
+  undoStack,
   t,
 }: Props) {
   const [content, setContent] = useState("");
@@ -65,6 +68,11 @@ export default function FileEditor({
 
   const dirty = content !== original;
   const lines = content === "" ? 0 : content.split("\n").length;
+  const [showHistory, setShowHistory] = useState(false);
+  // Older versions, newest first (text snapshots only).
+  const versions = undoStack
+    .filter((e) => e.kind === "write" && e.path === path && e.text !== null)
+    .sort((a, b) => b.timestamp - a.timestamp);
 
   const showToast = useCallback((msg: string, error = false) => {
     setToast({ msg, error });
@@ -201,6 +209,41 @@ export default function FileEditor({
     onClose();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content, original, onClose, t]);
+
+  /** Restore an older text snapshot (records current bytes for re-undo). */
+  const restoreVersion = useCallback(
+    async (text: string) => {
+      if (content !== original && !confirm(t("edUnsavedConfirm"))) return;
+      setStatus(t("edSaving"));
+      setStatusOk(false);
+      setFreshNotice(false);
+      try {
+        const prevText = content;
+        await writeActive(path, text);
+        try {
+          recordUndo(createWriteEntry(path, prevText, true));
+        } catch {
+          // recording must never break the restore itself
+        }
+        existedRef.current = true;
+        setContent(text);
+        setOriginal(text);
+        setStatus(t("edRestored"));
+        setStatusOk(true);
+        setFreshNotice(true);
+        showToast(t("edRestored"));
+        onSaved();
+      } catch (e) {
+        const msg = t("edSaveFail", {
+          msg: e instanceof Error ? e.message : String(e),
+        });
+        setStatus(msg);
+        showToast(msg, true);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [content, original, path, onSaved, showToast, writeActive, t],
+  );
 
   const sendToModel = useCallback(async () => {
     if (content !== original) await save();
@@ -418,6 +461,15 @@ export default function FileEditor({
             {t("edHint", { lines, chars: content.length })}
           </div>
           <div className="editor-actions">
+            {versions.length > 0 ? (
+              <button
+                className="editor-btn"
+                onClick={() => setShowHistory((v) => !v)}
+                title={t("edHistoryTitle")}
+              >
+                {t("edHistory", { n: versions.length })}
+              </button>
+            ) : null}
             {hasUndoForPath ? (
               <button
                 className="editor-btn"
@@ -438,6 +490,23 @@ export default function FileEditor({
             </button>
           </div>
         </div>
+        {showHistory && versions.length > 0 ? (
+          <div className="editor-history">
+            {versions.map((v, i) => (
+              <div key={`${v.timestamp}-${i}`} className="editor-history-row">
+                <span className="editor-history-when" title={path}>
+                  {new Date(v.timestamp).toLocaleString()}
+                </span>
+                <button
+                  className="editor-btn"
+                  onClick={() => void restoreVersion(v.text ?? "")}
+                >
+                  {t("edRestore")}
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );

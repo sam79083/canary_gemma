@@ -13,14 +13,30 @@ async function pruneUploads(): Promise<void> {
   try {
     const dir = safePath("uploads");
     if (dir === null) return;
-    const names = await fs.readdir(dir);
-    const files: { name: string; mtime: number }[] = [];
-    for (const name of names) {
+    // Walk recursively: AI temp files may live in subfolders
+    // (e.g. uploads/notes/a.md) — those never rotted away before.
+    const files: { full: string; mtime: number }[] = [];
+    const stack: string[] = [dir];
+    while (stack.length > 0) {
+      const cur = stack.pop() as string;
+      let entries;
       try {
-        const st = await fs.stat(path.join(dir, name));
-        if (st.isFile()) files.push({ name, mtime: st.mtimeMs });
+        entries = await fs.readdir(cur, { withFileTypes: true });
       } catch {
-        // vanished mid-sweep — ignore
+        continue;
+      }
+      for (const e of entries) {
+        const full = path.join(cur, e.name);
+        try {
+          if (e.isDirectory()) {
+            stack.push(full);
+          } else if (e.isFile()) {
+            const st = await fs.stat(full);
+            if (st.isFile()) files.push({ full, mtime: st.mtimeMs });
+          }
+        } catch {
+          // vanished mid-sweep — ignore
+        }
       }
     }
     files.sort((a, b) => b.mtime - a.mtime);
@@ -28,9 +44,32 @@ async function pruneUploads(): Promise<void> {
     const kill = files.filter(
       (f, i) => i >= UPLOADS_KEEP_NEWEST || now - f.mtime > UPLOADS_TTL_MS,
     );
-    await Promise.all(
-      kill.map((f) => fs.unlink(path.join(dir, f.name)).catch(() => {})),
-    );
+    await Promise.all(kill.map((f) => fs.unlink(f.full).catch(() => {})));
+    // Sweep up dirs left empty (deepest first).
+    const dirs: string[] = [];
+    const dst: string[] = [dir];
+    while (dst.length > 0) {
+      const cur = dst.pop() as string;
+      try {
+        const entries = await fs.readdir(cur, { withFileTypes: true });
+        for (const e of entries) {
+          if (e.isDirectory()) {
+            const full = path.join(cur, e.name);
+            dirs.push(full);
+            dst.push(full);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    for (const d of dirs.reverse()) {
+      try {
+        await fs.rmdir(d);
+      } catch {
+        // not empty or gone — keep it
+      }
+    }
   } catch {
     // uploads/ missing or unreadable — nothing to do
   }

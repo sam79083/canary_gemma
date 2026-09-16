@@ -84,13 +84,18 @@ function ReviewCard({
 }: {
   review: PendingReview;
   t: TFn;
-  onSettle: (ok: boolean, text?: string) => void;
+  onSettle: (ok: boolean, text?: string, feedback?: string) => void;
 }) {
   const [edited, setEdited] = useState(review.newText);
+  const [feedback, setFeedback] = useState("");
   useEffect(() => {
     setEdited(review.newText);
   }, [review]);
+  useEffect(() => {
+    setFeedback("");
+  }, [review]);
 
+  const isNew = review.kind === "write" && review.oldText === "";
   const diffPreview =
     review.oldText === "" && edited === review.newText
       ? `+++ ${t("rvNewFile")} +++\n` +
@@ -120,10 +125,37 @@ function ReviewCard({
             <pre className="review-diff">{diffPreview}</pre>
           </>
         )}
-        <div className="review-actions">
+        {review.kind === "write" ? (
+          <div className="review-feedback">
+            <div className="review-feedback-label">💬 {t("rvFeedbackPh")}</div>
+            <textarea
+              className="review-feedback-input"
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && feedback.trim()) {
+                  e.preventDefault();
+                  onSettle(false, undefined, feedback.trim());
+                }
+              }}
+              placeholder={t("rvFeedbackEx")}
+              spellCheck={false}
+            />
+          </div>
+        ) : null}
+        <div className="review-actions" style={{ marginTop: 12 }}>
           <button className="editor-btn" onClick={() => onSettle(false)}>
-            {t("rvUndo")}
+            {isNew ? t("rvDrop") : t("rvUndo")}
           </button>
+          {review.kind === "write" ? (
+            <button
+              className="editor-btn remake"
+              disabled={!feedback.trim()}
+              onClick={() => onSettle(false, undefined, feedback.trim())}
+            >
+              {t("rvRegen")}
+            </button>
+          ) : null}
           <button
             className="editor-btn primary"
             onClick={() => onSettle(true, review.kind === "write" ? edited : undefined)}
@@ -323,8 +355,12 @@ export default function Home() {
   }, []);
 
   const settleReview = useCallback(
-    (ok: boolean, text?: string) => {
-      reviewResolve.current?.({ ok, text: text ?? review?.newText ?? "" });
+    (ok: boolean, text?: string, feedback?: string) => {
+      reviewResolve.current?.({
+        ok,
+        text: text ?? review?.newText ?? "",
+        feedback: feedback?.trim() ? feedback.trim() : undefined,
+      });
       reviewResolve.current = null;
       setReview(null);
     },
@@ -470,8 +506,13 @@ export default function Home() {
   }, [theme]);
 
   const pushMessage = useCallback(
-    (role: ChatMessage["role"], content: string, image?: ChatMessage["image"]) => {
-      setMessages((prev) => [...prev, { role, content, image }]);
+    (
+      role: ChatMessage["role"],
+      content: string,
+      image?: ChatMessage["image"],
+      files?: ChatMessage["files"],
+    ) => {
+      setMessages((prev) => [...prev, { role, content, image, files }]);
     },
     [],
   );
@@ -1948,6 +1989,7 @@ export default function Home() {
               (e.dirFiles ?? []).some((f) => f.path === editorPath),
           )}
           onUndoPath={() => void handleUndoPath(editorPath)}
+          undoStack={undoStack}
           t={t}
         />
       ) : null}
