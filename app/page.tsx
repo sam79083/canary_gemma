@@ -11,6 +11,9 @@ import LoginDialog from "@/components/LoginDialog";
 import Onboarding from "@/components/Onboarding";
 import Tip from "@/components/Tip";
 import TrialOverDialog from "@/components/TrialOverDialog";
+import Confetti from "@/components/Confetti";
+import { touchStreak } from "@/lib/streak";
+import { ACHIEVEMENTS, loadUnlocked, unlockAch } from "@/lib/achievements";
 import UsageBlock from "@/components/UsageBlock";
 import { useAuth } from "@/hooks/useAuth";
 import { useConfirm } from "@/hooks/useConfirm";
@@ -258,6 +261,78 @@ export default function Home() {
   // Trial-budget-exhausted popup (429 from /api/gemini-chat).
   const [trialOverOpen, setTrialOverOpen] = useState(false);
   const [trialKeySaving, setTrialKeySaving] = useState(false);
+  // Daily visit streak badge (2+ days).
+  const [streak, setStreak] = useState(1);
+  useEffect(() => {
+    try {
+      setStreak(touchStreak());
+    } catch {
+      // badge is best-effort
+    }
+  }, []);
+  // Achievements: toast on first unlock, badge shows the count.
+  const [achCount, setAchCount] = useState(0);
+  useEffect(() => {
+    try {
+      setAchCount(loadUnlocked().size);
+    } catch {
+      // ignore
+    }
+  }, []);
+  const award = useCallback(
+    (id: string) => {
+      let unlocked = false;
+      try {
+        unlocked = unlockAch(id);
+      } catch {
+        return;
+      }
+      if (!unlocked) return;
+      const def = ACHIEVEMENTS.find((a) => a.id === id);
+      try {
+        toast(t("achToast", { name: `${def?.icon ?? ""} ${def ? t(def.nameKey) : id}`.trim() }));
+      } catch {
+        // toasts are best-effort
+      }
+      try {
+        setAchCount(loadUnlocked().size);
+      } catch {
+        // ignore
+      }
+    },
+    [t],
+  );
+  const achSeenLen = useRef(0);
+  useEffect(() => {
+    if (messages.length <= achSeenLen.current) {
+      achSeenLen.current = messages.length;
+      return;
+    }
+    achSeenLen.current = messages.length;
+    if (messages.filter((m) => m.role === "user").length >= 10)
+      award("ten-chats");
+    const last = messages[messages.length - 1];
+    if (last?.role === "user") {
+      if (/https?:\/\//i.test(last.content)) award("first-link");
+      if (new Date().getHours() < 5) award("night-owl");
+    }
+    if (last?.role === "assistant" && last.image) award("first-draw");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, award]);
+  // First-file fireworks (once ever per browser).
+  const [burstKey, setBurstKey] = useState(0);
+  const burstDone = useRef(false);
+  const handleFilesCreated = useCallback(() => {
+    award("first-file");    if (burstDone.current) return;
+    burstDone.current = true;
+    try {
+      if (localStorage.getItem("canary-first-file")) return;
+      localStorage.setItem("canary-first-file", "done");
+    } catch {
+      // storage unavailable — celebrate once per session
+    }
+    setBurstKey((k) => k + 1);
+  }, [award]);
   // Accessible confirm modal (promise-based, replaces window.confirm).
   const confirmCtl = useConfirm();
   // Command palette (Ctrl+K quick switcher).
@@ -1132,6 +1207,28 @@ export default function Home() {
           {model.provider === "cloud" ? t("pgPrivacyCloud") : t("pgPrivacy")}
         </div>
 
+        {streak > 1 ? (
+          <div className="privacy-badge" title={t("streakDays", { n: streak })}>
+            {t("streakDays", { n: streak })}
+          </div>
+        ) : null}
+        {achCount > 0 ? (
+          <div
+            className="privacy-badge"
+            title={ACHIEVEMENTS.filter((a) => {
+              try {
+                return loadUnlocked().has(a.id);
+              } catch {
+                return false;
+              }
+            })
+              .map((a) => `${a.icon} ${t(a.nameKey)}`)
+              .join(" · ")}
+          >
+            🏆 {achCount}
+          </div>
+        ) : null}
+
         <details className="side-group" open>
           <summary>{t("pgModelTitle")}</summary>
           <div className="workspace-box" id="model-box" style={{ marginTop: 0 }}>
@@ -1979,6 +2076,7 @@ export default function Home() {
           persistChat={persistChat}
           workspace={workspace}
           onFilesChanged={() => setTreeVersion((v) => v + 1)}
+          onFilesCreated={handleFilesCreated}
           onOpenFile={openFileAndCloseDrawer}
           reviewChange={reviewChange}
           recordUndo={recordUndo}
@@ -2043,6 +2141,7 @@ export default function Home() {
         onClose={() => setTrialOverOpen(false)}
         t={t}
       />
+      <Confetti burstKey={burstKey} />
 
       <ConfirmDialog
         req={confirmCtl.req}

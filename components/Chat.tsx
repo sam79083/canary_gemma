@@ -33,6 +33,7 @@ import { renderMarkdown } from "@/lib/markdown";
 import { sanitizeAnswer } from "@/lib/sanitize";
 import { generateHFImage, HF_DRAW_LABEL } from "@/lib/cloud-model";
 import Tip from "@/components/Tip";
+import MouseOrb from "@/components/MouseOrb";
 import { motion } from "motion/react";
 import {
   AGENT_MAX_STEPS,
@@ -54,6 +55,8 @@ interface Props {
   pushMessage: (role: ChatMessage["role"], content: string, image?: ChatMessage["image"], files?: ChatMessage["files"]) => void;
   /** Drop the trailing assistant message (for answer regen). */
   removeLastAssistant: () => void;
+  /** Fired with the number of files written in a turn (celebrations). */
+  onFilesCreated?: (n: number) => void;
   persistChat: () => void;
   workspace: WorkspaceApi;
   onFilesChanged: () => void;
@@ -188,6 +191,7 @@ export default function Chat({
   setModelStatus,
   pushMessage,
   removeLastAssistant,
+  onFilesCreated,
   persistChat,
   workspace,
   onFilesChanged,
@@ -1188,6 +1192,13 @@ export default function Chat({
         undefined,
         writtenFiles.length > 0 ? writtenFiles : undefined,
       );
+      if (writtenFiles.length > 0) {
+        try {
+          onFilesCreated?.(writtenFiles.length);
+        } catch {
+          // celebrations must never break the turn
+        }
+      }
       // Never auto-open the editor — the user opens files by clicking
       // (FileTree / Downloads panel). Just refresh the listings.
       onFilesChanged();
@@ -1450,6 +1461,7 @@ export default function Chat({
 
   return (
     <>
+      <MouseOrb active={messages.length === 0 && !streaming} />
       <div className="messages" id="messages" onClick={onCodeCopy}>
         {messages.map((m, i) => (
           <motion.div
