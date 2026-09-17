@@ -53,7 +53,9 @@ export async function POST(req: Request) {
       // server logs for diagnosis.
       console.error(`gemini-chat upstream HTTP ${res.status}${detail}`);
       const code =
-        res.status === 400 || res.status === 403
+        res.status === 400 ||
+        res.status === 401 ||
+        res.status === 403
           ? "server-bad-key"
           : res.status === 429
             ? "quota"
