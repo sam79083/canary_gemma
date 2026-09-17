@@ -1046,7 +1046,14 @@ export default function Chat({
                   mutated: false,
                 };
               }
-              return { ok: false, detail: t("rvDeclined"), mutated: false };
+              // Drop means "leave everything as it was": say so precisely —
+              // a dropped rewrite keeps the existing file, a dropped new
+              // file creates nothing.
+              return {
+                ok: false,
+                detail: existed ? t("rvKeptExisting") : t("rvDeclined"),
+                mutated: false,
+              };
             }
             const finalText = verdict.text;
             const targetRel = verdict.saveAsNew ? await uniquePath(rel) : rel;
