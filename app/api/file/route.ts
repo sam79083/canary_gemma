@@ -112,7 +112,11 @@ export async function GET(req: Request) {
         { status: 400 },
       );
     }
-  } catch {
+  } catch (e) {
+    // Gone (wiped uploads/, redeployed disk) vs wrong path need
+    // different handling upstream (undo/viewer) — say which.
+    if ((e as NodeJS.ErrnoException)?.code === "ENOENT")
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ error: "Not a file" }, { status: 400 });
   }
 }
