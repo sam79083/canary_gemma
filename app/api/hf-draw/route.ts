@@ -8,7 +8,9 @@ import { trialUse } from "@/lib/trial";
 // 501 = no server key configured (client falls back to the user's own key).
 // 429 {error:"trial-over"} = visitor budget spent (members bypass it).
 export async function POST(req: Request) {
-  const token = process.env.HF_TOKEN;
+  // Trim: dashboard env boxes love trailing newlines; an untrimmed
+  // token fails auth with no visible cause.
+  const token = (process.env.HF_TOKEN ?? "").trim();
   if (!token) return NextResponse.json({ error: "no-server-key" }, { status: 501 });
   let prompt = "";
   try {

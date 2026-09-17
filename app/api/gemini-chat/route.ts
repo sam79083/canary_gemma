@@ -13,7 +13,9 @@ const TRIAL_SYSTEM = `You are '${DEFAULT_GEMINI_MODEL}'.`;
 // 429 {error:"trial-over"} = budget spent.
 // Logged-in members bypass the budget (cookie-authenticated).
 export async function POST(req: Request) {
-  const key = process.env.GEMINI_KEY;
+  // Trim: a stray space/newline pasted into the dashboard env box
+  // would otherwise turn a good key into a 401 with no visible cause.
+  const key = (process.env.GEMINI_KEY ?? "").trim();
   if (!key) return NextResponse.json({ error: "no-server-key" }, { status: 501 });
   let contents: unknown;
   try {

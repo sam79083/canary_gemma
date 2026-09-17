@@ -9,7 +9,7 @@ export async function GET(req: Request) {
       { error: "Empty query", results: [] },
       { status: 400 },
     );
-  const key = process.env.SERPAPI_KEY;
+  const key = (process.env.SERPAPI_KEY ?? "").trim();
   if (!key)
     return NextResponse.json(
       { error: "SERPAPI_KEY not configured", results: [] },
