@@ -192,9 +192,20 @@ export function buildToolResultTurn(
   tc: ToolCall,
   ok: boolean,
   detail: string,
+  declined = false,
 ): string {
   const label = describeToolCall(tc);
   const body = detail.length > 4000 ? detail.slice(0, 4000) + "\n…(truncated)" : detail;
+  if (declined) {
+    // A user decline is final intent, not an error: never retry it or
+    // "undo" around it — that loop is what made Drop look broken.
+    return (
+      `TOOL RESULT for ${label}: DECLINED BY USER\n` +
+      `${body}\n\n` +
+      `Do not retry this operation and do not attempt to undo it. ` +
+      `Continue with the rest of the user's request, or reply naturally with what you did.`
+    );
+  }
   return (
     `TOOL RESULT for ${label}: ${ok ? "OK" : "FAILED"}\n` +
     `${body}\n\n` +

@@ -990,7 +990,7 @@ export default function Chat({
       return (dir ? `${dir}/` : "") + `${stem}-${Date.now()}${ext}`;
     };
 
-    async function executeTool(tc: ToolCall): Promise<{ ok: boolean; detail: string; mutated: boolean; openPath?: string }> {
+    async function executeTool(tc: ToolCall): Promise<{ ok: boolean; detail: string; mutated: boolean; openPath?: string; declined?: boolean }> {
       const rawRel = cleanRelPath(tc.path);
       // Jail server-temp mode under uploads/ (workspace mode untouched).
       const rel = tc.name === "listFiles" ? rawRel : jail(rawRel);
@@ -1056,6 +1056,7 @@ export default function Chat({
                 ok: false,
                 detail: existed ? t("rvKeptExisting") : t("rvDeclined"),
                 mutated: false,
+                declined: true,
               };
             }
             const finalText = verdict.text;
@@ -1105,7 +1106,7 @@ export default function Chat({
               newText: "",
             });
             if (!verdict.ok)
-              return { ok: false, detail: t("chKept", { name: shortName(rel) }), mutated: false };
+              return { ok: false, detail: t("chKept", { name: shortName(rel) }), mutated: false, declined: true };
             let backup = null;
             try {
               backup = await snapshotForDelete(
@@ -1217,13 +1218,17 @@ export default function Chat({
         if (result.ok && tc.name === "writeFile" && result.openPath)
           writtenPaths.push(result.openPath);
 
-        // Plain-language progress line in chat (UI only, not model history).
-        pushMessage("assistant", friendlyStep(t, tc, result.ok, result.detail));
+        // A user decline is not a failure: no ✗ line (the closing
+        // review card is the feedback), and the model is told not to
+        // retry or "undo" around it.
+        if (!(result.ok === false && result.declined))
+          pushMessage("assistant", friendlyStep(t, tc, result.ok, result.detail));
 
         nextPrompt = buildToolResultTurn(
           { ...tc, path: cleanRelPath(tc.path) },
           result.ok,
           result.detail,
+          result.declined === true,
         );
         setStreamText("");
       }

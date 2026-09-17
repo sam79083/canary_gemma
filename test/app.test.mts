@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseToolCall, stripToolCalls } from "../lib/agent.ts";
+import { buildToolResultTurn, parseToolCall, stripToolCalls } from "../lib/agent.ts";
 import { renderMarkdown } from "../lib/markdown.ts";
 import { sanitizeAnswer } from "../lib/sanitize.ts";
 import { GeminiSession, HISTORY_TAIL, generateHFImage } from "../lib/cloud-model.ts";
@@ -30,6 +30,19 @@ describe("agent tool parser", () => {
 
   it("strips toolcalls from final answers", () => {
     assert.equal(stripToolCalls('hi\n```toolcall\n{"a":1}\n```').trim(), "hi");
+  });
+
+  it("marks declines final (no retry language)", () => {
+    const tc = { name: "writeFile", path: "a.txt", content: "x" } as const;
+    const declined = buildToolResultTurn(tc, false, "kept", true);
+    assert.ok(declined.includes("DECLINED BY USER"));
+    assert.ok(declined.includes("Do not retry"));
+    assert.ok(!declined.includes("FAILED"));
+    const failed = buildToolResultTurn(tc, false, "boom");
+    assert.ok(failed.includes("FAILED"));
+    assert.ok(failed.includes("retry"));
+    const ok = buildToolResultTurn(tc, true, "done");
+    assert.ok(ok.includes("OK"));
   });
 });
 
