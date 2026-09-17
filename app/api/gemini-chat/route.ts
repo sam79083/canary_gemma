@@ -48,10 +48,19 @@ export async function POST(req: Request) {
       } catch {
         // ignore
       }
-      return NextResponse.json(
-        { error: `HTTP ${res.status}${detail}` },
-        { status: 502 },
-      );
+      // Normalize to codes the client's friendlyError already maps to
+      // localized messages (bad-key/quota). Full detail goes to the
+      // server logs for diagnosis.
+      console.error(`gemini-chat upstream HTTP ${res.status}${detail}`);
+      const code =
+        res.status === 400 || res.status === 403
+          ? "bad-key"
+          : res.status === 429
+            ? "quota"
+            : res.status === 404
+              ? "bad-model"
+              : `HTTP ${res.status}${detail}`;
+      return NextResponse.json({ error: code }, { status: 502 });
     }
     const data = (await res.json()) as {
       candidates?: { content?: { parts?: { text?: string }[] } }[];

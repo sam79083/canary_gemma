@@ -347,7 +347,12 @@ export class TrialChatSession implements LanguageModelSession {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(data?.error || "trial-over");
     }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // Surface the server's reason (bad-key/quota/bad-model/...) so the
+    // chat shows a localized explanation instead of a bare HTTP number.
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(data?.error || `HTTP ${res.status}`);
+    }
     const data = (await res.json()) as { text?: string; usage?: TokenUsage };
     const text = data.text ?? "";
     // Reset every turn: no usage reported means unknown, never the
