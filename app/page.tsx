@@ -59,6 +59,13 @@ import {
   loadWorkspaceSession,
   saveWorkspaceSession,
 } from "@/lib/sessions-workspace";
+import {
+  deleteAllDbSessions,
+  deleteDbSession,
+  listDbSessions,
+  loadDbSession,
+  saveDbSession,
+} from "@/lib/db-sessions";
 import type { ChatMessage, PendingReview, ReviewFn, ReviewResult, SessionHit, SessionInfo } from "@/lib/types";
 import { MotionConfig } from "motion/react";
 import * as Tooltip from "@radix-ui/react-tooltip";
@@ -197,6 +204,9 @@ export default function Home() {
   const member = auth.user !== null;
   const model = useLanguageModel(lang, t, member);
   const workspace = useWorkspace();
+  // Members without a picked folder keep chats in Supabase, so history
+  // follows the account across devices. Everyone else keeps local behavior.
+  const useDb = member && !workspace.connected;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [theme, setThemeState] = useState<Theme>("light");
@@ -369,6 +379,17 @@ export default function Home() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t]);
+
+  // Logging in/out switches where chats live (Supabase <-> local), so the
+  // Manage-chats list must come from the newly active backend. The open
+  // conversation stays on screen; it saves to the new backend on next reply.
+  useEffect(() => {
+    if (auth.loading || !model.hydrated) return;
+    currentSessionFileRef.current = null;
+    setCurrentFile(null);
+    void refreshSessions().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [member, model.hydrated]);
   // HuggingFace token for HD drawing (browser-only, like the Gemini key).
   const [hfKey, setHfKey] = useState("");
   useEffect(() => {
@@ -658,14 +679,26 @@ export default function Home() {
     // Image previews are live object URLs — persist text only.
     const stored: ChatMessage[] = msgs.map(({ role, content }) => ({ role, content }));
     const refresh = () => {
-      const p = workspace.connected
-        ? listWorkspaceSessions(workspace)
-        : listLocalSessions();
+      const p = useDb
+        ? listDbSessions()
+        : workspace.connected
+          ? listWorkspaceSessions(workspace)
+          : listLocalSessions();
       void p
         .then(setSessionList)
         .catch((e) => console.error("Failed to load sessions:", e));
     };
-    if (workspace.connected) {
+    if (useDb) {
+      // A leftover local filename is not a DB id — the route treats it
+      // as "new" and creates a fresh cloud session instead of failing.
+      void saveDbSession(currentSessionFileRef.current, title, stored)
+        .then((id) => {
+          currentSessionFileRef.current = id;
+          setCurrentFile(id);
+          refresh();
+        })
+        .catch((e) => console.error("Auto-save session failed:", e));
+    } else if (workspace.connected) {
       void saveWorkspaceSession(workspace, title, stored, existing)
         .then((filename) => {
           currentSessionFileRef.current = filename;
@@ -683,7 +716,7 @@ export default function Home() {
         .catch((e) => console.error("Auto-save session failed:", e));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace.connected, t]);
+  }, [useDb, workspace.connected, t]);
 
   /** Undo one entry against the active backend (workspace or server). */
   const applyUndoEntry = useCallback(
@@ -789,16 +822,20 @@ export default function Home() {
       const query = q.trim().toLowerCase();
       if (query.length < 2) return [];
       const list = (
-        workspace.connected
-          ? await listWorkspaceSessions(workspace).catch(() => [])
-          : await listLocalSessions().catch(() => [])
+        useDb
+          ? await listDbSessions().catch(() => [])
+          : workspace.connected
+            ? await listWorkspaceSessions(workspace).catch(() => [])
+            : await listLocalSessions().catch(() => [])
       ).filter((s) => s.filename && s.filename.trim());
       const out: SessionHit[] = [];
       for (const s of list.slice(0, 30)) {
         try {
-          const msgs = workspace.connected
-            ? await loadWorkspaceSession(workspace, s.filename)
-            : await loadLocalSession(s.filename);
+          const msgs = useDb
+            ? await loadDbSession(s.filename).catch(() => [])
+            : workspace.connected
+              ? await loadWorkspaceSession(workspace, s.filename)
+              : await loadLocalSession(s.filename);
           const hit = msgs.find(
             (m) => typeof m.content === "string" && m.content.toLowerCase().includes(query),
           );
@@ -818,20 +855,22 @@ export default function Home() {
       return out;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [workspace.connected],
+    [useDb, workspace.connected],
   );
 
   const refreshSessions = useCallback(async () => {    try {
       setSessionList(
-        workspace.connected
-          ? await listWorkspaceSessions(workspace)
-          : await listLocalSessions(),
+        useDb
+          ? await listDbSessions()
+          : workspace.connected
+            ? await listWorkspaceSessions(workspace)
+            : await listLocalSessions(),
       );
     } catch (e) {
       console.error("Failed to load sessions:", e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace.connected]);
+  }, [useDb, workspace.connected]);
 
   // When the workspace connects, switch the dropdown to that folder's
   // `.canary/sessions/`. First connect migrates any browser-localStorage
@@ -954,9 +993,11 @@ export default function Home() {
     async (filename: string) => {
       if (!filename) return;
       try {
-        const msgs = workspace.connected
-          ? await loadWorkspaceSession(workspace, filename)
-          : await loadLocalSession(filename);
+        const msgs = useDb
+          ? await loadDbSession(filename)
+          : workspace.connected
+            ? await loadWorkspaceSession(workspace, filename)
+            : await loadLocalSession(filename);
         currentSessionFileRef.current = filename;
         setCurrentFile(filename);
         setMessages(msgs);
@@ -986,7 +1027,8 @@ export default function Home() {
     if (!filename) return;
     if (!(await confirmCtl.confirm(t("ssDelete"), "", t("trDelete")))) return;
     try {
-      if (workspace.connected)
+      if (useDb) await deleteDbSession(filename);
+      else if (workspace.connected)
         await deleteWorkspaceSession(workspace, filename);
       else await deleteLocalSession(filename);
     } catch (e) {
@@ -1035,16 +1077,20 @@ export default function Home() {
   const handleDeleteAllChats = useCallback(async () => {
     if (!(await confirmCtl.confirm(t("ssDeleteAllConfirm"), "", t("ssDeleteAll")))) return;
     try {
-      const list = workspace.connected
-        ? await listWorkspaceSessions(workspace).catch(() => [])
-        : await listLocalSessions().catch(() => []);
-      for (const s of list) {
-        try {
-          if (workspace.connected)
-            await deleteWorkspaceSession(workspace, s.filename);
-          else await deleteLocalSession(s.filename);
-        } catch {
-          // keep deleting the rest
+      if (useDb) {
+        await deleteAllDbSessions();
+      } else {
+        const list = workspace.connected
+          ? await listWorkspaceSessions(workspace).catch(() => [])
+          : await listLocalSessions().catch(() => []);
+        for (const s of list) {
+          try {
+            if (workspace.connected)
+              await deleteWorkspaceSession(workspace, s.filename);
+            else await deleteLocalSession(s.filename);
+          } catch {
+            // keep deleting the rest
+          }
         }
       }
     } catch (e) {
