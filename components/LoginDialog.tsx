@@ -8,6 +8,7 @@ interface Props {
   open: boolean;
   checking: boolean;
   error: string | null;
+  onGoogleLogin: () => Promise<boolean>;
   onClose: () => void;
   t: TFn;
 }
@@ -42,8 +43,9 @@ const fieldInput: CSSProperties = {
  * The card is a child of the dim layer, so no stacking games are possible.
  * Backdrop clicks never dismiss (credentials must survive); Esc and Cancel do.
  */
-export default function LoginDialog({ open, checking, error, onClose, t }: Props) {
+export default function LoginDialog({ open, checking, error, onGoogleLogin, onClose, t }: Props) {
   const [focused, setFocused] = useState<string | null>(null);
+  const googleRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -94,10 +96,24 @@ export default function LoginDialog({ open, checking, error, onClose, t }: Props
         </div>
 
         <div style={{ marginBottom: 20 }}>
-          {/* Google OAuth is handled by the parent Supabase setup. */}
-          <div style={{ textAlign: "center", marginBottom: 12, fontSize: 12 }}>
-            {t("lgGoogle")}
-          </div>
+          <button
+            ref={googleRef}
+            className="editor-btn primary"
+            style={{ width: "100%", justifyContent: "center", padding: "12px" }}
+            onClick={() => {
+              void onGoogleLogin().then((ok) => {
+                if (ok) onClose();
+              });
+            }}
+            disabled={checking}
+          >
+            {checking ? "⏳" : t("lgGoogle")}
+          </button>
+          {error ? (
+            <div className="workspace-error" style={{ marginTop: 10 }}>
+              {error === "member-full" ? t("lgFull") : error}
+            </div>
+          ) : null}
         </div>
 
         <div

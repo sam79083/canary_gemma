@@ -2156,6 +2156,7 @@ export default function Home() {
         open={loginOpen}
         checking={auth.checking}
         error={auth.error}
+        onGoogleLogin={auth.loginWithGoogle}
         onClose={() => setLoginOpen(false)}
         t={t}
       />
