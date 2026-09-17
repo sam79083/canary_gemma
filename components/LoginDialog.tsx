@@ -78,9 +78,9 @@ export default function LoginDialog({ open, checking, error, onClose, t }: Props
       aria-modal="true"
       aria-label={t("lgTitle")}
     >
-      <div className="review-card" style={{ maxWidth: 320, padding: "24px 20px 20px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-          <span style={{ fontSize: 18, flexShrink: 0 }}>
+      <div className="review-card" style={{ maxWidth: 320, padding: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, paddingBottom: 16, borderBottom: "1px solid var(--border)" }}>
+          <span style={{ fontSize: 18, flexShrink: 0, marginRight: 8 }}>
             🔑
           </span>
           <span>
@@ -95,8 +95,8 @@ export default function LoginDialog({ open, checking, error, onClose, t }: Props
 
         <div style={{ marginBottom: 20 }}>
           {/* Google OAuth is handled by the parent Supabase setup. */}
-          <div style={{ textAlign: "center", marginBottom: 12, color: "var(--muted)", fontSize: 12 }}>
-            Continue with Google via Supabase
+          <div style={{ textAlign: "center", marginBottom: 12, fontSize: 12 }}>
+            {t("lgGoogle")}
           </div>
         </div>
 
@@ -110,11 +110,7 @@ export default function LoginDialog({ open, checking, error, onClose, t }: Props
         >
           <button
             className="quota-refresh"
-            style={{
-              width: "100%",
-              fontSize: 12,
-              padding: "8px 0",
-            }}
+            style={{ width: "100%", fontSize: 12, padding: "8px 0px" }}
           >
             {t("lgCancel")}
           </button>
