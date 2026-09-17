@@ -7,6 +7,12 @@ export async function updateSession(request: NextRequest) {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
   const anon = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
   if (!url || !anon) return response;
+  // No session cookie => visitor: skip Supabase entirely (no network).
+  // Trial traffic must cost nothing.
+  const hasSession = request.cookies
+    .getAll()
+    .some((c) => c.name.startsWith("sb-") && c.name.includes("auth-token"));
+  if (!hasSession) return response;
   const sb = createServerClient(url, anon, {
     cookies: {
       getAll() {

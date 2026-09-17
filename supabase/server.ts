@@ -12,6 +12,23 @@ function creds(): { url: string; anon: string } | null {
   return { url, anon };
 }
 
+/**
+ * True when the request carries a Supabase session cookie (chunked
+ * `sb-<ref>-auth-token[.N]` included). Pure string check — no network.
+ * Visitors without one skip Supabase entirely: trial traffic must cost
+ * nothing and touch nothing outside this server.
+ */
+export async function hasSessionCookie(): Promise<boolean> {
+  try {
+    const store = await cookies();
+    return store
+      .getAll()
+      .some((c) => c.name.startsWith("sb-") && c.name.includes("auth-token"));
+  } catch {
+    return false;
+  }
+}
+
 /** Route-handler Supabase client (reads session cookies, refreshes them). */
 export async function supabaseServer() {
   const c = creds();
@@ -53,6 +70,9 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 /** Logged-in member from the request cookies, or null (visitor). */
 export async function getMember(): Promise<{ id: string; email: string } | null> {
   try {
+    // No session cookie => definitely a visitor. Return before any
+    // Supabase network call so trial traffic stays fully local.
+    if (!(await hasSessionCookie())) return null;
     const sb = await supabaseServer();
     if (!sb) return null;
     const {
