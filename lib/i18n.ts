@@ -576,7 +576,7 @@ const en: Dict = {
   udNoBackup: "No backup was kept, so this can't be auto-restored",
   udPartial: "Backup was truncated — restore may be partial",
   lgLogin: "🔑 Login",
-  lgGoogle: "Google",
+  lgGoogle: "Continue with Google",
   lgLogout: "Log out",
   lgTitle: "🔑 Member login",
   lgHint: "Logged in, you get unlimited use with no API keys.",

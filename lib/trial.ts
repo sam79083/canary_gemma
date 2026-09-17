@@ -1,6 +1,6 @@
 // Server-side trial budgets: visitors without their own keys get a few
 // free uses of the server keys, then must bring their own.
-// Logged-in members bypass budgets (routes pass member=true; see lib/auth).
+// Logged-in members bypass budgets (routes pass member=true via Supabase).
 // Per-IP counters in the OS temp dir (ephemeral on Render — self-cleaning).
 // No localhost exception: the 10-use rule holds everywhere alike.
 

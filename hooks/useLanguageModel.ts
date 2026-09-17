@@ -76,7 +76,7 @@ function store(key: string, value: string): void {
  * Both expose the same LanguageModelSession shape, so chat/file tools work
  * unchanged. All user-facing status goes through t() (Korean default).
  *
- * `member` = logged-in via /api/auth: server-key (trial) sessions are
+ * `member` = logged in via Supabase: server-key (trial) sessions are
  * unlimited, so status shows member mode instead of trial mode.
  */
 export function useLanguageModel(lang: Lang, t: TFn, member = false) {

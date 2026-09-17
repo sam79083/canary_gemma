@@ -627,20 +627,6 @@ export default function Home() {
     [],
   );
 
-  const handleLogin = useCallback(
-    async (id: string, pw: string): Promise<boolean> => {
-      const ok = await auth.login(id, pw);
-      if (ok) {
-        // auth.user state lands a beat later — greet with the typed id.
-        pushMessage("assistant", t("lgLoggedIn", { user: id.trim() }));
-        persistChat();
-      }
-      return ok;
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [t],
-  );
-
   /** Trial-over popup: save the typed key and reconnect on it. */
   const handleSaveTrialKey = useCallback(
     (k: string) => {

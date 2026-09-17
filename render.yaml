@@ -16,9 +16,9 @@ services:
         sync: false
       - key: HF_TOKEN
         sync: false
-      # Member login (ID/PW checked server-side only). Set both values in
-      # the Render dashboard — the app falls back to sam/1227 when unset.
-      - key: SAM_ID
+      # Supabase member auth (Google OAuth). Values live ONLY in the
+      # Render dashboard — get them from Supabase → Settings → API.
+      - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
-      - key: SAM_PW
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
         sync: false
