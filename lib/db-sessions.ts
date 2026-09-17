@@ -94,7 +94,7 @@ export async function deleteDbSession(id: string): Promise<void> {
   const res = await fetch(`/api/db-sessions/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
-  if (!res.ok && res.status !== 404) throw await readError(res);
+  if (!res.ok) throw await readError(res);
 }
 
 export async function deleteAllDbSessions(): Promise<void> {

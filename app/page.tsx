@@ -1026,6 +1026,8 @@ export default function Home() {
     const filename = currentSessionFileRef.current;
     if (!filename) return;
     if (!(await confirmCtl.confirm(t("ssDelete"), "", t("trDelete")))) return;
+    let ok = true;
+    let failMsg = "";
     try {
       if (useDb) await deleteDbSession(filename);
       else if (workspace.connected)
@@ -1033,13 +1035,15 @@ export default function Home() {
       else await deleteLocalSession(filename);
     } catch (e) {
       console.error("Delete failed:", e);
+      ok = false;
+      failMsg = e instanceof Error ? e.message : String(e);
     }
     handleNewChat();
     // The list must reflect the delete even for the active chat —
     // otherwise its row lingers as a ghost that can never open.
     await refreshSessions();
     try {
-      toast(t("trDeleted"));
+      toast(ok ? t("trDeleted") : t("trActionFail", { msg: failMsg }));
     } catch {
       // toasts are best-effort
     }
@@ -1050,12 +1054,17 @@ export default function Home() {
     async (filename: string) => {
       if (!filename) return;
       if (!(await confirmCtl.confirm(t("ssDelete"), "", t("trDelete")))) return;
+      let ok = true;
+      let failMsg = "";
       try {
-        if (workspace.connected)
+        if (useDb) await deleteDbSession(filename);
+        else if (workspace.connected)
           await deleteWorkspaceSession(workspace, filename);
         else await deleteLocalSession(filename);
       } catch (e) {
         console.error("Delete failed:", e);
+        ok = false;
+        failMsg = e instanceof Error ? e.message : String(e);
       }
       if (currentSessionFileRef.current === filename) {
         handleNewChat();
@@ -1065,7 +1074,7 @@ export default function Home() {
       // that throws "Not found" when opened).
       await refreshSessions();
       try {
-        toast(t("trDeleted"));
+        toast(ok ? t("trDeleted") : t("trActionFail", { msg: failMsg }));
       } catch {
         // toasts are best-effort
       }

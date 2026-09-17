@@ -50,11 +50,16 @@ export async function DELETE(
   if (!member) return NextResponse.json({ error: "member-only" }, { status: 401 });
   const sb = await supabaseServer();
   if (!sb) return NextResponse.json({ error: "auth-unconfigured" }, { status: 503 });
-  const { error } = await sb
+  const { data, error } = await sb
     .from("sessions")
     .delete()
     .eq("id", id)
-    .eq("user_id", member.id);
+    .eq("user_id", member.id)
+    .select("id");
   if (error) return NextResponse.json({ error: "db-error" }, { status: 500 });
+  // Zero rows = id unknown or not owned: say so instead of a false ok,
+  // otherwise the row lingers in the UI with a "deleted ✓" toast.
+  if (!data || data.length === 0)
+    return NextResponse.json({ error: "not-found" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }
