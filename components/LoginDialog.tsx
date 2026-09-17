@@ -38,19 +38,20 @@ const fieldInput: CSSProperties = {
 };
 
 /**
- * Member login popup with close (X) button and full-width cancel area.
+ * Member login popup with full-width cancel area.
  * The card is a child of the dim layer, so no stacking games are possible.
  * Backdrop clicks never dismiss (credentials must survive); Esc and Cancel do.
  */
 export default function LoginDialog({ open, checking, error, onClose, t }: Props) {
   const [focused, setFocused] = useState<string | null>(null);
-  const googleRef = useRef<HTMLButtonElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (open) {
       setFocused(null);
-      const tmr = setTimeout(() => closeRef.current?.focus(), 30);
+      const tmr = setTimeout(() => {
+        const inp = document.activeElement as HTMLInputElement | null;
+        inp?.blur?.();
+      }, 30);
       return () => clearTimeout(tmr);
     }
   }, [open ]);
@@ -69,18 +70,6 @@ export default function LoginDialog({ open, checking, error, onClose, t }: Props
 
   if (!open) return null;
 
-  const loginWithGoogle = async (): Promise<boolean> => {
-    try {
-      // Trigger Supabase Google OAuth flow
-      // The actual redirect is handled by the parent component's auth state
-      // This button initiates the flow; the redirect will happen
-      onClose();
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
   return (
     <div
       className="review-overlay"
@@ -88,67 +77,11 @@ export default function LoginDialog({ open, checking, error, onClose, t }: Props
       role="dialog"
       aria-modal="true"
       aria-label={t("lgTitle")}
-      style={{
-        // Enable backdrop click to close (optional - currently prevented in effects)
-        // We'll keep the internal logic but also allow Escape to close
-      }}
     >
-      <div
-        className="review-card"
-        style={{
-          maxWidth: 320,
-          padding: "24px 24px 20px",
-          position: "relative",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            marginBottom: 4,
-            paddingBottom: 12,
-            borderBottom: "1px solid var(--border)",
-          }}
-        >
-          <span
-            aria-hidden="true"
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 8,
-              background: "var(--status-bg)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 18,
-              flexShrink: 0,
-              position: "absolute",
-              right: 12,
-              top: 8,
-            }}
-          >
+      <div className="review-card" style={{ maxWidth: 320, padding: "24px 20px 20px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+          <span style={{ fontSize: 18, flexShrink: 0 }}>
             🔑
-            <button
-              className="quota-refresh"
-              style={{
-                position: "absolute",
-                right: 4,
-                top: 2,
-                width: 24,
-                height: 24,
-                padding: 0,
-                background: "transparent",
-                border: "none",
-                color: "inherit",
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-              aria-label="Close"
-              onClick={onClose}
-            >
-              ✕
-            </button>
           </span>
           <span>
             <span style={{ display: "block", fontSize: 15, fontWeight: 700 }}>
@@ -161,20 +94,10 @@ export default function LoginDialog({ open, checking, error, onClose, t }: Props
         </div>
 
         <div style={{ marginBottom: 20 }}>
-          <button
-            ref={googleRef}
-            className="editor-btn primary"
-            style={{
-              width: "100%",
-              justifyContent: "center",
-              padding: "12px",
-              marginBottom: 8,
-            }}
-            onClick={loginWithGoogle}
-            disabled={checking}
-          >
-            {checking ? "⏳" : t("lgGoogle")}
-          </button>
+          {/* Google OAuth is handled by the parent Supabase setup. */}
+          <div style={{ textAlign: "center", marginBottom: 12, color: "var(--muted)", fontSize: 12 }}>
+            Continue with Google via Supabase
+          </div>
         </div>
 
         <div
