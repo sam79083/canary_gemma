@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { HF_IMAGE_MODEL } from "@/lib/cloud-model";
-import { isAuthenticated } from "@/lib/auth";
+import { getMember } from "@/supabase/server";
 import { trialUse } from "@/lib/trial";
 
 // POST /api/hf-draw {prompt} — HD drawing with the SERVER's HF token.
@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Empty body" }, { status: 400 });
   }
   if (!prompt) return NextResponse.json({ error: "Empty prompt" }, { status: 400 });
-  const remaining = await trialUse(req, "hf", isAuthenticated(req));
+  const remaining = await trialUse(req, "hf", (await getMember()) !== null);
   if (remaining < 0)
     return NextResponse.json({ error: "trial-over" }, { status: 429 });
   try {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { DEFAULT_GEMINI_MODEL } from "@/lib/cloud-model";
-import { isAuthenticated } from "@/lib/auth";
+import { getMember } from "@/supabase/server";
 import { trialUse } from "@/lib/trial";
 
 // The trial session has no other identity channel (unlike keyed sessions),
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   }
   if (!Array.isArray(contents) || contents.length === 0)
     return NextResponse.json({ error: "Empty contents" }, { status: 400 });
-  const remaining = await trialUse(req, "gemini", isAuthenticated(req));
+  const remaining = await trialUse(req, "gemini", (await getMember()) !== null);
   if (remaining < 0)
     return NextResponse.json({ error: "trial-over" }, { status: 429 });
   try {

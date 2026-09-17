@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { supabaseBrowser } from "@/supabase/client";
 
-/** Member session (server HttpOnly cookie). Null = visitor. */
+/** Supabase member session. Null = visitor. user is the account email. */
 export function useAuth() {
   const [user, setUser] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -11,11 +12,14 @@ export function useAuth() {
 
   const refresh = useCallback(async (): Promise<string | null> => {
     try {
-      const res = await fetch("/api/auth", { cache: "no-store" });
-      const data = (await res.json()) as { loggedIn?: boolean; user?: string };
-      const u = data.loggedIn && data.user ? data.user : null;
-      setUser(u);
-      return u;
+      const sb = supabaseBrowser();
+      if (!sb) return null;
+      const {
+        data: { user: u },
+      } = await sb.auth.getUser();
+      const email = u?.email ?? null;
+      setUser(email);
+      return email;
     } catch {
       return null;
     } finally {
@@ -25,29 +29,33 @@ export function useAuth() {
 
   useEffect(() => {
     void refresh();
+    const sb = supabaseBrowser();
+    if (!sb) return;
+    const { data: sub } = sb.auth.onAuthStateChange((_ev, session) => {
+      setUser(session?.user?.email ?? null);
+      setLoading(false);
+    });
+    return () => sub.subscription.unsubscribe();
   }, [refresh]);
 
   const login = useCallback(
-    async (id: string, pw: string): Promise<boolean> => {
+    async (email: string, pw: string): Promise<boolean> => {
       setChecking(true);
       setError(null);
       try {
-        const res = await fetch("/api/auth", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, pw }),
+        const sb = supabaseBrowser();
+        if (!sb) throw new Error("Auth not configured");
+        const { data, error: err } = await sb.auth.signInWithPassword({
+          email: email.trim(),
+          password: pw,
         });
-        const data = (await res.json().catch(() => ({}))) as {
-          ok?: boolean;
-          user?: string;
-          error?: string;
-        };
-        if (res.ok && data.ok) {
-          setUser(data.user ?? id.trim());
-          return true;
+        if (err) {
+          // 11th member hits the DB cap trigger ("member-full").
+          setError(/member-full/i.test(err.message) ? "member-full" : err.message);
+          return false;
         }
-        setError(data.error || `Login failed (HTTP ${res.status})`);
-        return false;
+        setUser(data.user?.email ?? email.trim());
+        return true;
       } catch (e) {
         setError(e instanceof Error ? e.message : "Login failed");
         return false;
@@ -58,16 +66,74 @@ export function useAuth() {
     [],
   );
 
+  const signup = useCallback(
+    async (email: string, pw: string): Promise<boolean> => {
+      setChecking(true);
+      setError(null);
+      try {
+        const sb = supabaseBrowser();
+        if (!sb) throw new Error("Auth not configured");
+        const { data, error: err } = await sb.auth.signUp({
+          email: email.trim(),
+          password: pw,
+        });
+        if (err) {
+          setError(/member-full/i.test(err.message) ? "member-full" : err.message);
+          return false;
+        }
+        // With email confirmation off, session exists immediately.
+        setUser(data.user?.email ?? (data.session ? email.trim() : null));
+        return true;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Signup failed");
+        return false;
+      } finally {
+        setChecking(false);
+      }
+    },
+    [],
+  );
+
+  const loginWithGoogle = useCallback(async (): Promise<boolean> => {
+    setChecking(true);
+    setError(null);
+    try {
+      const sb = supabaseBrowser();
+      if (!sb) throw new Error("Auth not configured");
+      const { error: err } = await sb.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.origin },
+      });
+      if (err) throw err;
+      return true; // browser redirects to Google
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Google login failed");
+      setChecking(false);
+      return false;
+    }
+  }, []);
+
   const logout = useCallback(async (): Promise<void> => {
     try {
-      await fetch("/api/auth", { method: "DELETE" });
+      await supabaseBrowser()?.auth.signOut();
     } catch {
-      // cookie stays until expiry — still treat as logged out locally
+      // still treat as logged out locally
     }
     setUser(null);
   }, []);
 
-  return { user, loggedIn: user !== null, loading, checking, error, login, logout, refresh };
+  return {
+    user,
+    loggedIn: user !== null,
+    loading,
+    checking,
+    error,
+    login,
+    signup,
+    loginWithGoogle,
+    logout,
+    refresh,
+  };
 }
 
 export type AuthApi = ReturnType<typeof useAuth>;

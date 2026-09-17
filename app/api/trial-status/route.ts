@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { isAuthenticated } from "@/lib/auth";
+import { getMember } from "@/supabase/server";
 import { trialPeek } from "@/lib/trial";
 
 // GET /api/trial-status — remaining free trial uses for this visitor.
-// Read-only: never consumes budget. Localhost and members report huge numbers.
+// Read-only: never consumes budget. Members report huge numbers.
 export async function GET(req: Request) {
-  const left = await trialPeek(req, isAuthenticated(req));
+  const left = await trialPeek(req, (await getMember()) !== null);
   return NextResponse.json(left);
 }
