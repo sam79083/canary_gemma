@@ -35,6 +35,21 @@ export async function supabaseServer() {
   });
 }
 
+/** Rejects if the Supabase call stalls — callers fail fast instead of hanging. */
+async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("auth-timeout")), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 /** Logged-in member from the request cookies, or null (visitor). */
 export async function getMember(): Promise<{ id: string; email: string } | null> {
   try {
@@ -42,7 +57,7 @@ export async function getMember(): Promise<{ id: string; email: string } | null>
     if (!sb) return null;
     const {
       data: { user },
-    } = await sb.auth.getUser();
+    } = await withTimeout(sb.auth.getUser(), 10000);
     if (!user) return null;
     return { id: user.id, email: user.email ?? "" };
   } catch {

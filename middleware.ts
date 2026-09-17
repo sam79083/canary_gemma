@@ -21,7 +21,19 @@ export async function updateSession(request: NextRequest) {
       },
     },
   });
-  await sb.auth.getUser();
+  // Session refresh is best-effort with a hard timeout: a stalled Auth
+  // call must never hang the request into a proxy 502. Fail open — API
+  // routes verify membership themselves on every call.
+  try {
+    await Promise.race([
+      sb.auth.getUser(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("auth-timeout")), 8000),
+      ),
+    ]);
+  } catch {
+    // keep serving the request with the cookies as they arrived
+  }
   return response;
 }
 
