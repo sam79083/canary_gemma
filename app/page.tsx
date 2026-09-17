@@ -2156,7 +2156,6 @@ export default function Home() {
         open={loginOpen}
         checking={auth.checking}
         error={auth.error}
-        onLogin={handleLogin}
         onClose={() => setLoginOpen(false)}
         t={t}
       />
