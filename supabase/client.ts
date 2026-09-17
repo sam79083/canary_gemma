@@ -1,13 +1,23 @@
 import { createBrowserClient } from "@supabase/ssr";
 
-function env(name: string): string {
-  return (process.env[name] ?? "").trim();
+// NOTE: static member access (`process.env.NEXT_PUBLIC_X`) is required
+// here. Dynamic lookup (`process.env[name]`) does NOT resolve NEXT_PUBLIC
+// vars in the browser bundle, so the client always looked unconfigured.
+function clientEnv(): { url: string; anon: string } {
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
+  const anon = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
+  return { url, anon };
+}
+
+/** True when the Supabase URL + anon key are present in this bundle. */
+export function supabaseConfigured(): boolean {
+  const { url, anon } = clientEnv();
+  return url.length > 0 && anon.length > 0;
 }
 
 /** Browser-side Supabase client (anon key, RLS enforced). Null when unconfigured. */
 export function supabaseBrowser() {
-  const url = env("NEXT_PUBLIC_SUPABASE_URL");
-  const anon = env("NEXT_PUBLIC_SUPABASE_ANON_KEY");
-  if (!url || !anon) return null;
+  if (!supabaseConfigured()) return null;
+  const { url, anon } = clientEnv();
   return createBrowserClient(url, anon);
 }

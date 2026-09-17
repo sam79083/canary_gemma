@@ -94,6 +94,10 @@ export function useAuth() {
     [],
   );
 
+  const clearError = useCallback((): void => {
+    setError(null);
+  }, []);
+
   const loginWithGoogle = useCallback(async (): Promise<boolean> => {
     setChecking(true);
     setError(null);
@@ -133,6 +137,7 @@ export function useAuth() {
     loginWithGoogle,
     logout,
     refresh,
+    clearError,
   };
 }
 

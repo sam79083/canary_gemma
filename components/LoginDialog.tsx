@@ -2,13 +2,14 @@
 
 import { useEffect, useRef } from "react";
 import type { TFn } from "@/lib/i18n";
-import { supabaseBrowser } from "@/supabase/client";
+import { supabaseBrowser, supabaseConfigured } from "@/supabase/client";
 
 interface Props {
   open: boolean;
   checking: boolean;
   error: string | null;
   onGoogleLogin: () => Promise<boolean>;
+  onClearError: () => void;
   onClose: () => void;
   t: TFn;
 }
@@ -41,15 +42,17 @@ function GoogleMark() {
  * Member login popup: Google OAuth only. Card is a child of the dim
  * layer; Esc and the Cancel button dismiss it.
  */
-export default function LoginDialog({ open, checking, error, onGoogleLogin, onClose, t }: Props) {
+export default function LoginDialog({ open, checking, error, onGoogleLogin, onClearError, onClose, t }: Props) {
   const googleRef = useRef<HTMLButtonElement>(null);
-  const configured = supabaseBrowser() !== null;
+  const configured = supabaseConfigured();
 
   useEffect(() => {
     if (open) {
+      onClearError(); // drop stale errors from earlier attempts
       const tmr = setTimeout(() => googleRef.current?.focus(), 30);
       return () => clearTimeout(tmr);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open ]);
 
   useEffect(() => {
