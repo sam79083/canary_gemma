@@ -1341,6 +1341,7 @@ export default function Chat({
         pushMessage("assistant", t("trOver", { n: TRIAL_HF_LIMIT }));
       }
       else if (msg === "hf-no-key") pushMessage("assistant", t("cfHFNoKey"));
+      else if (msg === "hf-no-model") pushMessage("assistant", t("cfHFNoModel"));
       else if (msg === "no-image" || msg === "empty-image") pushMessage("assistant", t("chDidntGet"));
       else if (msg.startsWith("HTTP"))
         pushMessage("assistant", t("cfCloudFail", { msg }));

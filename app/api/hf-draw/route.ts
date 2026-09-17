@@ -38,6 +38,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "hf-bad-key" }, { status: 502 });
     if (res.status === 429)
       return NextResponse.json({ error: "hf-limited" }, { status: 502 });
+    if (res.status === 404)
+      return NextResponse.json({ error: "hf-no-model" }, { status: 502 });
     if (!res.ok) {
       let detail = "";
       try {
@@ -45,6 +47,9 @@ export async function POST(req: Request) {
       } catch {
         // ignore
       }
+      // Full detail goes to the server logs; the client gets codes it
+      // already maps to localized messages (hf-bad-key/hf-limited/...).
+      console.error(`hf-draw upstream HTTP ${res.status}${detail}`);
       return NextResponse.json(
         { error: `HTTP ${res.status}${detail}` },
         { status: 502 },
