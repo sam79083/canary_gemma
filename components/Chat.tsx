@@ -116,6 +116,7 @@ function friendlyError(t: TFn, e: unknown, path?: string): string {
   if (/permission|denied|not allowed|SecurityError|AbortError/i.test(raw))
     return t("chErrPerm", { name });
   if (/binary/i.test(raw)) return t("chErrBinary", { name });
+  if (/server-bad-key/i.test(raw)) return t("stServerBadKey");
   if (/bad-key/i.test(raw)) return t("stCloudBadKey");
   if (/bad-model/i.test(raw)) return t("stCloudBadModel");
   if (/no-server-key/i.test(raw)) return t("stCloudNeedKey");
