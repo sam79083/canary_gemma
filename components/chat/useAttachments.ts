@@ -69,6 +69,7 @@ export function useAttachments({
   onOpenFile,
   recordUndo,
   focus,
+  clearError,
   t,
 }: {
   workspace: WorkspaceApi;
@@ -83,6 +84,7 @@ export function useAttachments({
   onOpenFile: (path: string) => void;
   recordUndo: (e: UndoInput) => void;
   focus: () => void;
+  clearError: () => void;
   t: TFn;
 }) {
   const [photos, setPhotos] = useState<AttachedPhoto[]>([]);
@@ -90,6 +92,7 @@ export function useAttachments({
   const handleFiles = useCallback(
     async (files: FileList | null) => {
       if (!files || files.length === 0) return;
+      clearError();
       for (const f of Array.from(files).slice(0, 5)) {
         // Photos go straight to the model (downscaled), not the workspace.
         // Match by MIME or extension — some phones report an empty MIME type.

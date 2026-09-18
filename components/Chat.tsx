@@ -31,6 +31,7 @@ import MessageList from "@/components/chat/MessageList";
 import Composer from "@/components/chat/Composer";
 import {
   cleanRelPath,
+  errorHint,
   friendlyError,
   friendlyStep,
   isUnsafePath,
@@ -93,6 +94,8 @@ interface Props {
   personalityLine?: string;
   /** Called when a trial budget runs out (open the key guide for them). */
   onTrialOver?: () => void;
+  /** Open the help dialog. */
+  onHelp: () => void;
   /** Cloud-draw key (Gemini image model, any device). Empty = local only. */
   geminiKey?: string;
   t: TFn;
@@ -127,6 +130,7 @@ export default function Chat({
   hfKey = "",
   personalityLine = "",
   onTrialOver,
+  onHelp,
   t,
   lang,
 }: Props) {
@@ -137,6 +141,19 @@ export default function Chat({
   /** Assistant bubble showing raw markdown instead of rendered HTML. */
   const [rawIdx, setRawIdx] = useState<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  /** Cooperative stop: checked at every stream chunk / agent step. The
+   * model APIs take no AbortSignal, so turns poll this flag instead. */
+  const stopRef = useRef(false);
+  const requestStop = useCallback(() => {
+    stopRef.current = true;
+  }, []);
+  /** Failed turn with a Retry action (send/agent/search). */
+  const [turnError, setTurnError] = useState<{
+    message: string;
+    hint: string | null;
+    retry: () => void;
+  } | null>(null);
+  const clearError = useCallback(() => setTurnError(null), []);
   // Prompts are the user's bare text — no per-turn instruction blocks.
   // (Appended checklists get echoed back as deliberation.)
 
@@ -147,7 +164,7 @@ export default function Chat({
     streaming,
   });
   const { copiedIdx, shareMsg, copyText } = useClipboard();
-  const { quota, quotaLow, loadQuota } = useQuota(t);
+  const { quota, quotaLow, renewal, loadQuota } = useQuota(t);
   const focusInput = useFocusInput({ inputRef, streaming });
 
   const onTrialOverRef = useRef(onTrialOver);
@@ -175,6 +192,7 @@ export default function Chat({
     onOpenFile,
     recordUndo,
     focus: focusInput,
+    clearError,
     t,
   });
   const { draws, handleDraw, handleReroll } = useImageDraw({
@@ -190,6 +208,7 @@ export default function Chat({
     onFilesChanged,
     recordUndo,
     focus: focusInput,
+    clearError,
     noteTrialOver,
     t,
   });
@@ -220,6 +239,7 @@ export default function Chat({
     try {
       const stream = session.promptStreaming(prompt);
       for await (const chunk of stream) {
+        if (stopRef.current) break;
         full += chunk;
         showStream(full);
       }
@@ -287,6 +307,8 @@ export default function Chat({
     if (busyRef.current) return;
     const prompt = (override ?? input).trim();
     if (!prompt) return;
+    stopRef.current = false;
+    clearError();
     // No AI session (e.g. phones without built-in AI): explain, don't die silently.
     if (!sessionRef.current) {
       setInput("");
@@ -314,12 +336,17 @@ export default function Chat({
           let full = "";
           const stream = session.promptWithImages(prompt + personalityLine, imgs);
           for await (const chunk of stream) {
+            if (stopRef.current) break;
             full += chunk;
             setStreamText(full);
           }
           collectUsage(prompt, full);
           const photoClean = sanitizeAnswer(stripToolCalls(full).trim());
-          if (photoClean) {
+          if (stopRef.current) {
+            if (photoClean) pushMessage("assistant", photoClean);
+            pushMessage("assistant", t("chStopped"));
+            persistChat();
+          } else if (photoClean) {
             try {
               session.rewriteLastModelText?.(photoClean);
             } catch {
@@ -370,11 +397,16 @@ export default function Chat({
             },
           ]);
           for await (const chunk of stream) {
+            if (stopRef.current) break;
             full += chunk;
             setStreamText(full);
           }
           const photoClean = sanitizeAnswer(stripToolCalls(full).trim());
-          if (photoClean) {
+          if (stopRef.current) {
+            if (photoClean) pushMessage("assistant", photoClean);
+            pushMessage("assistant", t("chStopped"));
+            persistChat();
+          } else if (photoClean) {
             pushMessage("assistant", photoClean);
             try {
               await vs.append(`User: ${prompt}\n[photos attached: ${names}]\n`);
@@ -449,14 +481,27 @@ export default function Chat({
       try {
         full = await runModelTurn(pageCtx + prompt + personalityLine);
         const clean = sanitizeAnswer(stripToolCalls(full).trim());
-        if (clean) {
+        if (stopRef.current) {
+          if (clean) pushMessage("assistant", clean);
+          pushMessage("assistant", t("chStopped"));
+          persistChat();
+        } else if (clean) {
           rememberClean(clean);
           pushMessage("assistant", clean);
           persistChat();
         }
       } catch (e) {
-        noteTrialOver(e);
-        pushMessage("assistant", friendlyError(t, e));
+        if (noteTrialOver(e)) {
+          pushMessage("assistant", friendlyError(t, e));
+        } else {
+          setTurnError({
+            message: friendlyError(t, e),
+            hint: errorHint(t, e, renewal),
+            retry: () => {
+              void handleSend(prompt);
+            },
+          });
+        }
       } finally {
         busyRef.current = null;
         setStreaming(false);
@@ -699,6 +744,7 @@ export default function Chat({
       const writtenPaths: string[] = [];
 
       for (let step = 0; step < AGENT_MAX_STEPS; step++) {
+        if (stopRef.current) break;
         setModelStatus(step === 0 ? t("stThinking") : t("stWorking", { n: step + 1 }), true);
         const raw = await runModelTurn(nextPrompt);
         const tc = parseToolCall(raw);
@@ -758,7 +804,7 @@ export default function Chat({
       }
 
       if (finalAnswer === null) {
-        finalAnswer = t("chAllDone");
+        finalAnswer = stopRef.current ? t("chStopped") : t("chAllDone");
       }
       const writtenFiles = [...new Set(writtenPaths)].map((p) => ({
         name: shortName(p),
@@ -790,7 +836,17 @@ export default function Chat({
       // (FileTree / Downloads panel). Just refresh the listings.
       onFilesChanged();
     } catch (e) {
-      pushMessage("assistant", friendlyError(t, e));
+      if (noteTrialOver(e)) {
+        pushMessage("assistant", friendlyError(t, e));
+      } else {
+        setTurnError({
+          message: friendlyError(t, e),
+          hint: errorHint(t, e, renewal),
+          retry: () => {
+            void handleSend(prompt);
+          },
+        });
+      }
     } finally {
       busyRef.current = null;
       setStreaming(false);
@@ -816,10 +872,12 @@ export default function Chat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, streaming, modelReady, handleSend, removeLastAssistant]);
 
-  const handleSearch = useCallback(async () => {
+  const handleSearch = useCallback(async (override?: string) => {
     if (busyRef.current) return;
-    const prompt = input.trim();
+    const prompt = (override ?? input).trim();
     if (!prompt) return;
+    stopRef.current = false;
+    clearError();
     busyRef.current = "chat";
     setStreaming(true);
     setInput("");
@@ -831,7 +889,13 @@ export default function Chat({
       try {
         const { results, error } = await webSearch(prompt);
         if (error || results.length === 0) {
-          pushMessage("assistant", t("chSearchFail"));
+          setTurnError({
+            message: t("chSearchFail"),
+            hint: error ? errorHint(t, error, renewal) : null,
+            retry: () => {
+              void handleSearch(prompt);
+            },
+          });
         } else {
           pushMessage(
             "assistant",
@@ -840,8 +904,17 @@ export default function Chat({
         }
         persistChat();
       } catch (e) {
-        noteTrialOver(e);
-        pushMessage("assistant", friendlyError(t, e));
+        if (noteTrialOver(e)) {
+          pushMessage("assistant", friendlyError(t, e));
+        } else {
+          setTurnError({
+            message: friendlyError(t, e),
+            hint: errorHint(t, e, renewal),
+            retry: () => {
+              void handleSearch(prompt);
+            },
+          });
+        }
       } finally {
         busyRef.current = null;
         setStreaming(false);
@@ -881,18 +954,33 @@ export default function Chat({
       resetUsage();
       const stream = sessionRef.current.promptStreaming(fullPrompt);
       for await (const chunk of stream) {
+        if (stopRef.current) break;
         full += chunk;
         setStreamText(full);
       }
       collectUsage(fullPrompt, full);
-      if (full.trim()) {
+      if (stopRef.current) {
+        if (full.trim()) pushMessage("assistant", sanitizeAnswer(full));
+        pushMessage("assistant", t("chStopped"));
+        persistChat();
+      } else if (full.trim()) {
         const clean = sanitizeAnswer(full) || t("chDidntGet");
         rememberClean(clean);
         pushMessage("assistant", clean);
         persistChat();
       }
     } catch (e) {
-      pushMessage("assistant", friendlyError(t, e));
+      if (noteTrialOver(e)) {
+        pushMessage("assistant", friendlyError(t, e));
+      } else {
+        setTurnError({
+          message: friendlyError(t, e),
+          hint: errorHint(t, e, renewal),
+          retry: () => {
+            void handleSearch(prompt);
+          },
+        });
+      }
     } finally {
       busyRef.current = null;
       setStreaming(false);
@@ -927,6 +1015,45 @@ export default function Chat({
         inputRef={inputRef}
         onOpenFile={onOpenFile}
       />
+      {turnError ? (
+        <div
+          role="alert"
+          style={{
+            border: "1px solid #c62828",
+            background: "rgba(198,40,40,0.08)",
+            borderRadius: 8,
+            padding: "8px 12px",
+            margin: "8px 0",
+            fontSize: 13,
+          }}
+        >
+          <div>{turnError.message}</div>
+          {turnError.hint ? (
+            <div style={{ opacity: 0.8, marginTop: 4 }}>{turnError.hint}</div>
+          ) : null}
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button
+              className="send-btn secondary"
+              style={{ width: "auto", padding: "4px 12px", height: "auto", fontSize: 12 }}
+              onClick={() => {
+                if (streaming) return;
+                const retry = turnError.retry;
+                setTurnError(null);
+                retry();
+              }}
+            >
+              {t("chRetry")}
+            </button>
+            <button
+              className="send-btn secondary"
+              style={{ width: "auto", padding: "4px 12px", height: "auto", fontSize: 12 }}
+              onClick={() => setTurnError(null)}
+            >
+              {t("chDismiss")}
+            </button>
+          </div>
+        </div>
+      ) : null}
       <Composer
         input={input}
         setInput={setInput}
@@ -957,6 +1084,9 @@ export default function Chat({
         handleSend={handleSend}
         handleSearch={handleSearch}
         handleDraw={handleDraw}
+        onStop={requestStop}
+        onRunPrompt={(p) => void handleSend(p)}
+        onHelp={onHelp}
       />
     </>
   );

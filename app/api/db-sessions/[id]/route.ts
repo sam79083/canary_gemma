@@ -39,6 +39,37 @@ export async function GET(
   });
 }
 
+// PATCH /api/db-sessions/[id] {title} — rename one session.
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  if (!UUID_RE.test(id)) return NextResponse.json({ error: "not-found" }, { status: 404 });
+  const member = await getMember();
+  if (!member) return NextResponse.json({ error: "member-only" }, { status: 401 });
+  const sb = await supabaseServer();
+  if (!sb) return NextResponse.json({ error: "auth-unconfigured" }, { status: 503 });
+  let body: { title?: unknown };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return NextResponse.json({ error: "bad-body" }, { status: 400 });
+  }
+  const title = (typeof body.title === "string" ? body.title : "").trim().slice(0, 80);
+  if (!title) return NextResponse.json({ error: "bad-title" }, { status: 400 });
+  const { data, error } = await sb
+    .from("sessions")
+    .update({ title, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("user_id", member.id)
+    .select("id");
+  if (error) return NextResponse.json({ error: "db-error" }, { status: 500 });
+  if (!data || data.length === 0)
+    return NextResponse.json({ error: "not-found" }, { status: 404 });
+  return NextResponse.json({ ok: true, title });
+}
+
 // DELETE /api/db-sessions/[id] — delete one session (messages cascade).
 export async function DELETE(
   _req: Request,

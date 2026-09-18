@@ -8,6 +8,7 @@ import type { TFn } from "@/lib/i18n";
 export function useQuota(t: TFn) {
   const [quota, setQuota] = useState(t("chQuotaCheck"));
   const [quotaLow, setQuotaLow] = useState(false);
+  const [renewal, setRenewal] = useState<string | null>(null);
 
   const loadQuota = useCallback(async () => {
     try {
@@ -18,6 +19,7 @@ export function useQuota(t: TFn) {
         `🔍 ${left} / ${data.searches_per_month} searches left (${data.plan_name || "plan"}, renews ${data.plan_renewal_date || "?"})`,
       );
       setQuotaLow(typeof left === "number" && left < 25);
+      setRenewal(data.plan_renewal_date || null);
     } catch (e) {
       setQuota("🔍 Quota unavailable");
       console.warn("[quota] failed:", e);
@@ -28,5 +30,5 @@ export function useQuota(t: TFn) {
     void loadQuota();
   }, [loadQuota]);
 
-  return { quota, quotaLow, loadQuota };
+  return { quota, quotaLow, renewal, loadQuota };
 }

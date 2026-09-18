@@ -57,6 +57,20 @@ export function friendlyStep(t: TFn, tc: ToolCall, ok: boolean, detail: string):
   return t("chMsgFail", { detail: snippet });
 }
 
+/**
+ * Actionable follow-up for a turn failure (error card). Null = the message
+ * alone is enough (trial-over opens its own guide instead).
+ */
+export function errorHint(t: TFn, e: unknown, renewal?: string | null): string | null {
+  const raw = e instanceof Error ? e.message : String(e);
+  if (/trial-over/i.test(raw)) return null;
+  if (/quota|limit|429/i.test(raw))
+    return t("chHintQuota", { date: renewal || "?" });
+  if (/bad-key|no-server-key|server-bad-key|bad-model/i.test(raw))
+    return t("chHintKey");
+  return null;
+}
+
 export function isUnsafePath(p: string): boolean {
   if (!p) return true;
   if (p === "." || p.startsWith("../") || p.includes("/../") || p.endsWith("/.."))

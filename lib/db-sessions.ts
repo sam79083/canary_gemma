@@ -93,6 +93,16 @@ export async function saveDbSession(
   return data.id;
 }
 
+/** Rename one conversation (title only, messages untouched). */
+export async function renameDbSession(id: string, title: string): Promise<void> {
+  const res = await fetch(`/api/db-sessions/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw await readError(res);
+}
+
 export async function deleteDbSession(id: string): Promise<void> {
   const res = await fetch(`/api/db-sessions/${encodeURIComponent(id)}`, {
     method: "DELETE",

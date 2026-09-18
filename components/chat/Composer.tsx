@@ -42,6 +42,9 @@ export default function Composer({
   handleSend,
   handleSearch,
   handleDraw,
+  onStop,
+  onRunPrompt,
+  onHelp,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -70,8 +73,11 @@ export default function Composer({
   t: TFn;
   handleFiles: (files: FileList | null) => void;
   handleSend: (override?: string) => void;
-  handleSearch: () => void;
+  handleSearch: (override?: string) => void;
   handleDraw: () => void;
+  onStop: () => void;
+  onRunPrompt: (prompt: string) => void;
+  onHelp: () => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -163,6 +169,16 @@ export default function Composer({
       ) : null}
       {emptyChat && modelReady && !streaming ? (
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+          {agentMode ? (
+            <button
+              className="send-btn secondary"
+              style={{ width: "auto", borderRadius: 16, padding: "6px 12px", fontSize: 12, height: "auto", fontWeight: 700 }}
+              onClick={() => onRunPrompt(t("chDemoP"))}
+              title={t("chDemoP")}
+            >
+              {t("chDemoL")}
+            </button>
+          ) : null}
           {STARTERS.map((s) => (
             <button
               key={s.label}
@@ -279,9 +295,25 @@ export default function Composer({
             🖼️
           </button>
         </Tip>
-        <button className="send-btn" onClick={() => void handleSend()} disabled={sendDisabled}>
-          {streaming ? "●" : "➤"}
-        </button>
+          {streaming ? (
+            <button className="send-btn" onClick={() => onStop()} title={t("chStopped")}>
+              ⏹
+            </button>
+          ) : (
+            <button className="send-btn" onClick={() => void handleSend()} disabled={sendDisabled}>
+              ➤
+            </button>
+          )}
+          <Tip label={t("hpTitle")}>
+            <button
+              className="send-btn secondary"
+              onClick={() => onHelp()}
+              disabled={streaming}
+              title={t("hpTitle")}
+            >
+              ?
+            </button>
+          </Tip>
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
         <label

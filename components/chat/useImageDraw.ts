@@ -35,6 +35,7 @@ export function useImageDraw({
   onFilesChanged,
   recordUndo,
   focus,
+  clearError,
   noteTrialOver,
   t,
 }: {
@@ -55,6 +56,7 @@ export function useImageDraw({
   onFilesChanged: () => void;
   recordUndo: (e: UndoInput) => void;
   focus: () => void;
+  clearError: () => void;
   noteTrialOver: (e: unknown) => boolean;
   t: TFn;
 }) {
@@ -127,6 +129,7 @@ export function useImageDraw({
       busyRef.current = "chat";
       setStreaming(true);
       setInput("");
+      clearError();
       pushMessage("user", `${userLabel} ${promptText}`);
       const started = Date.now();
       setStreamText(t("cfDrawing", { n: 0 }));

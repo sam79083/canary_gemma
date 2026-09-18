@@ -7,6 +7,7 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import DownloadsPanel from "@/components/DownloadsPanel";
 import FileEditor from "@/components/FileEditor";
 import FileTree from "@/components/FileTree";
+import HelpDialog from "@/components/HelpDialog";
 import LoginDialog from "@/components/LoginDialog";
 import CheckRow from "@/components/CheckRow";
 import ReviewCard from "@/components/ReviewCard";
@@ -95,6 +96,9 @@ export default function Home() {
   const [theme, setThemeState] = useState<Theme>("light");
   const [personality, setPersonalityState] = useState("default");
   const [sessionList, setSessionList] = useState<SessionInfo[]>([]);
+  /** Filename being renamed inline (null = not renaming). */
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
   const [editorPath, setEditorPath] = useState<string | null>(null);
   const [treeVersion, setTreeVersion] = useState(0);
   const [showFlagHelp, setShowFlagHelp] = useState(false);
@@ -154,6 +158,8 @@ export default function Home() {
   // Trial-budget-exhausted popup (429 from /api/gemini-chat).
   const [trialOverOpen, setTrialOverOpen] = useState(false);
   const [trialKeySaving, setTrialKeySaving] = useState(false);
+  // Help sheet (? button in the composer).
+  const [showHelp, setShowHelp] = useState(false);
   // Daily visit streak badge (2+ days).
   const [streak, setStreak] = useState(1);
   useEffect(() => {
@@ -905,6 +911,27 @@ export default function Home() {
     [workspace.connected, t, handleNewChat],
   );
 
+  const commitRename = useCallback(
+    async (filename: string, draft: string) => {
+      setRenaming(null);
+      const title = draft.trim().slice(0, 80);
+      if (!filename || !title) return;
+      try {
+        await sessionStore.rename(filename, title);
+        await refreshSessions();
+      } catch (e) {
+        console.error("Rename failed:", e);
+        try {
+          toast(t("trActionFail", { msg: e instanceof Error ? e.message : String(e) }));
+        } catch {
+          // toasts are best-effort
+        }
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [t],
+  );
+
   const handleDeleteAllChats = useCallback(async () => {
     if (!(await confirmCtl.confirm(t("ssDeleteAllConfirm"), "", t("ssDeleteAll")))) return;
     try {
@@ -1428,13 +1455,29 @@ export default function Home() {
                       title={label}
                       style={{ flex: "0 0 auto", accentColor: "var(--green)" }}
                     />
-                    <label
-                      htmlFor={radioId}
-                      title={`${label} — click to open`}
-                      style={{ flex: 1, minWidth: 0, cursor: "pointer", color: "var(--text)", fontWeight: isCurrent ? 700 : 400, overflowWrap: "break-word" }}
-                    >
-                      {label}
-                    </label>
+                    {renaming === s.filename ? (
+                      <input
+                        autoFocus
+                        value={renameDraft}
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void commitRename(s.filename, renameDraft);
+                          else if (e.key === "Escape") setRenaming(null);
+                        }}
+                        onBlur={() => void commitRename(s.filename, renameDraft)}
+                        placeholder={t("ssRename")}
+                        maxLength={80}
+                        style={{ flex: 1, minWidth: 0, fontSize: 12, padding: "2px 6px", borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
+                      />
+                    ) : (
+                      <label
+                        htmlFor={radioId}
+                        title={`${label} — click to open`}
+                        style={{ flex: 1, minWidth: 0, cursor: "pointer", color: "var(--text)", fontWeight: isCurrent ? 700 : 400, overflowWrap: "break-word" }}
+                      >
+                        {label}
+                      </label>
+                    )}
                   </div>
                   <div style={{ display: "flex", gap: 6, alignItems: "center", paddingLeft: 22 }}>
                     <span
@@ -1443,6 +1486,19 @@ export default function Home() {
                     >
                       {when} · {s.filename}
                     </span>
+                    <button
+                      className="sidebar-btn small"
+                      style={{ flex: "0 0 auto", width: "auto", padding: "2px 8px" }}
+                      title={t("ssRename")}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setRenameDraft(label);
+                        setRenaming(s.filename);
+                      }}
+                    >
+                      ✏️
+                    </button>
                     <button
                       className="sidebar-btn small"
                       style={{ flex: "0 0 auto", width: "auto", padding: "2px 8px" }}
@@ -1999,6 +2055,7 @@ export default function Home() {
           onTrialOver={() => {
             setTrialOverOpen(true);
           }}
+          onHelp={() => setShowHelp(true)}
           usageModel={
             model.provider === "cloud"
               ? model.geminiModel
@@ -2047,6 +2104,11 @@ export default function Home() {
         onSaveKey={handleSaveTrialKey}
         onLoginClick={() => setLoginOpen(true)}
         onClose={() => setTrialOverOpen(false)}
+        t={t}
+      />
+      <HelpDialog
+        open={showHelp}
+        onClose={() => setShowHelp(false)}
         t={t}
       />
       <Confetti burstKey={burstKey} />

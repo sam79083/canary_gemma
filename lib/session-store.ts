@@ -5,18 +5,21 @@ import {
   deleteDbSession,
   listDbSessions,
   loadDbSession,
+  renameDbSession,
   saveDbSession,
 } from "./db-sessions";
 import {
   deleteLocalSession,
   listLocalSessions,
   loadLocalSession,
+  renameLocalSession,
   saveLocalSession,
 } from "./sessions-local";
 import {
   deleteWorkspaceSession,
   listWorkspaceSessions,
   loadWorkspaceSession,
+  renameWorkspaceSession,
   saveWorkspaceSession,
 } from "./sessions-workspace";
 
@@ -36,6 +39,7 @@ export interface SessionStore {
     existing?: string | null,
   ): Promise<string>;
   remove(filename: string): Promise<void>;
+  rename(filename: string, title: string): Promise<void>;
   clearAll(): Promise<void>;
 }
 
@@ -58,6 +62,9 @@ class DbSessionStore implements SessionStore {
   }
   remove(filename: string): Promise<void> {
     return deleteDbSession(filename);
+  }
+  rename(filename: string, title: string): Promise<void> {
+    return renameDbSession(filename, title);
   }
   clearAll(): Promise<void> {
     return deleteAllDbSessions();
@@ -82,6 +89,9 @@ class WorkspaceSessionStore implements SessionStore {
   }
   remove(filename: string): Promise<void> {
     return deleteWorkspaceSession(this.ws, filename);
+  }
+  rename(filename: string, title: string): Promise<void> {
+    return renameWorkspaceSession(this.ws, filename, title);
   }
   async clearAll(): Promise<void> {
     const list = await listWorkspaceSessions(this.ws).catch(() => []);
@@ -112,6 +122,9 @@ class LocalSessionStore implements SessionStore {
   }
   remove(filename: string): Promise<void> {
     return deleteLocalSession(filename);
+  }
+  rename(filename: string, title: string): Promise<void> {
+    return renameLocalSession(filename, title);
   }
   async clearAll(): Promise<void> {
     const list = await listLocalSessions().catch(() => []);
