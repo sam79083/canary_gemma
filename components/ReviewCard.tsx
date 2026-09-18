@@ -71,6 +71,9 @@ export default function ReviewCard({
               placeholder={t("rvFeedbackEx")}
               spellCheck={false}
             />
+            <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
+              {t("rvFeedbackHint")}
+            </div>
           </div>
         ) : null}
         <div className="review-actions" style={{ marginTop: 12 }}>
@@ -79,7 +82,7 @@ export default function ReviewCard({
           </button>
           {review.kind === "write" ? (
             <button
-              className="editor-btn remake"
+              className={`editor-btn remake${feedback.trim() ? " primary" : ""}`}
               disabled={!feedback.trim()}
               onClick={() => onSettle(false, undefined, feedback.trim())}
             >

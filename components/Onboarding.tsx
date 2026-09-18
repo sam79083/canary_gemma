@@ -55,6 +55,18 @@ export default function Onboarding({
           </>
         )}
 
+        <div
+          className="note"
+          style={{ marginTop: 12, lineHeight: 1.7, fontSize: 13 }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>
+            {t("obFeatT")}
+          </div>
+          <div>{t("obFeat1")}</div>
+          <div>{t("obFeat2")}</div>
+          <div>{t("obFeat3")}</div>
+        </div>
+
         <div className="review-actions" style={{ marginTop: 16, justifyContent: "space-between" }}>
           <button className="editor-btn" onClick={onSkip}>
             {t("obSkip")}

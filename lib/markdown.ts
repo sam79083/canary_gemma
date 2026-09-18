@@ -8,6 +8,37 @@ function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/**
+ * Clean legacy tool artifacts out of STORED chat messages before display.
+ * Older turns accidentally persisted raw tool JSON and "call X again"
+ * retry scaffolding as message text — strip it so past chats read like
+ * normal answers. Fenced code blocks are never touched. Self-contained
+ * (regex only) so plain node --test can load this module.
+ */
+export function stripLeakedToolText(text: string): string {
+  if (!text) return text;
+  const parts = text.split(/(```[\s\S]*?```)/g);
+  const clean = parts.map((seg, i) => {
+    if (i % 2 === 1) return seg; // code fence — keep verbatim
+    let s = seg;
+    // Bare toolcall JSON objects (not in fences).
+    s = s.replace(/\{[^{}]*?"(name|tool)"[^{}]*?\}/g, "");
+    // "— call writeFile for "path" again ..." retry scaffolding to line end.
+    s = s.replace(
+      /\s*[—–-]\s*call (?:listFiles|readFile|writeFile|makeDir|deletePath|list|read|write|mkdir|delete|remove)\w* for\s+"[^"\n]*"\s+again\b[^\n]*/gi,
+      "",
+    );
+    // "User wants changes (nothing saved yet):" review-echo prefix.
+    s = s.replace(/^[ \t]*[^`\n]*?User wants changes\s*\(nothing saved yet\):[ \t]*/gim, "");
+    return s;
+  });
+  return clean
+    .join("")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function inline(s: string): string {
   // s is already escaped; add inline elements.
   let out = s;

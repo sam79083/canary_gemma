@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import Tip from "@/components/Tip";
 import { HF_DRAW_LABEL } from "@/lib/cloud-model";
 import type { Provider } from "@/hooks/useLanguageModel";
@@ -85,6 +85,20 @@ export default function Composer({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+
+  /** Grow with the text up to ~6 rows, then scroll inside the box. */
+  const autoGrow = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const capped = Math.min(el.scrollHeight, 148);
+    el.style.height = `${capped}px`;
+    el.style.overflowY = el.scrollHeight > 148 ? "auto" : "hidden";
+  }, [inputRef]);
+
+  useEffect(() => {
+    autoGrow();
+  }, [input, autoGrow]);
 
   const STARTERS = [
     { label: t("chSt1L"), prompt: t("chSt1P") },
@@ -247,10 +261,13 @@ export default function Composer({
                   : t("chPhPlain")
                 : t("chSearchOnlyPh")
           }
-          rows={1}
-          disabled={streaming}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
+            rows={1}
+            disabled={streaming}
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              autoGrow();
+            }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { motion } from "motion/react";
 import { triggerDownload } from "@/lib/api";
-import { renderMarkdown } from "@/lib/markdown";
+import { renderMarkdown, stripLeakedToolText } from "@/lib/markdown";
 import type { ChatMessage } from "@/lib/types";
 import type { TFn } from "@/lib/i18n";
 
@@ -145,11 +145,11 @@ export default function MessageList({
           <div className="avatar">{m.role === "user" ? "U" : "G"}</div>
           {m.role === "assistant" ? (
             rawIdx === i ? (
-              <pre className="content" style={{ fontSize: 12 }}>{m.content}</pre>
+              <pre className="content" style={{ fontSize: 12 }}>{stripLeakedToolText(m.content)}</pre>
             ) : (
             <div
               className="content md"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content, t("mdCopy")) }}
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(stripLeakedToolText(m.content), t("mdCopy")) }}
             />
             )
           ) : (
