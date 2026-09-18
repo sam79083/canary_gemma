@@ -17,7 +17,6 @@ import TrialOverDialog from "@/components/TrialOverDialog";
 import Confetti from "@/components/Confetti";
 import { touchStreak } from "@/lib/streak";
 import { ACHIEVEMENTS, loadUnlocked, unlockAch } from "@/lib/achievements";
-import UsageBlock from "@/components/UsageBlock";
 import { useAuth } from "@/hooks/useAuth";
 import { useConfirm } from "@/hooks/useConfirm";
 import { useLanguageModel, type Provider } from "@/hooks/useLanguageModel";
@@ -45,8 +44,8 @@ import {
 } from "@/lib/undo";
 import { folderCapLine, getFolderCap } from "@/lib/capabilities";
 import { TRIAL_GEMINI_LIMIT, TRIAL_HF_LIMIT } from "@/lib/trial-limits";
-import { isTheme, isDarkTheme, type Theme } from "@/lib/theme";
-import { isPersonalityId, personalityPrompt } from "@/lib/personalities";
+import { isDarkTheme, type Theme } from "@/lib/theme";
+import { customInstructionsPrompt, personalityPrompt } from "@/lib/personalities";
 import {
   displayTitle,
   listLocalSessions,
@@ -59,15 +58,21 @@ import {
   saveWorkspaceSession,
 } from "@/lib/sessions-workspace";
 import { getSessionStore } from "@/lib/session-store";
+import { useTheme } from "@/hooks/useTheme";
+import { usePersonality } from "@/hooks/usePersonality";
+import { useCustomInstructions } from "@/hooks/useCustomInstructions";
 import type { ChatMessage, PendingReview, ReviewFn, ReviewResult, SessionHit, SessionInfo } from "@/lib/types";
+import Link from "next/link";
 import { MotionConfig } from "motion/react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Toaster, toast } from "sonner";
 
 const HISTORY_KEY = "gemma4-chat-history";
-const THEME_KEY = "theme";
 const ONBOARD_KEY = "canary-onboard";
+// Active session id, so a settings round-trip resumes the same chat
+// (content itself restores from HISTORY_KEY on return).
+const CUR_FILE_KEY = "canary-current-file";
 
 function titleFor(messages: ChatMessage[], t: TFn): string {
   const first = messages.find((m) => m.role === "user");
@@ -93,8 +98,10 @@ export default function Home() {
   const sessionStore = getSessionStore(useDb, workspace);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [theme, setThemeState] = useState<Theme>("light");
-  const [personality, setPersonalityState] = useState("default");
+  const { theme, setTheme } = useTheme();
+  const { personality, setPersonality } = usePersonality();
+  const { customInstructions, setCustomInstructions } =
+    useCustomInstructions(member);
   const [sessionList, setSessionList] = useState<SessionInfo[]>([]);
   /** Filename being renamed inline (null = not renaming). */
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -103,26 +110,55 @@ export default function Home() {
   const [treeVersion, setTreeVersion] = useState(0);
   const [showFlagHelp, setShowFlagHelp] = useState(false);
   const [flagCopied, setFlagCopied] = useState(false);
-  const [ollamaUrlDraft, setOllamaUrlDraft] = useState(model.ollamaUrl);
-  const [geminiKeyDraft, setGeminiKeyDraft] = useState(model.geminiKey);
-
-  // Keep the edit drafts in sync when stored settings finish loading.
-  useEffect(() => {
-    setOllamaUrlDraft(model.ollamaUrl);
-  }, [model.ollamaUrl]);
-  useEffect(() => {
-    setGeminiKeyDraft(model.geminiKey);
-  }, [model.geminiKey]);
   const [review, setReview] = useState<PendingReview | null>(null);
   const reviewResolve = useRef<((r: ReviewResult) => void) | null>(null);
   const [onboardOpen, setOnboardOpen] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
-  const [showKeyHelp, setShowKeyHelp] = useState(false);
-  const [showHfHelp, setShowHfHelp] = useState(false);
+  // Desktop collapse (persisted); the mobile drawer above stays transient.
+  const [sideCollapsed, setSideCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("canary-sidebar-collapsed") === "1")
+        setSideCollapsed(true);
+    } catch {
+      // ignore
+    }
+  }, []);
+  /** Hamburger: drawer on mobile, collapse on desktop. */
+  const toggleSidebar = useCallback(() => {
+    try {
+      if (window.matchMedia("(max-width: 820px)").matches) {
+        setSideOpen((v) => !v);
+        return;
+      }
+    } catch {
+      // fall through to collapse
+    }
+    setSideCollapsed((v) => {
+      const next = !v;
+      try {
+        if (next) localStorage.setItem("canary-sidebar-collapsed", "1");
+        else localStorage.removeItem("canary-sidebar-collapsed");
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
   const [searchOk, setSearchOk] = useState<boolean | null>(null);
   const [capLine, setCapLine] = useState("…");
   const setupRef = useRef<HTMLDetailsElement>(null);
   const [currentFile, setCurrentFile] = useState<string | null>(null);
+  // Mirror the active session id so a settings round-trip resumes the
+  // same chat file (content itself restores from HISTORY_KEY on return).
+  useEffect(() => {
+    try {
+      if (currentFile) localStorage.setItem(CUR_FILE_KEY, currentFile);
+      else localStorage.removeItem(CUR_FILE_KEY);
+    } catch {
+      // ignore
+    }
+  }, [currentFile]);
   // Trial budget display (keyless cloud visitors only — never members).
   const [trialLeft, setTrialLeft] = useState<{ gemini: number; hf: number } | null>(null);
   // Trial counts above the real limits (localhost/member bypass reports
@@ -280,19 +316,12 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [member, model.hydrated]);
   // HuggingFace token for HD drawing (browser-only, like the Gemini key).
+  // Edited on the settings page — re-read here on mount so chat picks it up.
   const [hfKey, setHfKey] = useState("");
   useEffect(() => {
     try {
       const k = localStorage.getItem("canary-hf-token");
       if (k) setHfKey(k);
-    } catch {
-      // ignore
-    }
-  }, []);
-  const setHfKeyStored = useCallback((k: string) => {
-    setHfKey(k);
-    try {
-      localStorage.setItem("canary-hf-token", k);
     } catch {
       // ignore
     }
@@ -383,37 +412,9 @@ export default function Home() {
   // chat doesn't spam 50 files (the old server API created one per save).
   const currentSessionFileRef = useRef<string | null>(null);
 
-  // Theme + personality: load once, apply theme to body.
-  // Old "dark"/"light" stored values keep working (same key, subset).
-  useEffect(() => {
-    try {
-      const storedTheme = localStorage.getItem(THEME_KEY);
-      if (isTheme(storedTheme)) setThemeState(storedTheme);
-      const storedPers = localStorage.getItem("canary-personality");
-      if (isPersonalityId(storedPers)) setPersonalityState(storedPers);
-    } catch {
-      // storage unavailable — keep defaults
-    }
-  }, []);
 
-  const setTheme = useCallback((next: Theme) => {
-    setThemeState(next);
-    try {
-      localStorage.setItem(THEME_KEY, next);
-    } catch {
-      // ignore
-    }
-  }, []);
 
-  const setPersonality = useCallback((next: string) => {
-    if (!isPersonalityId(next)) return;
-    setPersonalityState(next);
-    try {
-      localStorage.setItem("canary-personality", next);
-    } catch {
-      // ignore
-    }
-  }, []);
+
 
   // One lightweight search-health ping for the setup checklist
   // (Chat keeps its own quota display; this is only true/false/unknown).
@@ -499,10 +500,7 @@ export default function Home() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace]);
-  useEffect(() => {
-    document.body.classList.remove("dark");
-    document.body.dataset.theme = theme;
-  }, [theme]);
+
 
   const pushMessage = useCallback(
     (
@@ -522,7 +520,6 @@ export default function Home() {
       const key = k.trim();
       if (!key) return;
       model.setGeminiKey(key);
-      setGeminiKeyDraft(key);
       setTrialOverOpen(false);
       setTrialKeySaving(true);
       void model
@@ -757,6 +754,15 @@ export default function Home() {
       if (!Array.isArray(stored)) stored = [];
     } catch {
       stored = [];
+    }
+    try {
+      const savedFile = localStorage.getItem(CUR_FILE_KEY);
+      if (savedFile) {
+        currentSessionFileRef.current = savedFile;
+        setCurrentFile(savedFile);
+      }
+    } catch {
+      // ignore — a fresh chat simply starts unlinked
     }
     void refreshSessions();
     void (async () => {
@@ -1125,7 +1131,9 @@ export default function Home() {
         </div>
       ) : null}
 
-      <div className={`sidebar${sideOpen ? " open" : ""}`}>
+      <div
+        className={`sidebar${sideOpen ? " open" : ""}${sideCollapsed ? " collapsed" : ""}`}
+      >
         <div className="model-header">
           <span
             className="dot"
@@ -1161,221 +1169,6 @@ export default function Home() {
           </div>
         ) : null}
 
-        <details className="side-group" open>
-          <summary>{t("pgModelTitle")}</summary>
-          <div className="workspace-box" id="model-box" style={{ marginTop: 0 }}>
-          <div className="workspace-actions">
-            {isMobile ? null : (
-              <>
-                <button
-                  className={`sidebar-btn small${model.provider === "gemma" ? " secondary" : ""}`}
-                  onClick={() => void handleProviderSwitch("gemma")}
-                  title="Gemma"
-                >
-                  {t("pgGemma")}
-                </button>
-                <button
-                  className={`sidebar-btn small${model.provider === "ollama" ? " secondary" : ""}`}
-                  onClick={() => void handleProviderSwitch("ollama")}
-                  title="Ollama"
-                >
-                  {t("pgOllama")}
-                </button>
-              </>
-            )}
-            <button
-              className={`sidebar-btn small${model.provider === "cloud" ? " secondary" : ""}`}
-              onClick={() => void handleProviderSwitch("cloud")}
-              title="Cloud"
-            >
-              {t("pgCloud")}
-            </button>
-          </div>
-          <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2 }}>
-            <span style={{ fontSize: 12, opacity: 0.75, flex: "0 0 auto" }}>{t("thPersonality")}</span>
-            <select
-              className="sidebar-btn small"
-              value={personality}
-              onChange={(e) => setPersonality(e.target.value)}
-              style={{ flex: 1, cursor: "pointer" }}
-            >
-              {(
-                [
-                  ["default", t("psDefault")],
-                  ["concise", t("psConcise")],
-                  ["pirate", t("psPirate")],
-                  ["poet", t("psPoet")],
-                  ["buddy", t("psBuddy")],
-                ] as Array<[string, string]>
-              ).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          {model.provider === "ollama" ? (
-            <>
-              <div style={{ display: "flex", gap: 6 }}>
-                <input
-                  className="sidebar-btn small"
-                  style={{ flex: 1, cursor: "text" }}
-                  value={ollamaUrlDraft}
-                  onChange={(e) => setOllamaUrlDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      model.setOllamaUrl(ollamaUrlDraft.trim() || model.ollamaUrl);
-                      void model.refreshOllamaModels();
-                    }
-                  }}
-                  placeholder={t("pgOllamaUrl")}
-                  title={t("pgOllamaUrl")}
-                />
-                <button
-                  className="sidebar-btn small"
-                  style={{ flex: "0 0 auto" }}
-                  title={t("pgOllamaCheck")}
-                  disabled={model.ollamaChecking}
-                  onClick={() => {
-                    model.setOllamaUrl(ollamaUrlDraft.trim() || model.ollamaUrl);
-                    void model.refreshOllamaModels();
-                  }}
-                >
-                  {model.ollamaChecking ? "⏳" : t("pgOllamaCheck")}
-                </button>
-              </div>
-              {model.ollamaModels.length > 0 ? (
-                <select
-                  className="sidebar-btn small"
-                  id="ollama-model-select"
-                  value={model.ollamaModel}
-                  onChange={(e) => {
-                    model.setOllamaModel(e.target.value);
-                    void model.reconnect();
-                  }}
-                >
-                  {model.ollamaModel ? null : (
-                    <option value="">{t("pgOllamaPick")}</option>
-                  )}
-                  {model.ollamaModels.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="workspace-hint">
-                  {model.ollamaChecking
-                    ? t("pgOllamaChecking")
-                    : model.ollamaError === "none"
-                      ? t("pgOllamaNone")
-                      : t("pgOllamaCors")}
-                </div>
-              )}
-            </>
-          ) : null}
-          {model.provider === "cloud" ? (
-            <>
-              {member && !model.geminiKey ? (
-                <div className="workspace-hint" style={{ color: "#2e7d32", fontWeight: 600 }}>
-                  {t("lgMember", { user: auth.user ?? "" })}
-                </div>
-              ) : null}
-              <input
-                className="sidebar-btn small"
-                style={{ width: "100%", cursor: "text" }}
-                type="password"
-                autoComplete="off"
-                value={geminiKeyDraft}
-                onChange={(e) => setGeminiKeyDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    model.setGeminiKey(geminiKeyDraft.trim());
-                    void model.reconnect();
-                  }
-                }}
-                placeholder={t("pgGeminiKeyPh")}
-                title={t("pgGeminiKey")}
-              />
-              {model.geminiKey ? (
-                <div className="workspace-hint" style={{ color: "#2e7d32", fontWeight: 600 }}>
-                  {t("kgSaved", { last4: model.geminiKey.slice(-4) })}
-                </div>
-              ) : null}
-              {!model.geminiKey && geminiKeyDraft.trim() ? (
-                <div className="workspace-hint" style={{ color: "#e65100", fontWeight: 600 }}>
-                  {t("kgApply")}
-                </div>
-              ) : null}
-              <div style={{ display: "flex", gap: 6 }}>
-                <button
-                  className="sidebar-btn small"
-                  style={{ flex: 1, justifyContent: "center" }}
-                  disabled={model.geminiChecking}
-                  onClick={() => {
-                    model.setGeminiKey(geminiKeyDraft.trim());
-                    void model.reconnect();
-                  }}
-                >
-                  {model.geminiChecking ? "⏳" : t("pgOllamaCheck")}
-                </button>
-                <button
-                  className="sidebar-btn small"
-                  style={{ flex: 1, justifyContent: "center" }}
-                  onClick={() => setShowKeyHelp((v) => !v)}
-                >
-                  {t("kgTitle")}
-                </button>
-              </div>
-              <div className="workspace-hint">
-                <a
-                  href="https://aistudio.google.com/apikey"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {t("pgGeminiGetKey")}
-                </a>
-                {" — "}{t("pgGeminiHint")}
-              </div>
-              {showKeyHelp || (!model.geminiKey && !member) ? (
-                <div className="workspace-hint" style={{ lineHeight: 1.6 }}>
-                  <div>{t("kgS1")}</div>
-                  <div>{t("kgS2")}</div>
-                  <div>{t("kgS3")}</div>
-                </div>
-              ) : null}
-              {model.geminiModels.length > 0 ? (
-                <select
-                  className="sidebar-btn small"
-                  id="gemini-model-select"
-                  value={model.geminiModel}
-                  onChange={(e) => {
-                    model.setGeminiModel(e.target.value);
-                    void model.reconnect();
-                  }}
-                >
-                  {model.geminiModels.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              ) : model.geminiError === "bad-key" ? (
-                <div className="workspace-error">{t("stCloudBadKey")}</div>
-              ) : model.geminiError && model.geminiError !== "need-key" ? (
-                <div className="workspace-hint">
-                  {model.geminiError === "none" ? t("pgGeminiNone") : t("stCloudFail")}
-                </div>
-              ) : null}
-              {model.geminiModel ? (
-                <UsageBlock model={model.geminiModel} t={t} />
-              ) : null}
-            </>
-          ) : null}
-        </div>
-
         {showStartButton ? (
           <button
             className="sidebar-btn"
@@ -1385,8 +1178,9 @@ export default function Home() {
             {t("pgStartAi")}
           </button>
         ) : null}
-        </details>
 
+        <details className="side-group" open>
+          <summary>{t("seChats")}</summary>
         <button className="sidebar-btn" id="new-chat-btn" onClick={handleNewChat} disabled={!model.ready}>
           {t("pgNewChat")}
         </button>
@@ -1567,58 +1361,10 @@ export default function Home() {
             </button>
           </div>
         ) : null}
+        </details>
 
         <details className="side-group" open>
           <summary>{t("grpFiles")}</summary>
-          <div className="workspace-box" id="hf-box" style={{ marginTop: 8 }}>
-            <div className="workspace-name">🖼️ SD 3.5 Medium (HD)</div>
-            {member && !hfKey ? (
-              <div className="workspace-hint" style={{ color: "#2e7d32", fontWeight: 600 }}>
-                {t("lgMember", { user: auth.user ?? "" })}
-              </div>
-            ) : null}
-            <input
-              className="sidebar-btn small"
-              style={{ width: "100%", cursor: "text" }}
-              type="password"
-              autoComplete="off"
-              value={hfKey}
-              onChange={(e) => setHfKeyStored(e.target.value.trim())}
-              placeholder={t("cfHFKeyPh")}
-              title={t("cfHFKey")}
-            />
-            {hfKey ? (
-              <div className="workspace-hint" style={{ color: "#2e7d32", fontWeight: 600 }}>
-                {t("kgSaved", { last4: hfKey.slice(-4) })}
-              </div>
-            ) : null}
-            <div style={{ display: "flex", gap: 6 }}>
-              <button
-                className="sidebar-btn small"
-                style={{ flex: 1, justifyContent: "center" }}
-                onClick={() => setShowHfHelp((v) => !v)}
-              >
-                {t("hgTitle")}
-              </button>
-            </div>
-            <div className="workspace-hint">
-              <a
-                href="https://huggingface.co/settings/tokens"
-                target="_blank"
-                rel="noreferrer"
-              >
-                {t("hgGetToken")}
-              </a>
-              {" — "}{t("hgHint")}
-            </div>
-            {showHfHelp || (!hfKey && !member) ? (
-              <div className="workspace-hint" style={{ lineHeight: 1.6 }}>
-                <div>{t("hgS1")}</div>
-                <div>{t("hgS2")}</div>
-                <div>{t("hgS3")}</div>
-              </div>
-            ) : null}
-          </div>
           <div className="workspace-box" id="workspace-box">
           {workspace.supported ? (
             workspace.connected ? (
@@ -1686,15 +1432,6 @@ export default function Home() {
           ) : null}
         </div>
 
-        {!workspace.connected ? (
-          <DownloadsPanel
-            version={treeVersion}
-            onChanged={() => setTreeVersion((v) => v + 1)}
-            onOpenFile={openFileAndCloseDrawer}
-            t={t}
-          />
-        ) : null}
-
         <FileTree
           onOpenFile={openFileAndCloseDrawer}
           version={treeVersion}
@@ -1703,6 +1440,15 @@ export default function Home() {
           recordUndo={recordUndo}
           t={t}
         />
+
+        {!workspace.connected ? (
+          <DownloadsPanel
+            version={treeVersion}
+            onChanged={() => setTreeVersion((v) => v + 1)}
+            onOpenFile={openFileAndCloseDrawer}
+            t={t}
+          />
+        ) : null}
         </details>
 
         <details className="side-group" ref={setupRef}>
@@ -1851,6 +1597,15 @@ export default function Home() {
           {t("obGuide")}
         </button>
         </details>
+        <Link
+          href="/settings"
+          className="sidebar-btn"
+          id="settings-btn"
+          title={t("seTitle")}
+          style={{ marginTop: 8 }}
+        >
+          {t("seSettings")}
+        </Link>
         <div className="status" id="sidebar-status">
           {model.status}
         </div>
@@ -1893,8 +1648,8 @@ export default function Home() {
         <div className="model-bar">
           <button
             className="hamburger"
-            title={t("mbMenu")}
-            onClick={() => setSideOpen((v) => !v)}
+            title={sideCollapsed ? t("seExpand") : t("seCollapse")}
+            onClick={() => toggleSidebar()}
           >
             ☰
           </button>
@@ -2065,7 +1820,11 @@ export default function Home() {
           }
           geminiKey={model.provider === "cloud" ? model.geminiKey : ""}
           hfKey={hfKey}
-          personalityLine={personalityPrompt(personality)}
+          personalityLine={
+            personalityPrompt(personality) +
+            customInstructionsPrompt(customInstructions)
+          }
+          guidelines={customInstructions}
           t={t}
           lang={lang}
         />

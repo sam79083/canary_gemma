@@ -29,3 +29,15 @@ export function personalityPrompt(id: string): string {
   if (!(PERSONALITIES as string[]).includes(id) || id === "default") return "";
   return "\n\n" + LINES[id as Exclude<PersonalityId, "default">];
 }
+
+/**
+ * User-written guidelines (ChatGPT-style custom instructions), kept in
+ * localStorage under "canary-custom-instructions". Unlike the persona
+ * style line (direct-answer turns only), these are also prepended to the
+ * agent's first turn and plan requests — they describe the user's standing
+ * requirements, not a reply style. Capped to bound prompt bloat.
+ */
+export function customInstructionsPrompt(text: string): string {
+  const clean = (text || "").trim().slice(0, 2000);
+  return clean ? `\n\nUser guidelines (always follow):\n${clean}` : "";
+}

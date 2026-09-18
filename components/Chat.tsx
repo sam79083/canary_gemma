@@ -29,6 +29,7 @@ import { sanitizeAnswer } from "@/lib/sanitize";
 import MouseOrb from "@/components/MouseOrb";
 import MessageList from "@/components/chat/MessageList";
 import Composer from "@/components/chat/Composer";
+import PlanCard, { type PlanVerdict } from "@/components/chat/PlanCard";
 import {
   cleanRelPath,
   errorHint,
@@ -46,11 +47,16 @@ import { useImageDraw } from "@/components/chat/useImageDraw";
 import {
   AGENT_MAX_STEPS,
   buildAgentPreamble,
+  buildPlanPrompt,
   buildToolResultTurn,
+  formatPlan,
+  parsePlan,
   parseToolCall,
   stripToolCalls,
+  type Plan,
   type ToolCall,
 } from "@/lib/agent";
+import { customInstructionsPrompt } from "@/lib/personalities";
 
 interface Props {
   messages: ChatMessage[];
@@ -92,6 +98,10 @@ interface Props {
   /** Opt-in style line appended on direct-answer turns only ("" = none).
    * Never sent on agent tool-loop turns, where it could corrupt format. */
   personalityLine?: string;
+  /** Raw user guidelines (ChatGPT-style custom instructions). Applied to
+   * the agent's first turn and plan requests; direct turns get the
+   * formatted block via personalityLine instead. */
+  guidelines?: string;
   /** Called when a trial budget runs out (open the key guide for them). */
   onTrialOver?: () => void;
   /** Open the help dialog. */
@@ -131,13 +141,26 @@ export default function Chat({
   personalityLine = "",
   onTrialOver,
   onHelp,
+  guidelines = "",
   t,
   lang,
 }: Props) {
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState<string | null>(null);
   const [agentMode, setAgentMode] = useState(true);
+  const [planMode, setPlanMode] = useState(false);
   const [tokens, setTokens] = useState(0);
+  /** Approved plan text consumed once by the next agent turn. */
+  const planContextRef = useRef<string | null>(null);
+  /**
+   * True while a plan flow is delegating to handleSend. Without this,
+   * the re-entered handleSend would see planMode still on and draft
+   * another plan — approve-looping forever.
+   */
+  const planFlowActiveRef = useRef(false);
+  /** Plan awaiting user approval (null = no modal). */
+  const [pendingPlan, setPendingPlan] = useState<Plan | null>(null);
+  const planResolveRef = useRef<((v: PlanVerdict) => void) | null>(null);
   /** Assistant bubble showing raw markdown instead of rendered HTML. */
   const [rawIdx, setRawIdx] = useState<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -231,7 +254,7 @@ export default function Chat({
     setStreamText(sanitizeAnswer(stripToolCalls(full)));
   }
 
-  async function runModelTurn(prompt: string): Promise<string> {
+  async function runModelTurn(prompt: string, silent = false): Promise<string> {
     const session = sessionRef.current;
     if (!session) throw new Error("Model session not ready");
     resetUsage();
@@ -241,15 +264,130 @@ export default function Chat({
       for await (const chunk of stream) {
         if (stopRef.current) break;
         full += chunk;
-        showStream(full);
+        if (!silent) showStream(full);
       }
     } catch (streamErr) {
       console.warn("[agent] promptStreaming failed, trying prompt():", streamErr);
       full = (await session.prompt(prompt)) ?? "";
-      showStream(full);
+      if (!silent) showStream(full);
     }
     collectUsage(prompt, full);
     return full;
+  }
+
+  /** Resolve the open plan-approval modal (PlanCard buttons call this). */
+  function settlePlan(verdict: PlanVerdict): void {
+    setPendingPlan(null);
+    planResolveRef.current?.(verdict);
+    planResolveRef.current = null;
+  }
+
+  function requestPlanApproval(plan: Plan): Promise<PlanVerdict> {
+    return new Promise((resolve) => {
+      planResolveRef.current = resolve;
+      setPendingPlan(plan);
+    });
+  }
+
+  /**
+   * Plan mode: draft a step plan, wait for user approval, then run the
+   * normal agent flow (approved plan prepended) or run plan-free.
+   * The user message is pushed by handleSend on approve/bare so a
+   * cancelled plan leaves no orphan turn behind.
+   */
+  async function runPlanFlow(prompt: string): Promise<void> {
+    busyRef.current = "chat";
+    setStreaming(true);
+    setInput("");
+    try {
+      setModelStatus(t("plPlanning"), true);
+      setStreamText(t("plPlanning"));
+      let rootListing: string | null = null;
+      try {
+        const entries = workspace.connected
+          ? await workspace.list("")
+          : await serverListFiles("uploads");
+        rootListing =
+          entries.length === 0
+            ? "(empty workspace)"
+            : entries
+                .slice(0, 60)
+                .map((e) => `- ${e.name}${e.kind === "directory" ? "/" : ""}`)
+                .join("\n");
+      } catch {
+        rootListing = "(could not list workspace)";
+      }
+      const raw = await runModelTurn(
+        buildPlanPrompt(rootListing, customInstructionsPrompt(guidelines)) +
+          `\nUser request: ${prompt}`,
+        true,
+      );
+      setStreamText(null);
+      if (stopRef.current) {
+        pushMessage("user", prompt);
+        pushMessage("assistant", t("chStopped"));
+        persistChat();
+        return;
+      }
+      const plan = parsePlan(raw);
+      if (!plan) {
+        pushMessage("user", prompt);
+        pushMessage("assistant", t("plEmpty"));
+        persistChat();
+        return;
+      }
+      const verdict = await requestPlanApproval(plan);
+      if (verdict === "cancel") {
+        pushMessage("user", prompt);
+        pushMessage("assistant", t("plCancelled"));
+        persistChat();
+        return;
+      }
+      // Release the planning turn: handleSend guards on busyRef and
+      // runs the full flow itself.
+      busyRef.current = null;
+      setStreaming(false);
+      planFlowActiveRef.current = true;
+      try {
+        if (verdict === "approved") {
+          planContextRef.current = formatPlan(plan);
+          // Post the plan as a persistent todo-style checklist — the
+          // modal vanishes, this stays as the turn's record.
+          pushMessage("user", prompt);
+          pushMessage(
+            "assistant",
+            `📋 ${plan.goal}\n` +
+              plan.steps
+                .map((s) => `☐ ${s.action}${s.path ? ` — ${s.path}` : ""}`)
+                .join("\n"),
+          );
+          await handleSend(prompt, { skipUserMessage: true });
+        } else {
+          await handleSend(prompt);
+        }
+      } finally {
+        planFlowActiveRef.current = false;
+      }
+    } catch (e) {
+      if (noteTrialOver(e)) {
+        pushMessage("assistant", friendlyError(t, e));
+      } else {
+        setTurnError({
+          message: friendlyError(t, e),
+          hint: errorHint(t, e, renewal),
+          retry: () => {
+            void handleSend(prompt);
+          },
+        });
+      }
+    } finally {
+      busyRef.current = null;
+      setStreaming(false);
+      setStreamText(null);
+      focusInput();
+      setModelStatus(t("stReadyOk"), true);
+      persistChat();
+    }
   }
 
   /** Clear last turn's usage so a turn that reports nothing can't
@@ -303,7 +441,8 @@ export default function Chat({
     }
   }
 
-  const handleSend = useCallback(async (override?: string) => {
+  const handleSend = useCallback(
+    async (override?: string, opts?: { skipUserMessage?: boolean }) => {
     if (busyRef.current) return;
     const prompt = (override ?? input).trim();
     if (!prompt) return;
@@ -436,10 +575,20 @@ export default function Chat({
       focusInput();
       return;
     }
+    // Plan mode: draft + approve first, then run the normal flow.
+    // (Photo turns above already returned; plans cover text/file tasks.)
+    // planFlowActiveRef skips this on the delegated re-entry — otherwise
+    // approving a plan would draft another plan, forever.
+    if (planMode && sessionRef.current && !planFlowActiveRef.current) {
+      await runPlanFlow(prompt);
+      return;
+    }
     busyRef.current = "chat";
     setStreaming(true);
     setInput("");
-    pushMessage("user", prompt);
+    // Plan flow pushes the user turn itself (together with the checklist),
+    // so the delegated re-entry must not duplicate it.
+    if (!opts?.skipUserMessage) pushMessage("user", prompt);
 
     // Link mode: fetch up to 2 public pages in the prompt so the model
     // answers from their content (failure just falls back to no context).
@@ -559,7 +708,7 @@ export default function Chat({
       return (dir ? `${dir}/` : "") + `${stem}-${Date.now()}${ext}`;
     };
 
-    async function executeTool(tc: ToolCall): Promise<{ ok: boolean; detail: string; mutated: boolean; openPath?: string; declined?: boolean }> {
+    async function executeTool(tc: ToolCall): Promise<{ ok: boolean; detail: string; mutated: boolean; openPath?: string; declined?: boolean; retry?: boolean }> {
       const rawRel = cleanRelPath(tc.path);
       // Jail server-temp mode under uploads/ (workspace mode untouched).
       const rel = tc.name === "listFiles" ? rawRel : jail(rawRel);
@@ -616,6 +765,10 @@ export default function Chat({
                   ok: false,
                   detail: `User wants changes (nothing saved yet): ${verdict.feedback} — call writeFile for "${rel}" again with content revised accordingly.`,
                   mutated: false,
+                  // Not a failure: the model was asked to regenerate, so
+                  // stay silent (like declines) instead of posting ✗ —
+                  // the closing review card is the feedback.
+                  retry: true,
                 };
               }
               // Drop means "leave everything as it was": say so precisely —
@@ -739,7 +892,17 @@ export default function Chat({
       const deliverHint = useWorkspaceFiles
         ? `When the user asks for a file deliverable (e.g. "make me an md file"), save it under "downloads/${chatSlug}/" (e.g. "downloads/${chatSlug}/report.md") — one folder per conversation, parent folders are created automatically.`
         : `No workspace folder is connected: temp mode. When the user asks for a file deliverable (e.g. "make me an md file"), save it under uploads/ (e.g. "uploads/report.md") — it appears in their ⬇️ Downloads panel for browser download. Never write outside uploads/.`;
-      let nextPrompt = `${buildAgentPreamble(rootListing, verbosePreamble)}\n${deliverHint}\n${pageCtx}\n${prompt}`;
+      // One-shot extras for the first agent turn only: an approved plan
+      // (consumed here so a retry starts clean) and the user's standing
+      // guidelines. Style lines stay out — they'd corrupt toolcall format.
+      const approvedPlan = planContextRef.current;
+      planContextRef.current = null;
+      const guideBlock = customInstructionsPrompt(guidelines);
+      let nextPrompt =
+        (approvedPlan
+          ? `Approved plan — follow its steps in order:\n${approvedPlan}\n\n`
+          : "") +
+        `${buildAgentPreamble(rootListing, verbosePreamble)}\n${deliverHint}\n${guideBlock}\n${pageCtx}\n${prompt}`;
       let finalAnswer: string | null = null;
       const writtenPaths: string[] = [];
 
@@ -788,10 +951,11 @@ export default function Chat({
         if (result.ok && tc.name === "writeFile" && result.openPath)
           writtenPaths.push(result.openPath);
 
-        // A user decline is not a failure: no ✗ line (the closing
-        // review card is the feedback), and the model is told not to
-        // retry or "undo" around it.
-        if (!(result.ok === false && result.declined))
+        // A user decline — or a revision request the model is about to
+        // regenerate for — is not a failure: no ✗ line (the closing
+        // review card is the feedback), and for declines the model is
+        // told not to retry or "undo" around it.
+        if (!(result.ok === false && (result.declined || result.retry)))
           pushMessage("assistant", friendlyStep(t, tc, result.ok, result.detail));
 
         nextPrompt = buildToolResultTurn(
@@ -799,6 +963,7 @@ export default function Chat({
           result.ok,
           result.detail,
           result.declined === true,
+          result.retry === true,
         );
         setStreamText("");
       }
@@ -1015,6 +1180,9 @@ export default function Chat({
         inputRef={inputRef}
         onOpenFile={onOpenFile}
       />
+      {pendingPlan ? (
+        <PlanCard plan={pendingPlan} t={t} onSettle={settlePlan} />
+      ) : null}
       {turnError ? (
         <div
           role="alert"
@@ -1087,6 +1255,8 @@ export default function Chat({
         onStop={requestStop}
         onRunPrompt={(p) => void handleSend(p)}
         onHelp={onHelp}
+        planMode={planMode}
+        setPlanMode={setPlanMode}
       />
     </>
   );

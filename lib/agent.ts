@@ -188,14 +188,109 @@ export function buildAgentPreamble(
   );
 }
 
+export interface PlanStep {
+  action: string;
+  path?: string;
+}
+
+export interface Plan {
+  goal: string;
+  steps: PlanStep[];
+}
+
+/**
+ * Ask for a file-task plan the user approves BEFORE anything runs.
+ * One ```plan JSON block, no prose around it — parsePlan() reads it.
+ */
+export function buildPlanPrompt(
+  rootListing: string | null,
+  guidelines: string,
+): string {
+  return (
+    `Draft an execution plan for the user's file request. Reply with EXACTLY ONE plan block and nothing else:\n` +
+    `\`\`\`plan\n` +
+    `{"goal": "one-line summary", "steps": [{"action": "what to do", "path": "relative/path.txt"}]}\n` +
+    `\`\`\`\n` +
+    `Rules:\n` +
+    `- "path" is always relative to the workspace root, never absolute, never "../". Omit it for non-file steps.\n` +
+    `- "action" is a short plain-language description a non-programmer understands (e.g. "Create the todos folder", NOT "mkdir").\n` +
+    `- Keep it to 6 steps or fewer. Only steps this chat can do: list/read/write/mkdir/delete files.\n` +
+    `- Do not run anything yet — planning only.\n` +
+    (guidelines
+      ? `\nUser guidelines (apply to the plan):\n${guidelines}\n`
+      : ``) +
+    (rootListing !== null
+      ? `\nWorkspace root contains:\n${rootListing}\n`
+      : `\nNo workspace is connected.\n`)
+  );
+}
+
+/**
+ * Parse the ```plan (or ```json) block from a plan reply. Null when the
+ * model answered in prose instead — callers fall back to a retry hint.
+ */
+export function parsePlan(text: string): Plan | null {
+  if (!text) return null;
+  const fence = /```(?:plan|json)?\s*\n?([\s\S]*?)```/gi;
+  let m: RegExpExecArray | null;
+  while ((m = fence.exec(text)) !== null) {
+    const raw = m[1].trim().replace(/^json\s*/i, "").trim();
+    if (!raw.startsWith("{")) continue;
+    try {
+      const obj = JSON.parse(raw) as {
+        goal?: unknown;
+        steps?: unknown;
+      };
+      if (typeof obj.goal !== "string" || !obj.goal.trim()) continue;
+      if (!Array.isArray(obj.steps)) continue;
+      const steps: PlanStep[] = [];
+      for (const s of obj.steps.slice(0, 12)) {
+        if (!s || typeof s !== "object") continue;
+        const action = (s as { action?: unknown }).action;
+        if (typeof action !== "string" || !action.trim()) continue;
+        const step: PlanStep = { action: action.trim().slice(0, 200) };
+        const path = (s as { path?: unknown }).path;
+        if (typeof path === "string" && path.trim())
+          step.path = path.trim().slice(0, 200);
+        steps.push(step);
+      }
+      if (steps.length === 0) continue;
+      return { goal: obj.goal.trim().slice(0, 200), steps };
+    } catch {
+      // Not valid JSON — try next fence.
+    }
+  }
+  return null;
+}
+
+/** One-line rendering of an approved plan for the agent's first turn. */
+export function formatPlan(plan: Plan): string {
+  const lines = plan.steps.map(
+    (s, i) => `${i + 1}. ${s.action}${s.path ? ` (${s.path})` : ""}`,
+  );
+  return `Goal: ${plan.goal}\n${lines.join("\n")}`;
+}
+
 export function buildToolResultTurn(
   tc: ToolCall,
   ok: boolean,
   detail: string,
   declined = false,
+  revision = false,
 ): string {
   const label = describeToolCall(tc);
   const body = detail.length > 4000 ? detail.slice(0, 4000) + "\n…(truncated)" : detail;
+  if (revision) {
+    // User asked for changes in review — nothing failed. Framed as
+    // success deliberately: small models read "FAILED" as making an
+    // error and apologize instead of regenerating.
+    return (
+      `TOOL RESULT for ${label}: CHANGES REQUESTED\n` +
+      `${body}\n\n` +
+      `Revise the content per the request above and call the tool again ` +
+      `with the updated content. Do not apologize or explain — just do it.`
+    );
+  }
   if (declined) {
     // A user decline is final intent, not an error: never retry it or
     // "undo" around it — that loop is what made Drop look broken.

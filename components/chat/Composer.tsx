@@ -45,6 +45,8 @@ export default function Composer({
   onStop,
   onRunPrompt,
   onHelp,
+  planMode,
+  setPlanMode,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -78,6 +80,8 @@ export default function Composer({
   onStop: () => void;
   onRunPrompt: (prompt: string) => void;
   onHelp: () => void;
+  planMode: boolean;
+  setPlanMode: (v: boolean) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -326,8 +330,24 @@ export default function Composer({
             onChange={(e) => setAgentMode(e.target.checked)}
             disabled={streaming}
           />
-          {t("chAgentLabel")}
-        </label>
+            {t("chAgentLabel")}
+          </label>
+          <label
+            title={t("plHint")}
+            style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center", cursor: "pointer" }}
+          >
+            <input
+              type="checkbox"
+              checked={planMode}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setPlanMode(on);
+                if (on) setAgentMode(true);
+              }}
+              disabled={streaming}
+            />
+            {t("plMode")}
+          </label>
         {!workspaceConnected && workspaceSupported ? (
           <span style={{ fontSize: 12, opacity: 0.7 }}>{t("chAgentHint")}</span>
         ) : null}

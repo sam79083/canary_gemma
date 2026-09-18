@@ -61,24 +61,30 @@ Deploy: `render.yaml` builds with `npm install && npm run build`, starts with
 ```
 app/
   page.tsx            <- main UI wiring (sidebar, chat, editor, modals)
+  settings/page.tsx   <- settings (appearance, persona, models, account)
   api/
     files/route.ts    GET list directory (server fallback for old browsers)
     file/route.ts     GET/POST/DELETE single file
     mkdir/route.ts    POST create directory
     db-sessions/route.ts GET/POST/DELETE Supabase member sessions
+    preferences/route.ts GET/PUT per-member AI instructions
     search/route.ts   GET SerpAPI proxy (needs SERPAPI_KEY)
     quota/route.ts    GET SerpAPI quota (graceful when unconfigured)
 components/
-  Chat.tsx            <- chat orchestration (send/search/agent loop)
-  chat/               <- MessageList, Composer, chat-text + hooks
+  Chat.tsx            <- chat orchestration (send/search/plan/agent loop)
+  chat/               <- MessageList, Composer, PlanCard, chat-text + hooks
                          (voice, clipboard, quota, focus, attachments, draw)
   FileEditor.tsx      <- full-screen editor + AI Edit
   FileTree.tsx        <- folder tree + context menu
   Onboarding.tsx      <- 3-step first-run guide
   UsageBlock.tsx      <- cloud token usage vs limits
+  settings/           <- Appearance, Persona, Provider, Account sections
 hooks/
   useLanguageModel.ts <- Gemma/Ollama/cloud sessions, one shared shape
   useLanguage.ts      <- UI language (localStorage, browser-detected)
+  useTheme.ts         <- theme + body dataset (chat + settings share it)
+  usePersonality.ts   <- reply-style persona (localStorage)
+  useCustomInstructions.ts <- standing AI guidelines (local + Supabase sync)
   useWorkspace.ts     <- File System Access folder (local-only)
 lib/
   agent.ts            <- tool definitions, prompt, toolcall parser

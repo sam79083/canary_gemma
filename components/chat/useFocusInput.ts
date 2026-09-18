@@ -20,10 +20,11 @@ export function useFocusInput({
     const attempt = (tries: number) => {
       const el = inputRef.current;
       if (!el) return;
-      // Don't pull focus out of an open modal (review / editor / viewer /
-      // onboarding) — the modal owns focus until it closes.
+      // Don't pull focus out of an open modal (review / plan / editor /
+      // viewer / onboarding) — the modal owns focus until it closes.
       if (
         document.getElementById("review-overlay") ||
+        document.getElementById("plan-overlay") ||
         document.getElementById("editor-overlay") ||
         document.getElementById("onboard-overlay") ||
         document.getElementById("image-viewer")

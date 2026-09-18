@@ -76,7 +76,7 @@ echo Starting dev server at http://localhost:%PORT_NUM%
 echo Press Ctrl+C to stop.
 echo.
 REM Open browser shortly after startup so the server has time to boot.
-start "" cmd /c "timeout /t 5 /nobreak >nul & start """" http://localhost:%PORT_NUM%"
+call :open_browser
 call npm run dev
 goto :end
 
@@ -92,8 +92,27 @@ echo.
 echo Starting production server at http://localhost:%PORT_NUM%
 echo Press Ctrl+C to stop.
 echo.
-start "" cmd /c "timeout /t 5 /nobreak >nul & start """" http://localhost:%PORT_NUM%"
+call :open_browser
 call npm run start
+
+goto :end
+
+REM Open the app in Chrome incognito when available, else default browser.
+REM NOTE: incognito wipes localStorage on close — chats, theme, persona,
+REM and custom instructions won't persist. Use a normal window to keep them.
+:open_browser
+set "CHROME_PATH="
+if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" set "CHROME_PATH=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
+if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" set "CHROME_PATH=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
+if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" set "CHROME_PATH=%LocalAppData%\Google\Chrome\Application\chrome.exe"
+if defined CHROME_PATH (
+  echo [INFO] Opening Chrome incognito at http://localhost:%PORT_NUM%
+  start "" powershell -NoProfile -Command "Start-Sleep -Seconds 5; Start-Process '%CHROME_PATH%' -ArgumentList '--incognito','http://localhost:%PORT_NUM%'"
+) else (
+  echo [WARN] Chrome not found - opening default browser instead.
+  start "" powershell -NoProfile -Command "Start-Sleep -Seconds 5; Start-Process 'http://localhost:%PORT_NUM%'"
+)
+goto :eof
 
 :end
 echo.

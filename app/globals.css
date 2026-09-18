@@ -164,6 +164,11 @@ body {
     background: var(--green);
 }
 
+.sidebar #settings-btn {
+    justify-content: center;
+    text-align: center;
+}
+
 .sidebar .sidebar-btn {
     display: flex;
     align-items: center;
@@ -1097,6 +1102,186 @@ body[data-theme="midnight"] .message .content.md a {
 
     .review-card {
         padding: 16px;
+    }
+}
+
+/* Desktop: collapsible sidebar (mobile keeps the drawer above) */
+@media (min-width: 821px) {
+    .sidebar.collapsed {
+        display: none;
+    }
+
+    .hamburger {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--border);
+        background: var(--status-bg);
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 16px;
+        color: var(--text);
+        flex-shrink: 0;
+    }
+}
+
+/* Settings page */
+.settings-page {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 28px 20px 80px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    color: var(--text);
+}
+
+.settings-top {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 0 4px;
+}
+
+.settings-top h1 {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-align: center;
+}
+
+.settings-back {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    text-decoration: none;
+}
+
+.settings-section {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: var(--sidebar-bg);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.settings-section h2 {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.settings-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.settings-row .settings-label {
+    flex: 0 0 auto;
+    font-size: 13px;
+    opacity: 0.8;
+    min-width: 90px;
+}
+
+.settings-row .sidebar-btn.small {
+    flex: 1;
+}
+
+.settings-col {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.settings-col .settings-label {
+    font-size: 13px;
+    opacity: 0.8;
+}
+
+/* Controls: sidebar-btn styles only exist under .sidebar, so the
+   settings page defines its own look for the same class names. */
+.settings-page .sidebar-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--input-bg);
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    text-decoration: none;
+    box-sizing: border-box;
+}
+
+.settings-page a.sidebar-btn {
+    width: auto;
+}
+
+.settings-page button.sidebar-btn:hover:not(:disabled) {
+    border-color: var(--green);
+}
+
+.settings-page .sidebar-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.settings-page .sidebar-btn.secondary {
+    background: transparent;
+}
+
+.settings-page select.sidebar-btn,
+.settings-page input.sidebar-btn,
+.settings-page textarea.sidebar-btn {
+    justify-content: flex-start;
+    text-align: left;
+    width: 100%;
+}
+
+.settings-page select.sidebar-btn {
+    appearance: auto;
+}
+
+.settings-page textarea.sidebar-btn {
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.settings-page .sidebar-btn:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 1px;
+}
+
+.settings-page .workspace-box {
+    margin-top: 4px;
+}
+
+@media (max-width: 480px) {
+    .settings-page {
+        padding: 20px 12px 64px;
+    }
+
+    .settings-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .settings-row .settings-label {
+        min-width: 0;
     }
 }
 
