@@ -23,8 +23,7 @@ describe("Supabase member auth", () => {
     // This test skips if Supabase not configured; just confirm no crash.
     const sb = supabaseBrowser();
     if (!sb) {
-      // Mark as manually skipped via assert
-      assert.pass("supabase not configured — manual skip");
+      // Supabase not configured — nothing to exercise, pass by returning.
       return;
     }
     // Attempt a no-op auth check; actual login requires configured project.

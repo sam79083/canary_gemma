@@ -1,5 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+
+// NOTE: next/headers is intentionally NOT a top-level import. It only
+// resolves inside the Next.js runtime — a static import breaks plain
+// `node --test` (ERR_MODULE_NOT_FOUND) before any test runs. Each use
+// below dynamic-imports it; outside Next that rejects, and the existing
+// try/catch paths return false/null (the unconfigured behavior the
+// auth tests assert).
 
 function env(name: string): string {
   return (process.env[name] ?? "").trim();
@@ -20,6 +26,7 @@ function creds(): { url: string; anon: string } | null {
  */
 export async function hasSessionCookie(): Promise<boolean> {
   try {
+    const { cookies } = await import("next/headers");
     const store = await cookies();
     return store
       .getAll()
@@ -33,6 +40,7 @@ export async function hasSessionCookie(): Promise<boolean> {
 export async function supabaseServer() {
   const c = creds();
   if (!c) return null;
+  const { cookies } = await import("next/headers");
   const store = await cookies();
   return createServerClient(c.url, c.anon, {
     cookies: {
