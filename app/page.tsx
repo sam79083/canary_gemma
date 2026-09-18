@@ -8,6 +8,8 @@ import DownloadsPanel from "@/components/DownloadsPanel";
 import FileEditor from "@/components/FileEditor";
 import FileTree from "@/components/FileTree";
 import LoginDialog from "@/components/LoginDialog";
+import CheckRow from "@/components/CheckRow";
+import ReviewCard from "@/components/ReviewCard";
 import Onboarding from "@/components/Onboarding";
 import Tip from "@/components/Tip";
 import TrialOverDialog from "@/components/TrialOverDialog";
@@ -22,7 +24,6 @@ import { useLanguage } from "@/hooks/useLanguage";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { LANGS, isLang } from "@/lib/i18n";
 import type { TFn } from "@/lib/i18n";
-import { summarizeDiff } from "@/lib/diff";
 import { fetchQuota, readFileBinary } from "@/lib/api";
 import {
   deletePath as serverDeletePath,
@@ -46,7 +47,6 @@ import { TRIAL_GEMINI_LIMIT, TRIAL_HF_LIMIT } from "@/lib/trial-limits";
 import { isTheme, isDarkTheme, type Theme } from "@/lib/theme";
 import { isPersonalityId, personalityPrompt } from "@/lib/personalities";
 import {
-  deleteLocalSession,
   displayTitle,
   listLocalSessions,
   loadLocalSession,
@@ -54,18 +54,10 @@ import {
   saveLocalSession,
 } from "@/lib/sessions-local";
 import {
-  deleteWorkspaceSession,
   listWorkspaceSessions,
-  loadWorkspaceSession,
   saveWorkspaceSession,
 } from "@/lib/sessions-workspace";
-import {
-  deleteAllDbSessions,
-  deleteDbSession,
-  listDbSessions,
-  loadDbSession,
-  saveDbSession,
-} from "@/lib/db-sessions";
+import { getSessionStore } from "@/lib/session-store";
 import type { ChatMessage, PendingReview, ReviewFn, ReviewResult, SessionHit, SessionInfo } from "@/lib/types";
 import { MotionConfig } from "motion/react";
 import * as Tooltip from "@radix-ui/react-tooltip";
@@ -86,118 +78,6 @@ function titleFor(messages: ChatMessage[], t: TFn): string {
   return text.length >= 50 ? text + "…" : text;
 }
 
-/** Keep/Undo modal. For writes the proposal is editable — Keep applies
- *  the edited text, so the reviewer becomes the editor. */
-function ReviewCard({
-  review,
-  t,
-  onSettle,
-}: {
-  review: PendingReview;
-  t: TFn;
-  onSettle: (ok: boolean, text?: string, feedback?: string, saveAsNew?: boolean) => void;
-}) {
-  const [edited, setEdited] = useState(review.newText);
-  const [feedback, setFeedback] = useState("");
-  useEffect(() => {
-    setEdited(review.newText);
-  }, [review]);
-  useEffect(() => {
-    setFeedback("");
-  }, [review]);
-
-  const isNew = review.kind === "write" && review.oldText === "";
-  const diffPreview =
-    review.oldText === "" && edited === review.newText
-      ? `+++ ${t("rvNewFile")} +++\n` +
-        edited.slice(0, 2000) +
-        (edited.length > 2000 ? "\n…" : "")
-      : summarizeDiff(review.oldText, edited).preview;
-
-  return (
-    <div className="review-overlay" id="review-overlay">
-      <div className="review-card">
-        <h3>{t("rvTitle")}</h3>
-        <div className="review-path">📄 {review.path}</div>
-        {review.kind === "delete" ? (
-          <div className="review-note">{t("rvDeleteNote")}</div>
-        ) : (
-          <>
-            <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 4 }}>
-              {t("rvEditHint")}
-            </div>
-            <textarea
-              className="review-edit"
-              autoFocus
-              value={edited}
-              onChange={(e) => setEdited(e.target.value)}
-              spellCheck={false}
-            />
-            <pre className="review-diff">{diffPreview}</pre>
-          </>
-        )}
-        {review.kind === "write" ? (
-          <div className="review-feedback">
-            <div className="review-feedback-label">💬 {t("rvFeedbackPh")}</div>
-            <textarea
-              className="review-feedback-input"
-              value={feedback}
-              onChange={(e) => setFeedback(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && feedback.trim()) {
-                  e.preventDefault();
-                  onSettle(false, undefined, feedback.trim());
-                }
-              }}
-              placeholder={t("rvFeedbackEx")}
-              spellCheck={false}
-            />
-          </div>
-        ) : null}
-        <div className="review-actions" style={{ marginTop: 12 }}>
-          <button className="editor-btn" onClick={() => onSettle(false)}>
-            {isNew ? t("rvDrop") : t("rvUndo")}
-          </button>
-          {review.kind === "write" ? (
-            <button
-              className="editor-btn remake"
-              disabled={!feedback.trim()}
-              onClick={() => onSettle(false, undefined, feedback.trim())}
-            >
-              {t("rvRegen")}
-            </button>
-          ) : null}
-          {review.kind === "write" && !isNew ? (
-            <button
-              className="editor-btn"
-              onClick={() => onSettle(true, edited, undefined, true)}
-              title={t("rvSaveAsNewTitle")}
-            >
-              {t("rvSaveAsNew")}
-            </button>
-          ) : null}
-          <button
-            className="editor-btn primary"
-            onClick={() => onSettle(true, review.kind === "write" ? edited : undefined)}
-          >
-            {t("rvKeep")}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CheckRow({ label, ok, bad }: { label: string; ok: boolean; bad: boolean }) {  return (
-    <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
-      <span style={{ color: ok ? "#2e7d32" : bad ? "#c62828" : "#999", fontWeight: 700 }}>
-        {ok ? "✓" : bad ? "✗" : "○"}
-      </span>
-      <span>{label}</span>
-    </div>
-  );
-}
-
 export default function Home() {
   const { lang, setLang, t } = useLanguage();
   const auth = useAuth();
@@ -207,6 +87,9 @@ export default function Home() {
   // Members without a picked folder keep chats in Supabase, so history
   // follows the account across devices. Everyone else keeps local behavior.
   const useDb = member && !workspace.connected;
+  // Single backend handle — replaces the useDb/workspace ternary at every
+  // session call site (see lib/session-store.ts).
+  const sessionStore = getSessionStore(useDb, workspace);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [theme, setThemeState] = useState<Theme>("light");
@@ -665,42 +548,19 @@ export default function Home() {
     // Image previews are live object URLs — persist text only.
     const stored: ChatMessage[] = msgs.map(({ role, content }) => ({ role, content }));
     const refresh = () => {
-      const p = useDb
-        ? listDbSessions()
-        : workspace.connected
-          ? listWorkspaceSessions(workspace)
-          : listLocalSessions();
-      void p
+      void sessionStore
+        .list()
         .then(setSessionList)
         .catch((e) => console.error("Failed to load sessions:", e));
     };
-    if (useDb) {
-      // A leftover local filename is not a DB id — the route treats it
-      // as "new" and creates a fresh cloud session instead of failing.
-      void saveDbSession(currentSessionFileRef.current, title, stored)
-        .then((id) => {
-          currentSessionFileRef.current = id;
-          setCurrentFile(id);
-          refresh();
-        })
-        .catch((e) => console.error("Auto-save session failed:", e));
-    } else if (workspace.connected) {
-      void saveWorkspaceSession(workspace, title, stored, existing)
-        .then((filename) => {
-          currentSessionFileRef.current = filename;
-          setCurrentFile(filename);
-          refresh();
-        })
-        .catch((e) => console.error("Auto-save session failed:", e));
-    } else {
-      void saveLocalSession(title, stored, existing)
-        .then((filename) => {
-          currentSessionFileRef.current = filename;
-          setCurrentFile(filename);
-          refresh();
-        })
-        .catch((e) => console.error("Auto-save session failed:", e));
-    }
+    void sessionStore
+      .save(title, stored, existing)
+      .then((filename) => {
+        currentSessionFileRef.current = filename;
+        setCurrentFile(filename);
+        refresh();
+      })
+      .catch((e) => console.error("Auto-save session failed:", e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useDb, workspace.connected, t]);
 
@@ -808,20 +668,12 @@ export default function Home() {
       const query = q.trim().toLowerCase();
       if (query.length < 2) return [];
       const list = (
-        useDb
-          ? await listDbSessions().catch(() => [])
-          : workspace.connected
-            ? await listWorkspaceSessions(workspace).catch(() => [])
-            : await listLocalSessions().catch(() => [])
+        await sessionStore.list().catch(() => [])
       ).filter((s) => s.filename && s.filename.trim());
       const out: SessionHit[] = [];
       for (const s of list.slice(0, 30)) {
         try {
-          const msgs = useDb
-            ? await loadDbSession(s.filename).catch(() => [])
-            : workspace.connected
-              ? await loadWorkspaceSession(workspace, s.filename)
-              : await loadLocalSession(s.filename);
+          const msgs = await sessionStore.load(s.filename).catch(() => []);
           const hit = msgs.find(
             (m) => typeof m.content === "string" && m.content.toLowerCase().includes(query),
           );
@@ -845,13 +697,7 @@ export default function Home() {
   );
 
   const refreshSessions = useCallback(async () => {    try {
-      setSessionList(
-        useDb
-          ? await listDbSessions()
-          : workspace.connected
-            ? await listWorkspaceSessions(workspace)
-            : await listLocalSessions(),
-      );
+      setSessionList(await sessionStore.list());
     } catch (e) {
       console.error("Failed to load sessions:", e);
     }
@@ -979,11 +825,7 @@ export default function Home() {
     async (filename: string) => {
       if (!filename) return;
       try {
-        const msgs = useDb
-          ? await loadDbSession(filename)
-          : workspace.connected
-            ? await loadWorkspaceSession(workspace, filename)
-            : await loadLocalSession(filename);
+        const msgs = await sessionStore.load(filename);
         currentSessionFileRef.current = filename;
         setCurrentFile(filename);
         setMessages(msgs);
@@ -1015,10 +857,7 @@ export default function Home() {
     let ok = true;
     let failMsg = "";
     try {
-      if (useDb) await deleteDbSession(filename);
-      else if (workspace.connected)
-        await deleteWorkspaceSession(workspace, filename);
-      else await deleteLocalSession(filename);
+      await sessionStore.remove(filename);
     } catch (e) {
       console.error("Delete failed:", e);
       ok = false;
@@ -1043,10 +882,7 @@ export default function Home() {
       let ok = true;
       let failMsg = "";
       try {
-        if (useDb) await deleteDbSession(filename);
-        else if (workspace.connected)
-          await deleteWorkspaceSession(workspace, filename);
-        else await deleteLocalSession(filename);
+        await sessionStore.remove(filename);
       } catch (e) {
         console.error("Delete failed:", e);
         ok = false;
@@ -1072,22 +908,7 @@ export default function Home() {
   const handleDeleteAllChats = useCallback(async () => {
     if (!(await confirmCtl.confirm(t("ssDeleteAllConfirm"), "", t("ssDeleteAll")))) return;
     try {
-      if (useDb) {
-        await deleteAllDbSessions();
-      } else {
-        const list = workspace.connected
-          ? await listWorkspaceSessions(workspace).catch(() => [])
-          : await listLocalSessions().catch(() => []);
-        for (const s of list) {
-          try {
-            if (workspace.connected)
-              await deleteWorkspaceSession(workspace, s.filename);
-            else await deleteLocalSession(s.filename);
-          } catch {
-            // keep deleting the rest
-          }
-        }
-      }
+      await sessionStore.clearAll();
     } catch (e) {
       console.error("Delete-all failed:", e);
     }

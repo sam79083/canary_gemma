@@ -65,11 +65,13 @@ app/
     files/route.ts    GET list directory (server fallback for old browsers)
     file/route.ts     GET/POST/DELETE single file
     mkdir/route.ts    POST create directory
-    save|…sessions…   legacy server sessions (browser/workspace now default)
+    db-sessions/route.ts GET/POST/DELETE Supabase member sessions
     search/route.ts   GET SerpAPI proxy (needs SERPAPI_KEY)
     quota/route.ts    GET SerpAPI quota (graceful when unconfigured)
 components/
-  Chat.tsx            <- chat + file-agent loop + upload + voice + share
+  Chat.tsx            <- chat orchestration (send/search/agent loop)
+  chat/               <- MessageList, Composer, chat-text + hooks
+                         (voice, clipboard, quota, focus, attachments, draw)
   FileEditor.tsx      <- full-screen editor + AI Edit
   FileTree.tsx        <- folder tree + context menu
   Onboarding.tsx      <- 3-step first-run guide
@@ -104,4 +106,4 @@ test/app.test.mts     <- `npm test`
   on Render, set it in the dashboard.
 - **Hydration mismatch in dev** — `npm run build` and `npm run dev` share `.next/`;
   stop the server, delete `.next/`, restart.
-- **`_legacy/`** — old Python server, unused.
+- Sessions live in the browser, the workspace folder, or Supabase — no server session store.

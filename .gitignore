@@ -7,6 +7,8 @@ out/
 # Local dev chat sessions
 .canary/
 *.log
+*.zip
 .env*.local
 .env
+!.env.example
 tsconfig.tsbuildinfo

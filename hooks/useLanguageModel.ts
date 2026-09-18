@@ -69,6 +69,25 @@ function store(key: string, value: string): void {
   }
 }
 
+// Designation fact only — no behavior lectures to echo back.
+function designationLine(model: string): string {
+  return `You are '${model}'.`;
+}
+
+function historyLine(msg: ChatMessage): string {
+  return `${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}\n`;
+}
+
+/** Replay past turns into a fresh session (all providers share the shape). */
+async function replayHistory(
+  session: { append(text: string): Promise<unknown> },
+  history: ChatMessage[],
+): Promise<void> {
+  for (const msg of history) {
+    await session.append(historyLine(msg));
+  }
+}
+
 /**
  * Owns the AI session plus shared UI status. Two providers:
  * - "gemma": Chrome built-in Prompt API (on-device Gemma).
@@ -355,8 +374,7 @@ export function useLanguageModel(lang: Lang, t: TFn, member = false) {
         sessionRef.current = new GeminiSession(
           geminiKeyRef.current,
           geminiModelRef.current,
-          // Designation fact only — no behavior lectures to echo back.
-          `You are '${geminiModelRef.current}'.`,
+          designationLine(geminiModelRef.current),
         );
         setStatus(t("stCloudReady", { m: geminiModelRef.current }));
         setOnline(true);
@@ -388,8 +406,7 @@ export function useLanguageModel(lang: Lang, t: TFn, member = false) {
         sessionRef.current = new OllamaSession(
           ollamaUrlRef.current,
           ollamaModelRef.current,
-          // Designation fact only — no behavior lectures to echo back.
-          `You are '${ollamaModelRef.current}'.`,
+          designationLine(ollamaModelRef.current),
         );
         setStatus(t("stOllamaReady", { m: ollamaModelRef.current }));
         setOnline(true);
@@ -413,8 +430,7 @@ export function useLanguageModel(lang: Lang, t: TFn, member = false) {
       const outputLanguage = outputLangFor(lang);
       sessionRef.current = await LanguageModel.create({
         ...(outputLanguage ? { outputLanguage } : null),
-        // Designation fact only — no behavior lectures to echo back.
-        initialPrompts: [{ role: "system", content: "You are 'Gemma 4'." }],
+        initialPrompts: [{ role: "system", content: designationLine("Gemma 4") }],
         monitor(m) {
           m.addEventListener("downloadprogress", (ev: Event) => {
             const loaded = (ev as unknown as { loaded?: number }).loaded ?? 0;
@@ -454,11 +470,7 @@ export function useLanguageModel(lang: Lang, t: TFn, member = false) {
           if (!geminiKeyRef.current) {
             setStatus(t("stPickingUp"));
             const s = new TrialChatSession();
-            for (const msg of history) {
-              await s.append(
-                `${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}\n`,
-              );
-            }
+            await replayHistory(s, history);
             sessionRef.current = s;
             geminiModelRef.current = DEFAULT_GEMINI_MODEL;
             setGeminiModelState(DEFAULT_GEMINI_MODEL);
@@ -478,14 +490,9 @@ export function useLanguageModel(lang: Lang, t: TFn, member = false) {
           const s = new GeminiSession(
             geminiKeyRef.current,
             geminiModelRef.current,
-            // Designation fact only — no behavior lectures to echo back.
-            `You are '${geminiModelRef.current}'.`,
+            designationLine(geminiModelRef.current),
           );
-          for (const msg of history) {
-            await s.append(
-              `${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}\n`,
-            );
-          }
+          await replayHistory(s, history);
           sessionRef.current = s;
           setStatus(t("stCloudReady", { m: geminiModelRef.current }));
           setOnline(true);
@@ -510,14 +517,9 @@ export function useLanguageModel(lang: Lang, t: TFn, member = false) {
           const s = new OllamaSession(
             ollamaUrlRef.current,
             ollamaModelRef.current,
-            // Designation fact only — no behavior lectures to echo back.
-            `You are '${ollamaModelRef.current}'.`,
+            designationLine(ollamaModelRef.current),
           );
-          for (const msg of history) {
-            await s.append(
-              `${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}\n`,
-            );
-          }
+          await replayHistory(s, history);
           sessionRef.current = s;
           setStatus(t("stOllamaReady", { m: ollamaModelRef.current }));
           setOnline(true);
@@ -541,7 +543,7 @@ export function useLanguageModel(lang: Lang, t: TFn, member = false) {
         }
         setStatus(t("stPickingUp"));
         const restoreLang = outputLangFor(lang);
-        sessionRef.current = await LanguageModel.create({
+        const restored = await LanguageModel.create({
           ...(restoreLang ? { outputLanguage: restoreLang } : null),
           monitor(m) {
             m.addEventListener("downloadprogress", (ev: Event) => {
@@ -558,11 +560,8 @@ export function useLanguageModel(lang: Lang, t: TFn, member = false) {
           },
         });
         setDownload((d) => ({ ...d, show: false }));
-        for (const msg of history) {
-          await sessionRef.current.append(
-            `${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}\n`,
-          );
-        }
+        await replayHistory(restored, history);
+        sessionRef.current = restored;
         setStatus(t("stReadyOk"));
         setOnline(true);
         setReady(true);

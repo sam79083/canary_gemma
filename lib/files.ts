@@ -1,10 +1,8 @@
 import path from "path";
-import fs from "fs/promises";
 
 // Project root is the workspace. Sensitive paths are never listed, read,
 // written, or deleted through the file API.
 export const ROOT = process.cwd();
-export const SESSIONS_DIR = path.join(ROOT, "sessions");
 
 const BLOCKED_SEGMENTS = new Set([
   ".next",
@@ -40,8 +38,4 @@ export function safePath(rel: string): string | null {
 /** True if target is the project root itself (never deletable). */
 export function isRoot(target: string): boolean {
   return path.normalize(target) === ROOT;
-}
-
-export async function ensureSessionsDir(): Promise<void> {
-  await fs.mkdir(SESSIONS_DIR, { recursive: true });
 }

@@ -1,21 +1,10 @@
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { ChatMessage, SessionInfo } from "./types";
-import { normalizeTitle } from "./sessions-local";
+import { normalizeTitle, stamp, validFilename } from "./sessions-local";
 
 // Sessions live inside the user's picked folder, so history is real files
 // on disk — not browser localStorage, not the Render server.
 export const SESSIONS_ROOT = ".canary/sessions";
-
-function stamp(): string {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, "0");
-  const rand = Math.random().toString(36).slice(2, 7);
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}_${rand}`;
-}
-
-function validFilename(name: string): boolean {
-  return /^[\w\-. ]+\.json$/.test(name) && !name.includes("..");
-}
 
 function pathFor(filename: string): string {
   return `${SESSIONS_ROOT}/${filename}`;

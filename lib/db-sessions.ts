@@ -38,6 +38,9 @@ export function dbRowToSessionInfo(r: DbSessionRow): SessionInfo {
   };
 }
 
+// NOTE: mirror of readErrorResponse in ./http-error (the canonical copy).
+// Kept local so this module stays runtime-import-free for plain
+// `node --test` (see http-error.ts header).
 async function readError(res: Response): Promise<Error> {
   let code = `HTTP ${res.status}`;
   try {

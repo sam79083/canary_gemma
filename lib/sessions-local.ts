@@ -9,11 +9,24 @@ interface StoredSession {
   timestamp: number;
 }
 
-function stamp(): string {
+/**
+ * Canonical session-filename helpers (single home for both backends).
+ * NOTE: this module must stay runtime-import-free (import type only) —
+ * tests load it with plain `node --test`, which cannot resolve
+ * extensionless relative imports. `sessions-workspace.ts` reuses these.
+ */
+
+/** Timestamp + random suffix, e.g. `2026-09-18_14-03-22_ab12c`. */
+export function stamp(): string {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
   const rand = Math.random().toString(36).slice(2, 7);
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}_${rand}`;
+}
+
+/** Plain `*.json` names only — no traversal, no subfolders. */
+export function validFilename(name: string): boolean {
+  return /^[\w\-. ]+\.json$/.test(name) && !name.includes("..");
 }
 
 function readIndex(): SessionInfo[] {
@@ -70,7 +83,7 @@ export async function saveLocalSession(
 ): Promise<string> {
   const timestamp = Date.now();
   const filename =
-    existingFilename && /^[\w\-. ]+\.json$/.test(existingFilename)
+    existingFilename && validFilename(existingFilename)
       ? existingFilename
       : `session_${stamp()}.json`;
   const payload: StoredSession = {
@@ -120,8 +133,7 @@ export async function listLocalSessions(): Promise<SessionInfo[]> {
 export async function loadLocalSession(
   filename: string,
 ): Promise<ChatMessage[]> {
-  if (!/^[\w\-. ]+\.json$/.test(filename) || filename.includes(".."))
-    throw new Error("Not found");
+  if (!validFilename(filename)) throw new Error("Not found");
   const raw = localStorage.getItem(ITEM_PREFIX + filename);
   if (!raw) throw new Error("Not found");
   const data = JSON.parse(raw) as Partial<StoredSession>;
@@ -140,7 +152,7 @@ export async function deleteLocalSession(filename: string): Promise<void> {
 export async function renameLocalSession(filename: string, title: string): Promise<void> {
   const clean = title.trim().slice(0, 80);
   if (!clean) return;
-  if (!/^[\w\-. ]+\.json$/.test(filename) || filename.includes("..")) return;
+  if (!validFilename(filename)) return;
   try {
     const raw = localStorage.getItem(ITEM_PREFIX + filename);
     if (!raw) return;
