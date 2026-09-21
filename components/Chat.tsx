@@ -28,7 +28,7 @@ import { estimateTokens, recordUsage } from "@/lib/usage";
 import { sanitizeAnswer } from "@/lib/sanitize";
 import MouseOrb from "@/components/MouseOrb";
 import MessageList from "@/components/chat/MessageList";
-import CanvasPanel from "@/components/chat/CanvasPanel"; // 🧪 PROTOTYPE (exp/canvas)
+import CanvasPanel, { hasLongFence } from "@/components/chat/CanvasPanel"; // 🧪 PROTOTYPE (exp/canvas)
 import Composer from "@/components/chat/Composer";
 import PlanCard, { type PlanVerdict } from "@/components/chat/PlanCard";
 import {
@@ -168,6 +168,21 @@ export default function Chat({
   const [canvasIdx, setCanvasIdx] = useState<number | null>(null);
   /** 🧪 PROTOTYPE (exp/canvas): open canvas with built-in samples. */
   const [canvasDemo, setCanvasDemo] = useState(false);
+  /** 🧪 PROTOTYPE (exp/canvas): message count already considered for auto-open. */
+  const canvasAutoRef = useRef(0);
+  // 🧪 PROTOTYPE (exp/canvas): auto-open like Claude — a fresh assistant
+  // message with a long fenced block opens the canvas on its own.
+  useEffect(() => {
+    if (streaming || canvasIdx !== null || canvasDemo) return;
+    if (canvasAutoRef.current === messages.length) return;
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant" || !hasLongFence(last.content)) {
+      canvasAutoRef.current = messages.length;
+      return;
+    }
+    canvasAutoRef.current = messages.length;
+    setCanvasIdx(messages.length - 1);
+  }, [messages, streaming, canvasIdx, canvasDemo]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   /** Cooperative stop: checked at every stream chunk / agent step. The
    * model APIs take no AbortSignal, so turns poll this flag instead. */
@@ -1219,6 +1234,7 @@ export default function Chat({
           onClose={() => {
             setCanvasIdx(null);
             setCanvasDemo(false);
+            canvasAutoRef.current = messages.length;
           }}
         />
       ) : null}

@@ -51,6 +51,12 @@ function extractArtifacts(text: string): Artifact[] {
   return out;
 }
 
+/** Auto-open rule (Claude-style): a fence long enough to deserve a panel. */
+export const CANVAS_AUTO_LINES = 15;
+export function hasLongFence(text: string): boolean {
+  return extractArtifacts(text).some((a) => a.code.split("\n").length >= CANVAS_AUTO_LINES);
+}
+
 function canPreview(lang: string): boolean {
   return lang === "html" || lang === "markdown" || lang === "md";
 }
