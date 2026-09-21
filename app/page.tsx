@@ -9,7 +9,6 @@ import FileEditor from "@/components/FileEditor";
 import FileTree from "@/components/FileTree";
 import HelpDialog from "@/components/HelpDialog";
 import LoginDialog from "@/components/LoginDialog";
-import CheckRow from "@/components/CheckRow";
 import ReviewCard from "@/components/ReviewCard";
 import Onboarding from "@/components/Onboarding";
 import Tip from "@/components/Tip";
@@ -24,7 +23,7 @@ import { useLanguage } from "@/hooks/useLanguage";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { LANGS, isLang } from "@/lib/i18n";
 import type { TFn } from "@/lib/i18n";
-import { fetchQuota, readFileBinary } from "@/lib/api";
+import { readFileBinary } from "@/lib/api";
 import {
   deletePath as serverDeletePath,
   listFiles as serverListFiles,
@@ -42,7 +41,6 @@ import {
   type UndoEntry,
   type UndoInput,
 } from "@/lib/undo";
-import { folderCapLine, getFolderCap } from "@/lib/capabilities";
 import { TRIAL_GEMINI_LIMIT, TRIAL_HF_LIMIT } from "@/lib/trial-limits";
 import { isDarkTheme, type Theme } from "@/lib/theme";
 import { customInstructionsPrompt, personalityPrompt } from "@/lib/personalities";
@@ -145,9 +143,6 @@ export default function Home() {
       return next;
     });
   }, []);
-  const [searchOk, setSearchOk] = useState<boolean | null>(null);
-  const [capLine, setCapLine] = useState("…");
-  const setupRef = useRef<HTMLDetailsElement>(null);
   const [currentFile, setCurrentFile] = useState<string | null>(null);
   // Mirror the active session id so a settings round-trip resumes the
   // same chat file (content itself restores from HISTORY_KEY on return).
@@ -415,66 +410,6 @@ export default function Home() {
 
 
 
-
-  // One lightweight search-health ping for the setup checklist
-  // (Chat keeps its own quota display; this is only true/false/unknown).
-  useEffect(() => {
-    setCapLine(folderCapLine(getFolderCap()));
-    void (async () => {
-      try {
-        const data = await fetchQuota();
-        setSearchOk(!data.error);
-      } catch {
-        setSearchOk(false);
-      }
-    })();
-  }, []);
-
-  // Live server-disk meter (sessions/, uploads/, fs free). Refreshes when
-  // files change; hidden when the ping fails.
-  const [storageLine, setStorageLine] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/storage", { cache: "no-store" });
-        const data = (await res.json()) as {
-          sessions?: { files?: number; bytes?: number };
-          uploads?: { files?: number; bytes?: number };
-          fs?: { free?: number; total?: number } | null;
-        };
-        if (cancelled || !res.ok) return;
-        const fmt = (n: number): string => {
-          if (!Number.isFinite(n)) return "?";
-          if (n < 1024) return `${n}B`;
-          if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
-          if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)}MB`;
-          return `${(n / 1024 / 1024 / 1024).toFixed(2)}GB`;
-        };
-        const a = `${data.sessions?.files ?? 0} (${fmt(data.sessions?.bytes ?? 0)})`;
-        const b = `${data.uploads?.files ?? 0} (${fmt(data.uploads?.bytes ?? 0)})`;
-        const c = data.fs && typeof data.fs.free === "number" ? fmt(data.fs.free) : "?";
-        if (!cancelled) setStorageLine(t("sgLine", { a, b, c }));
-      } catch {
-        if (!cancelled) setStorageLine(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [treeVersion, t]);
-
-  // Auto-open the Setup section when the AI can't run — that's when it's needed.
-  useEffect(() => {
-    if (
-      (model.availability === "unsupported" ||
-        model.availability === "unavailable") &&
-      setupRef.current
-    )
-      setupRef.current.open = true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model.availability]);
 
   // First visit: show the 3-step guide.
   useEffect(() => {
@@ -1169,6 +1104,37 @@ export default function Home() {
           </div>
         ) : null}
 
+        <div style={{ fontSize: 11, opacity: 0.7, marginTop: 8 }}>
+          {t("pgModelTitle")}
+        </div>
+        <div className="workspace-actions" style={{ marginTop: 4 }}>
+          {isMobile ? null : (
+            <>
+              <button
+                className={`sidebar-btn small${model.provider === "gemma" ? " secondary" : ""}`}
+                onClick={() => void handleProviderSwitch("gemma")}
+                title="Gemma"
+              >
+                {t("pgGemma")}
+              </button>
+              <button
+                className={`sidebar-btn small${model.provider === "ollama" ? " secondary" : ""}`}
+                onClick={() => void handleProviderSwitch("ollama")}
+                title="Ollama"
+              >
+                {t("pgOllama")}
+              </button>
+            </>
+          )}
+          <button
+            className={`sidebar-btn small${model.provider === "cloud" ? " secondary" : ""}`}
+            onClick={() => void handleProviderSwitch("cloud")}
+            title="Cloud"
+          >
+            {t("pgCloud")}
+          </button>
+        </div>
+
         {showStartButton ? (
           <button
             className="sidebar-btn"
@@ -1451,62 +1417,7 @@ export default function Home() {
         ) : null}
         </details>
 
-        <details className="side-group" ref={setupRef}>
-          <summary>
-            {t("ckTitle")}
-            {model.ready &&
-            (workspace.connected || !workspace.supported) &&
-            searchOk !== false ? null : (
-              <span style={{ color: "#e65100" }}> •</span>
-            )}
-          </summary>
-          <div className="note" id="setup-box" style={{ lineHeight: 1.7 }}>
-            <CheckRow
-              label={t("ckAi")}
-              ok={model.ready}
-              bad={
-                model.availability === "unsupported" ||
-                model.availability === "unavailable"
-              }
-            />
-            <CheckRow
-              label={
-                workspace.connected && workspace.rootName
-                  ? `${t("ckFolder")} (${workspace.rootName})`
-                  : t("ckFolder")
-              }
-              ok={workspace.connected || !workspace.supported}
-              bad={false}
-            />
-            <CheckRow label={t("ckSearch")} ok={searchOk === true} bad={searchOk === false} />
-            {searchOk === false ? (
-              <div style={{ fontSize: 11, opacity: 0.8 }}>{t("ckSearchHint")}</div>
-            ) : null}
-            {model.provider === "cloud" ? (
-              <CheckRow
-                label={t("ckKey")}
-                ok={!!model.geminiKey && !model.geminiError}
-                bad={!!model.geminiKey && model.geminiError === "bad-key"}
-              />
-            ) : null}
-            {trialLeft && !model.geminiKey ? (
-              <div style={{ fontSize: 11, opacity: 0.8 }}>
-                {trialLimited
-                  ? <>💬 {t("trLeft", { n: trialLeft.gemini })} · 🖼️ {t("trLeft", { n: trialLeft.hf })}</>
-                  : <>💬 · 🖼️ {t("trUnlimited")}</>}
-              </div>
-            ) : null}
-            <div style={{ fontSize: 11, opacity: 0.7, fontFamily: "monospace" }}>
-              {capLine}
-            </div>
-            {storageLine ? (
-              <div style={{ fontSize: 11, opacity: 0.7, fontFamily: "monospace" }}>
-                {storageLine}
-              </div>
-            ) : null}
-          </div>
-
-          {showFlags ? (
+        {showFlags ? (
             <button
               className="sidebar-btn small secondary"
               id="enable-flags-btn"            title={t("pgFlagShow")}
@@ -1596,7 +1507,6 @@ export default function Home() {
         >
           {t("obGuide")}
         </button>
-        </details>
         <Link
           href="/settings"
           className="sidebar-btn"
