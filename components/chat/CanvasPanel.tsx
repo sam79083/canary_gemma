@@ -4,8 +4,9 @@
 // Delete this file + revert the two hook sites to discard (see bottom).
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { renderMarkdown } from "@/lib/markdown";
+import { downloadHref } from "@/lib/api";
 import type { ChatMessage } from "@/lib/types";
 
 interface Artifact {
@@ -37,6 +38,42 @@ function canPreview(lang: string): boolean {
   return lang === "html" || lang === "markdown" || lang === "md";
 }
 
+/** Max bytes pulled into the panel per file (safety cap). */
+const MAX_FILE_BYTES = 200_000;
+
+function extOf(name: string): string {
+  const m = name.toLowerCase().match(/\.([a-z0-9]+)$/);
+  return m ? m[1] : "";
+}
+
+/** Files worth opening in the canvas (renderable document types). */
+export function isPreviewableFile(name: string): boolean {
+  const e = extOf(name);
+  return e === "html" || e === "md" || e === "markdown";
+}
+
+function langOf(name: string): string {
+  const e = extOf(name);
+  if (e === "md") return "markdown";
+  return e || "code";
+}
+
+async function loadFileText(
+  name: string,
+  path: string,
+  viaWorkspace: boolean,
+): Promise<string> {
+  if (viaWorkspace) {
+    const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+    const data = (await res.json()) as { content?: string };
+    if (!res.ok || data.content === undefined) throw new Error("unreadable");
+    return data.content;
+  }
+  const res = await fetch(downloadHref(name));
+  if (!res.ok) throw new Error("unreadable");
+  return await res.text();
+}
+
 const iconBtn: React.CSSProperties = {
   border: "1px solid transparent",
   background: "transparent",
@@ -49,14 +86,54 @@ const iconBtn: React.CSSProperties = {
 
 export default function CanvasPanel({
   message,
+  workspaceConnected,
   onClose,
 }: {
   message: ChatMessage | null;
+  workspaceConnected: boolean;
   onClose: () => void;
 }) {
-  const artifacts = useMemo<Artifact[]>(
+  const fenceArts = useMemo<Artifact[]>(
     () => (message ? extractArtifacts(message.content) : []),
     [message],
+  );
+  // Files written in this turn (agent uploads / workspace files) load as
+  // artifacts too — agents usually save documents instead of pasting code.
+  const [fileArts, setFileArts] = useState<Artifact[]>([]);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  useEffect(() => {
+    const files = message?.files ?? [];
+    const wanted = files.filter((f) => isPreviewableFile(f.name));
+    if (wanted.length === 0) {
+      setFileArts([]);
+      setLoadingFiles(false);
+      return;
+    }
+    let live = true;
+    setLoadingFiles(true);
+    void (async () => {
+      const got: Artifact[] = [];
+      for (const f of wanted) {
+        try {
+          let code = await loadFileText(f.name, f.path, workspaceConnected);
+          if (code.length > MAX_FILE_BYTES) code = code.slice(0, MAX_FILE_BYTES) + "\n…(truncated)";
+          got.push({ title: `📄 ${f.name}`, lang: langOf(f.name), code });
+        } catch {
+          // unreadable (binary/gone) — skip silently in prototype
+        }
+      }
+      if (live) {
+        setFileArts(got);
+        setLoadingFiles(false);
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [message, workspaceConnected]);
+  const artifacts = useMemo<Artifact[]>(
+    () => [...fileArts, ...fenceArts],
+    [fileArts, fenceArts],
   );
   const [sel, setSel] = useState(0);
   const [view, setView] = useState<"preview" | "code">("preview");
@@ -209,7 +286,12 @@ export default function CanvasPanel({
 
       {/* body */}
       <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
-        {!art ? (
+        {loadingFiles && !art ? (
+          <div style={{ textAlign: "center", marginTop: 72, color: "var(--note-text)" }}>
+            <div style={{ fontSize: 40 }}>📄</div>
+            <p style={{ fontSize: 13, marginTop: 12 }}>Loading document…</p>
+          </div>
+        ) : !art ? (
           <div style={{ textAlign: "center", marginTop: 72, color: "var(--note-text)" }}>
             <div style={{ fontSize: 40 }}>🎨</div>
             <p style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", margin: "12px 0 6px" }}>

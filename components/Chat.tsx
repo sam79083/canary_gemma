@@ -28,7 +28,7 @@ import { estimateTokens, recordUsage } from "@/lib/usage";
 import { sanitizeAnswer } from "@/lib/sanitize";
 import MouseOrb from "@/components/MouseOrb";
 import MessageList from "@/components/chat/MessageList";
-import CanvasPanel, { hasLongFence } from "@/components/chat/CanvasPanel"; // 🧪 PROTOTYPE (exp/canvas)
+import CanvasPanel, { hasLongFence, isPreviewableFile } from "@/components/chat/CanvasPanel"; // 🧪 PROTOTYPE (exp/canvas)
 import Composer from "@/components/chat/Composer";
 import PlanCard, { type PlanVerdict } from "@/components/chat/PlanCard";
 import {
@@ -169,12 +169,13 @@ export default function Chat({
   /** 🧪 PROTOTYPE (exp/canvas): message count already considered for auto-open. */
   const canvasAutoRef = useRef(0);
   // 🧪 PROTOTYPE (exp/canvas): auto-open like Claude — a fresh assistant
-  // message with a long fenced block opens the canvas on its own.
+  // message with a long fenced block OR a saved document opens the canvas.
   useEffect(() => {
     if (streaming || canvasIdx !== null) return;
     if (canvasAutoRef.current === messages.length) return;
     const last = messages[messages.length - 1];
-    if (!last || last.role !== "assistant" || !hasLongFence(last.content)) {
+    const savedDoc = last?.files?.some((f) => isPreviewableFile(f.name)) ?? false;
+    if (!last || last.role !== "assistant" || (!hasLongFence(last.content) && !savedDoc)) {
       canvasAutoRef.current = messages.length;
       return;
     }
@@ -1205,6 +1206,7 @@ export default function Chat({
       {canvasIdx !== null && messages[canvasIdx] ? (
         <CanvasPanel
           message={messages[canvasIdx]}
+          workspaceConnected={workspace.connected}
           onClose={() => {
             setCanvasIdx(null);
             canvasAutoRef.current = messages.length;
