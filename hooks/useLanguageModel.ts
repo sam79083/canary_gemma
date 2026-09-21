@@ -40,17 +40,11 @@ function storedProvider(): Provider {
 }
 
 /**
- * Chrome only accepts de/en/es/fr/ja as create() output languages.
+ * Chrome only accepts en/es/ja as create() output languages.
  * Anything else → omit (our prompts already carry a "Reply in X" line).
  */
 function outputLangFor(lang: Lang): string | undefined {
-  return lang === "de" ||
-    lang === "en" ||
-    lang === "es" ||
-    lang === "fr" ||
-    lang === "ja"
-    ? lang
-    : undefined;
+  return lang === "en" || lang === "es" || lang === "ja" ? lang : undefined;
 }
 
 function stored(key: string): string | null {

@@ -28,11 +28,6 @@ function speechLang(lang: Lang): string {
     case "ja": return "ja-JP";
     case "zh": return "zh-CN";
     case "es": return "es-ES";
-    case "fr": return "fr-FR";
-    case "de": return "de-DE";
-    case "pt": return "pt-BR";
-    case "vi": return "vi-VN";
-    case "id": return "id-ID";
   }
 }
 

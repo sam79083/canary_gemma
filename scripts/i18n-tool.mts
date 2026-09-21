@@ -21,11 +21,6 @@ const TARGETS: { lang: Lang; name: string }[] = [
   { lang: "ja", name: "Japanese" },
   { lang: "zh", name: "Simplified Chinese" },
   { lang: "es", name: "Spanish" },
-  { lang: "fr", name: "French" },
-  { lang: "de", name: "German" },
-  { lang: "pt", name: "Portuguese" },
-  { lang: "vi", name: "Vietnamese" },
-  { lang: "id", name: "Indonesian" },
 ];
 const CHUNK_KEYS = 60;
 
