@@ -28,6 +28,7 @@ import { estimateTokens, recordUsage } from "@/lib/usage";
 import { sanitizeAnswer } from "@/lib/sanitize";
 import MouseOrb from "@/components/MouseOrb";
 import MessageList from "@/components/chat/MessageList";
+import CanvasPanel from "@/components/chat/CanvasPanel"; // 🧪 PROTOTYPE (exp/canvas)
 import Composer from "@/components/chat/Composer";
 import PlanCard, { type PlanVerdict } from "@/components/chat/PlanCard";
 import {
@@ -163,6 +164,10 @@ export default function Chat({
   const planResolveRef = useRef<((v: PlanVerdict) => void) | null>(null);
   /** Assistant bubble showing raw markdown instead of rendered HTML. */
   const [rawIdx, setRawIdx] = useState<number | null>(null);
+  /** 🧪 PROTOTYPE (exp/canvas): message open in the canvas side panel. */
+  const [canvasIdx, setCanvasIdx] = useState<number | null>(null);
+  /** 🧪 PROTOTYPE (exp/canvas): open canvas with built-in samples. */
+  const [canvasDemo, setCanvasDemo] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   /** Cooperative stop: checked at every stream chunk / agent step. The
    * model APIs take no AbortSignal, so turns poll this flag instead. */
@@ -1179,7 +1184,44 @@ export default function Chat({
         setInput={setInput}
         inputRef={inputRef}
         onOpenFile={onOpenFile}
+        onOpenCanvas={(idx) => {
+          setCanvasIdx(idx); // 🧪 PROTOTYPE (exp/canvas)
+          setCanvasDemo(false);
+        }}
       />
+      {/* 🧪 PROTOTYPE (exp/canvas) */}
+      <button
+        type="button"
+        title="Open canvas demo (prototype)"
+        onClick={() => {
+          setCanvasIdx(null);
+          setCanvasDemo(true);
+        }}
+        style={{
+          position: "fixed",
+          right: 16,
+          bottom: 90,
+          zIndex: 800,
+          width: 44,
+          height: 44,
+          borderRadius: "50%",
+          border: "1px solid var(--border)",
+          background: "var(--model-bar-bg)",
+          fontSize: 20,
+          cursor: "pointer",
+        }}
+      >
+        🎨
+      </button>
+      {canvasDemo || (canvasIdx !== null && messages[canvasIdx]) ? (
+        <CanvasPanel
+          message={canvasIdx !== null && messages[canvasIdx] ? messages[canvasIdx] : null}
+          onClose={() => {
+            setCanvasIdx(null);
+            setCanvasDemo(false);
+          }}
+        />
+      ) : null}
       {pendingPlan ? (
         <PlanCard plan={pendingPlan} t={t} onSettle={settlePlan} />
       ) : null}

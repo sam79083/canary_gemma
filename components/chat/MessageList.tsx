@@ -27,6 +27,7 @@ export default function MessageList({
   setInput,
   inputRef,
   onOpenFile,
+  onOpenCanvas,
 }: {
   messages: ChatMessage[];
   streamText: string | null;
@@ -46,6 +47,8 @@ export default function MessageList({
   setInput: (v: string) => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   onOpenFile: (path: string) => void;
+  /** 🧪 PROTOTYPE (exp/canvas): open the canvas panel for a message. */
+  onOpenCanvas?: (idx: number) => void;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   /** Chat bubble context menu (right-click). */
@@ -203,6 +206,16 @@ export default function MessageList({
               onClick={() => void shareMsg(m.content, i)}
             >
               {copiedIdx === i ? "✓" : "⤴"}
+            </button>
+          ) : null}
+          {/* 🧪 PROTOTYPE (exp/canvas): canvas button on fenced answers */}
+          {m.role === "assistant" && onOpenCanvas && /```\w*/.test(m.content) ? (
+            <button
+              className="msg-share"
+              title="Open in canvas (prototype)"
+              onClick={() => onOpenCanvas(i)}
+            >
+              🎨
             </button>
           ) : null}
           {m.role === "assistant" && i === messages.length - 1 ? (
