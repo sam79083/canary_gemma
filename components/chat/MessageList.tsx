@@ -208,8 +208,8 @@ export default function MessageList({
               {copiedIdx === i ? "✓" : "⤴"}
             </button>
           ) : null}
-          {/* 🧪 PROTOTYPE (exp/canvas): canvas button on fenced answers */}
-          {m.role === "assistant" && onOpenCanvas && /```\w*/.test(m.content) ? (
+          {/* 🧪 PROTOTYPE (exp/canvas): canvas button on every AI answer */}
+          {m.role === "assistant" && onOpenCanvas ? (
             <button
               className="msg-share"
               title="Open in canvas (prototype)"
