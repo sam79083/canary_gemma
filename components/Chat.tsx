@@ -166,14 +166,12 @@ export default function Chat({
   const [rawIdx, setRawIdx] = useState<number | null>(null);
   /** 🧪 PROTOTYPE (exp/canvas): message open in the canvas side panel. */
   const [canvasIdx, setCanvasIdx] = useState<number | null>(null);
-  /** 🧪 PROTOTYPE (exp/canvas): open canvas with built-in samples. */
-  const [canvasDemo, setCanvasDemo] = useState(false);
   /** 🧪 PROTOTYPE (exp/canvas): message count already considered for auto-open. */
   const canvasAutoRef = useRef(0);
   // 🧪 PROTOTYPE (exp/canvas): auto-open like Claude — a fresh assistant
   // message with a long fenced block opens the canvas on its own.
   useEffect(() => {
-    if (streaming || canvasIdx !== null || canvasDemo) return;
+    if (streaming || canvasIdx !== null) return;
     if (canvasAutoRef.current === messages.length) return;
     const last = messages[messages.length - 1];
     if (!last || last.role !== "assistant" || !hasLongFence(last.content)) {
@@ -182,7 +180,7 @@ export default function Chat({
     }
     canvasAutoRef.current = messages.length;
     setCanvasIdx(messages.length - 1);
-  }, [messages, streaming, canvasIdx, canvasDemo]);
+  }, [messages, streaming, canvasIdx]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   /** Cooperative stop: checked at every stream chunk / agent step. The
    * model APIs take no AbortSignal, so turns poll this flag instead. */
@@ -1201,39 +1199,14 @@ export default function Chat({
         onOpenFile={onOpenFile}
         onOpenCanvas={(idx) => {
           setCanvasIdx(idx); // 🧪 PROTOTYPE (exp/canvas)
-          setCanvasDemo(false);
         }}
       />
       {/* 🧪 PROTOTYPE (exp/canvas) */}
-      <button
-        type="button"
-        title="Open canvas demo (prototype)"
-        onClick={() => {
-          setCanvasIdx(null);
-          setCanvasDemo(true);
-        }}
-        style={{
-          position: "fixed",
-          right: 16,
-          bottom: 90,
-          zIndex: 800,
-          width: 44,
-          height: 44,
-          borderRadius: "50%",
-          border: "1px solid var(--border)",
-          background: "var(--model-bar-bg)",
-          fontSize: 20,
-          cursor: "pointer",
-        }}
-      >
-        🎨
-      </button>
-      {canvasDemo || (canvasIdx !== null && messages[canvasIdx]) ? (
+      {canvasIdx !== null && messages[canvasIdx] ? (
         <CanvasPanel
-          message={canvasIdx !== null && messages[canvasIdx] ? messages[canvasIdx] : null}
+          message={messages[canvasIdx]}
           onClose={() => {
             setCanvasIdx(null);
-            setCanvasDemo(false);
             canvasAutoRef.current = messages.length;
           }}
         />
