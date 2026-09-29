@@ -1141,7 +1141,10 @@ export default function Home() {
             id="enable-model-btn"
             onClick={() => void model.createSession()}
           >
-            {t("pgStartAi")}
+            {model.availability === "downloadable" ||
+            model.availability === "downloading"
+              ? t("pgDownloadModel")
+              : t("pgStartAi")}
           </button>
         ) : null}
 
