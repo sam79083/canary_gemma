@@ -1129,6 +1129,11 @@ body[data-theme="midnight"] .message .content.md a {
 
 /* Settings page */
 .settings-page {
+    flex: 1;
+    min-width: 0;
+    height: 100vh;
+    overflow-y: auto;
+    overflow-x: hidden;
     max-width: 600px;
     margin: 0 auto;
     padding: 28px 20px 80px;
