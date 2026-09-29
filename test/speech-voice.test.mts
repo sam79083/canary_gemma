@@ -3,9 +3,12 @@ import assert from "node:assert/strict";
 import {
   TTS_CHUNK_MAX,
   detectSpeechLang,
+  getStoredVoiceKey,
   pickSpeechVoice,
+  setStoredVoiceKey,
   speechLang,
   splitSpeechChunks,
+  voiceKey,
 } from "../lib/speech.ts";
 
 describe("speech locales", () => {
@@ -67,6 +70,22 @@ describe("pickSpeechVoice", () => {
   });
 });
 
+describe("voice preference", () => {
+  const A = { lang: "ko-KR", name: "Voice A" };
+  const B = { lang: "ko-KR", name: "Voice B" };
+
+  it("builds stable keys and honors a stored choice", () => {
+    assert.equal(voiceKey(A), "ko-KR|||Voice A");
+    assert.equal(pickSpeechVoice([A, B], "ko", voiceKey(B)), B);
+    assert.equal(pickSpeechVoice([A, B], "ko", "gone|||Voice"), A);
+  });
+
+  it("storage helpers survive without localStorage", () => {
+    assert.equal(getStoredVoiceKey(), null);
+    setStoredVoiceKey("x");
+    assert.equal(getStoredVoiceKey(), null);
+  });
+});
 describe("splitSpeechChunks", () => {
   it("keeps short text in one chunk", () => {
     assert.deepEqual(splitSpeechChunks("안녕하세요."), ["안녕하세요."]);

@@ -8,6 +8,7 @@ import type { Lang } from "@/lib/i18n";
 import { toSpokenText } from "@/lib/markdown";
 import {
   detectSpeechLang,
+  getStoredVoiceKey,
   pickSpeechVoice,
   speechLang,
   splitSpeechChunks,
@@ -120,11 +121,22 @@ export function useSpeech() {
             // keep warmed list
           }
           const chunks = splitSpeechChunks(text);
+          // The settings page may store an explicit voice choice.
+          let preferred: string | null = null;
+          try {
+            preferred = getStoredVoiceKey();
+          } catch {
+            // ignore
+          }
           chunks.forEach((part, i) => {
             // Voice follows the chunk's own language, never the UI
             // language: the top picker only switches UI text.
             const chunkLang = detectSpeechLang(part, lang);
-            const voice = pickSpeechVoice(voicesRef.current, chunkLang);
+            const voice = pickSpeechVoice(
+              voicesRef.current,
+              chunkLang,
+              preferred,
+            );
             const u = new SpeechSynthesisUtterance(part);
             u.lang = speechLang(chunkLang);
             if (voice) {

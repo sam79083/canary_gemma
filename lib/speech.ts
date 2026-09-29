@@ -70,7 +70,32 @@ export interface VoiceLike {
   name: string;
 }
 
-/** Best voice for the UI language: exact locale → prefix → name hint.
+/** localStorage key for the user's chosen read-aloud voice. */
+export const TTS_VOICE_KEY = "canary-tts-voice";
+
+/** Stable identity for a voice across sessions. */
+export function voiceKey(v: VoiceLike): string {
+  return `${v.lang || ""}|||${v.name || ""}`;
+}
+
+export function getStoredVoiceKey(): string | null {
+  try {
+    return localStorage.getItem(TTS_VOICE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredVoiceKey(key: string | null): void {
+  try {
+    if (key) localStorage.setItem(TTS_VOICE_KEY, key);
+    else localStorage.removeItem(TTS_VOICE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/** Best voice: stored choice first, then exact locale → prefix → name hint.
  * Within each tier, neural voices win: OS vendors ship both robotic
  * legacy voices and "Natural"/"Online" neural ones under the same locale
  * (e.g. Windows 11 Korean "Online (Natural)"), and the legacy one usually
@@ -78,8 +103,13 @@ export interface VoiceLike {
 export function pickSpeechVoice(
   voices: VoiceLike[],
   lang: Lang,
+  preferredKey?: string | null,
 ): VoiceLike | null {
   if (voices.length === 0) return null;
+  if (preferredKey) {
+    const chosen = voices.find((v) => voiceKey(v) === preferredKey);
+    if (chosen) return chosen;
+  }
   const want = speechLang(lang).toLowerCase();
   const prefix = want.split("-")[0];
   const naturalFirst = (list: VoiceLike[]): VoiceLike | null => {
