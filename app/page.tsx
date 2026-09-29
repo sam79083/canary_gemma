@@ -1488,6 +1488,35 @@ export default function Home() {
                 {t("pgHowToOpen")}
               </button>
             </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+              <button
+                className="sidebar-btn small"
+                style={{ flex: 1, justifyContent: "center" }}
+                onClick={() => {
+                  // Re-run the availability check in place (no page reload
+                  // needed) and start right away if the flags took effect.
+                  void (async () => {
+                    if (model.busyRef.current) return;
+                    const avail = await model.supported();
+                    if (avail !== "unavailable" && avail !== "unsupported")
+                      await model.createSession();
+                  })();
+                }}
+              >
+                {t("pgRecheck")}
+              </button>
+              <button
+                className="sidebar-btn small"
+                style={{ flex: 1, justifyContent: "center" }}
+                onClick={() => {
+                  // Built-in AI blocked on this PC: jump to Cloud trial
+                  // (server key, no personal key needed) in one tap.
+                  void handleProviderSwitch("cloud");
+                }}
+              >
+                {t("pgCloudStart")}
+              </button>
+            </div>
             <div style={{ fontSize: 11, opacity: 0.75, marginTop: 6 }}>
               {t("pgFlagNote")}
             </div>
