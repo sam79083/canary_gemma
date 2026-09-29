@@ -21,7 +21,8 @@ interface SpeechRec {
 
 type SpeechCtor = new () => SpeechRec;
 
-function speechLang(lang: Lang): string {
+/** BCP-47 voice locale per UI language (shared with the read-aloud hook). */
+export function speechLang(lang: Lang): string {
   switch (lang) {
     case "ko": return "ko-KR";
     case "en": return "en-US";

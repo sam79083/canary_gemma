@@ -310,6 +310,10 @@ const ko: Dict = {
   vcMic: "음성 입력",
   vcStop: "듣기 중지",
   vcListening: "듣고 있어요…",
+  rdListen: "🔊 읽어주기",
+  rdStop: "⏹ 멈추기",
+  rdFullscreen: "⛶ 전체화면으로 보기",
+  rdTextSize: "글자 크기",
   chPhotoMode: "사진 모드 준비 중…",
   cfTitle: "🎨 그림 생성",
   cfUrl: "ComfyUI 주소",
@@ -718,6 +722,10 @@ const en: Dict = {
   vcMic: "Voice input",
   vcStop: "Stop listening",
   vcListening: "Listening…",
+  rdListen: "🔊 Read aloud",
+  rdStop: "⏹ Stop",
+  rdFullscreen: "⛶ View fullscreen",
+  rdTextSize: "Text size",
   chPhotoMode: "Getting photo mode ready…",
   cfTitle: "🎨 Images",
   cfUrl: "ComfyUI address",
@@ -1256,6 +1264,10 @@ const ja: Dict = {
   hpAttach: "📎 添付: テキストファイルは作業フォルダに、画像はAIに直接送信されます。",
   hpClose: "閉じる",
   hpDraw: "🖼️ 描画: テキストからHD画像を生成します。",
+  rdFullscreen: "⛶ フルスクリーンで表示",
+  rdListen: "🔊 読み上げ",
+  rdStop: "⏹ 停止",
+  rdTextSize: "文字サイズ",
 };
 
 const zh: Dict = {
@@ -1665,6 +1677,10 @@ const zh: Dict = {
   vcListening: "正在倾听…",
   vcMic: "语音输入",
   vcStop: "停止倾听",
+  rdFullscreen: "⛶ 全屏显示",
+  rdListen: "🔊 朗读",
+  rdStop: "⏹ 停止",
+  rdTextSize: "字体大小",
 };
 
 const es: Dict = {
@@ -2074,6 +2090,10 @@ const es: Dict = {
   vcListening: "Escuchando…",
   vcMic: "Entrada de voz",
   vcStop: "Detener escucha",
+  rdFullscreen: "⛶ Ver en pantalla completa",
+  rdListen: "🔊 Leer en voz alta",
+  rdStop: "⏹ Detener",
+  rdTextSize: "Tamaño de letra",
 };
 
 const ALL: Record<Lang, Dict> = { ko, en, ja, zh, es };

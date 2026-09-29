@@ -27,6 +27,10 @@ export default function MessageList({
   setInput,
   inputRef,
   onOpenFile,
+  onSpeak,
+  speakingIdx,
+  speechSupported,
+  onOpenReader,
 }: {
   messages: ChatMessage[];
   streamText: string | null;
@@ -46,10 +50,17 @@ export default function MessageList({
   setInput: (v: string) => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   onOpenFile: (path: string) => void;
+  /** Read-aloud + fullscreen reader (elder-friendly). All optional. */
+  onSpeak?: (idx: number) => void;
+  speakingIdx?: number | null;
+  speechSupported?: boolean;
+  onOpenReader?: (idx: number) => void;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
-  /** Chat bubble context menu (right-click). */
+  /** Chat bubble context menu (right-click / long-press). */
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; idx: number } | null>(null);
+  /** Long-press timer for touch devices (opens the same menu). */
+  const touchRef = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -81,6 +92,53 @@ export default function MessageList({
     document.addEventListener("click", close, { once: true });
     return () => document.removeEventListener("click", close);
   }, [ctxMenu]);
+
+  /** Long-press on a bubble (touch): same menu as right-click. */
+  const onTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (!onOpenReader) return;
+      const touch = e.touches[0];
+      if (!touch) return;
+      const el = e.target as HTMLElement | null;
+      const bubble = el?.closest?.(".message[data-idx]") as HTMLElement | null;
+      if (!bubble) return;
+      const idx = Number(bubble.getAttribute("data-idx"));
+      if (!Number.isInteger(idx) || !messages[idx]) return;
+      const x = touch.clientX;
+      const y = touch.clientY;
+      const timer = setTimeout(() => {
+        try {
+          (navigator as Navigator & { vibrate?: (n: number) => void }).vibrate?.(30);
+        } catch {
+          // ignore
+        }
+        setCtxMenu({
+          x: Math.min(x, window.innerWidth - 200),
+          y: Math.min(y, window.innerHeight - 260),
+          idx,
+        });
+      }, 550);
+      touchRef.current = { x, y, timer };
+    },
+    [messages, onOpenReader],
+  );
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    const cur = touchRef.current;
+    if (!cur) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    // Finger slid (scrolling) — not a press.
+    if (Math.abs(touch.clientX - cur.x) + Math.abs(touch.clientY - cur.y) > 12) {
+      clearTimeout(cur.timer);
+      touchRef.current = null;
+    }
+  }, []);
+  const cancelTouch = useCallback(() => {
+    if (touchRef.current) {
+      clearTimeout(touchRef.current.timer);
+      touchRef.current = null;
+    }
+  }, []);
 
   /** Code-fence copy buttons are injected HTML — catch clicks by delegation. */
   const onCodeCopy = useCallback((e: React.MouseEvent) => {
@@ -132,6 +190,10 @@ export default function MessageList({
       id="messages"
       onClick={onCodeCopy}
       onContextMenu={onBubbleMenu}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={cancelTouch}
+      onTouchCancel={cancelTouch}
     >
       {messages.map((m, i) => (
         <motion.div
@@ -205,6 +267,15 @@ export default function MessageList({
               {copiedIdx === i ? "✓" : "⤴"}
             </button>
           ) : null}
+          {m.role === "assistant" && onSpeak && speechSupported ? (
+            <button
+              className="msg-share"
+              title={speakingIdx === i ? t("rdStop") : t("rdListen")}
+              onClick={() => onSpeak(i)}
+            >
+              {speakingIdx === i ? "⏹" : "🔊"}
+            </button>
+          ) : null}
           {m.role === "assistant" && i === messages.length - 1 ? (
             <button
               className="msg-share"
@@ -256,6 +327,14 @@ export default function MessageList({
                       label: `⤴ ${t("shShare")}`,
                       run: () => void shareMsg(messages[ctxMenu.idx].content, ctxMenu.idx),
                     },
+                    ...(onOpenReader
+                      ? [
+                          {
+                            label: `⛶ ${t("rdFullscreen")}`,
+                            run: () => onOpenReader(ctxMenu.idx),
+                          },
+                        ]
+                      : []),
                     ...(ctxMenu.idx === messages.length - 1
                       ? [
                           {

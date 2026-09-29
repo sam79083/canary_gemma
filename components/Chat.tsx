@@ -28,6 +28,8 @@ import { estimateTokens, recordUsage } from "@/lib/usage";
 import { sanitizeAnswer } from "@/lib/sanitize";
 import MouseOrb from "@/components/MouseOrb";
 import MessageList from "@/components/chat/MessageList";
+import ReaderOverlay from "@/components/chat/ReaderOverlay";
+import { useSpeech } from "@/components/chat/useSpeech";
 import Composer from "@/components/chat/Composer";
 import PlanCard, { type PlanVerdict } from "@/components/chat/PlanCard";
 import {
@@ -163,6 +165,24 @@ export default function Chat({
   const planResolveRef = useRef<((v: PlanVerdict) => void) | null>(null);
   /** Assistant bubble showing raw markdown instead of rendered HTML. */
   const [rawIdx, setRawIdx] = useState<number | null>(null);
+  /** Read-aloud engine (browser speech synthesis). */
+  const speech = useSpeech();
+  /** Fullscreen big-text reader open on this message (null = closed). */
+  const [readerIdx, setReaderIdx] = useState<number | null>(null);
+  // Stop read-aloud when the AI starts answering.
+  useEffect(() => {
+    if (streaming) speech.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streaming]);
+  /** 🔊 toggle on a message bubble (or inside the fullscreen reader). */
+  const toggleSpeak = useCallback(
+    (idx: number) => {
+      if (speech.speakingKey === idx) speech.stop();
+      else if (messages[idx]) speech.speak(idx, messages[idx].content, lang);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [speech.speakingKey, messages, lang],
+  );
   const inputRef = useRef<HTMLTextAreaElement>(null);
   /** Cooperative stop: checked at every stream chunk / agent step. The
    * model APIs take no AbortSignal, so turns poll this flag instead. */
@@ -1174,12 +1194,56 @@ export default function Chat({
         copyText={copyText}
         handleReroll={handleReroll}
         handleRegen={handleRegen}
-        deleteMessage={deleteMessage}
+        deleteMessage={(idx) => {
+          if (speech.speakingKey === idx) speech.stop();
+          deleteMessage(idx);
+        }}
         saveMessageAsFile={saveMessageAsFile}
         setInput={setInput}
         inputRef={inputRef}
         onOpenFile={onOpenFile}
+        onSpeak={toggleSpeak}
+        speakingIdx={speech.speakingKey}
+        speechSupported={speech.supported}
+        onOpenReader={(idx) => setReaderIdx(idx)}
       />
+      {readerIdx !== null && messages[readerIdx] ? (
+        <ReaderOverlay
+          text={messages[readerIdx].content}
+          title={t("rdFullscreen")}
+          t={t}
+          speaking={speech.speakingKey === readerIdx}
+          onSpeak={() => toggleSpeak(readerIdx)}
+          onClose={() => {
+            speech.stop();
+            setReaderIdx(null);
+          }}
+          onPrev={(() => {
+            const order = messages
+              .map((m, i) => (m.role === "assistant" ? i : -1))
+              .filter((i) => i >= 0);
+            const pos = order.indexOf(readerIdx);
+            if (pos <= 0) return null;
+            const prev = order[pos - 1];
+            return () => {
+              speech.stop();
+              setReaderIdx(prev);
+            };
+          })()}
+          onNext={(() => {
+            const order = messages
+              .map((m, i) => (m.role === "assistant" ? i : -1))
+              .filter((i) => i >= 0);
+            const pos = order.indexOf(readerIdx);
+            if (pos < 0 || pos >= order.length - 1) return null;
+            const next = order[pos + 1];
+            return () => {
+              speech.stop();
+              setReaderIdx(next);
+            };
+          })()}
+        />
+      ) : null}
       {pendingPlan ? (
         <PlanCard plan={pendingPlan} t={t} onSettle={settlePlan} />
       ) : null}

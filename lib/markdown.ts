@@ -164,3 +164,40 @@ export function renderMarkdown(text: string, copyLabel = "복사"): string {
   closeList();
   return html || " ";
 }
+
+/**
+ * Markdown → spoken text for the read-aloud (TTS) feature.
+ * Strips formatting a speech engine would read literally (fences, links,
+ * tables) and collapses whitespace.
+ */
+export function toSpokenText(md: string): string {
+  if (!md) return "";
+  let s = stripLeakedToolText(md);
+  // Fenced code blocks → dropped (reading code aloud is noise).
+  s = s.replace(/```[\s\S]*?```/g, " ");
+  // Unclosed fence (streaming edge) → drop to end of text.
+  s = s.replace(/```[\s\S]*$/g, " ");
+  // Images → alt text only; links → link text only.
+  s = s.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
+  s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  // Inline code, bold/italic/strike, headings, quotes, list markers.
+  s = s.replace(/`([^`]*)`/g, "$1");
+  s = s.replace(/(\*\*|__)(.*?)\1/g, "$2");
+  s = s.replace(/(^|[^*\w])\*([^*\n]+)\*/g, "$1$2");
+  s = s.replace(/~~([^~]*)~~/g, "$1");
+  s = s.replace(/^#{1,6}\s+/gm, "");
+  s = s.replace(/^>\s?/gm, "");
+  s = s.replace(/^\s*([-*•]|\d+[.)])\s+/gm, "");
+  // Table pipes → spaces; HTML tags → dropped.
+  s = s.replace(/\|/g, " ");
+  s = s.replace(/<[^>]*>/g, " ");
+  // Emoji + common decorative glyphs.
+  s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/gu, " ");
+  return s
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{2,}/g, "\n")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join("\n");
+}
