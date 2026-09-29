@@ -1,32 +1,44 @@
 // Read-aloud (TTS) via the built-in browser speech engine — free,
-// on-device voices, no API key. One utterance at a time.
+// on-device voices, no API key. One message at a time, split into short
+// chunks so long texts aren't cut off mid-way.
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Lang } from "@/lib/i18n";
 import { toSpokenText } from "@/lib/markdown";
-import { speechLang } from "@/components/chat/useVoiceInput";
+import {
+  pickSpeechVoice,
+  speechLang,
+  splitSpeechChunks,
+} from "@/lib/speech";
 
-interface SpeechVoice {
-  lang: string;
-  name: string;
-}
-
-function pickVoice(lang: Lang): SpeechVoice | null {
-  try {
-    const synth = window.speechSynthesis;
-    const voices = synth.getVoices();
-    if (voices.length === 0) return null;
-    const want = speechLang(lang).toLowerCase();
-    const prefix = want.split("-")[0];
-    return (
-      voices.find((v) => v.lang.toLowerCase() === want) ??
-      voices.find((v) => v.lang.toLowerCase().startsWith(prefix)) ??
-      null
-    );
-  } catch {
-    return null;
-  }
+/** Resolve once voices are loaded (Chrome fills the list asynchronously). */
+function awaitVoices(timeoutMs = 2000): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      const synth = window.speechSynthesis;
+      if (synth.getVoices().length > 0) {
+        resolve();
+        return;
+      }
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        try {
+          synth.removeEventListener("voiceschanged", finish);
+        } catch {
+          // ignore
+        }
+        resolve();
+      };
+      const timer = setTimeout(finish, timeoutMs);
+      synth.addEventListener("voiceschanged", finish);
+    } catch {
+      resolve();
+    }
+  });
 }
 
 export function useSpeech() {
@@ -34,6 +46,7 @@ export function useSpeech() {
   /** Message index currently being read (null = silent). */
   const [speakingKey, setSpeakingKey] = useState<number | null>(null);
   const keyRef = useRef<number | null>(null);
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
 
   useEffect(() => {
     let ok = false;
@@ -43,8 +56,25 @@ export function useSpeech() {
       ok = false;
     }
     setSupported(ok);
+    if (!ok) return;
+    // Warm the voice list early: Chrome populates it asynchronously, so a
+    // first click often saw an empty list and fell back to the wrong voice.
+    const load = () => {
+      try {
+        voicesRef.current = window.speechSynthesis.getVoices();
+      } catch {
+        // ignore
+      }
+    };
+    load();
+    try {
+      window.speechSynthesis.addEventListener("voiceschanged", load);
+    } catch {
+      // ignore
+    }
     return () => {
       try {
+        window.speechSynthesis.removeEventListener("voiceschanged", load);
         window.speechSynthesis?.cancel();
       } catch {
         // ignore
@@ -67,34 +97,49 @@ export function useSpeech() {
     (key: number, markdown: string, lang: Lang) => {
       const text = toSpokenText(markdown);
       if (!text) return;
-      try {
-        const synth = window.speechSynthesis;
-        synth.cancel();
-        const u = new SpeechSynthesisUtterance(text);
-        u.lang = speechLang(lang);
-        const voice = pickVoice(lang);
-        if (voice) {
-          const real = synth
-            .getVoices()
-            .find((v) => v.name === voice.name && v.lang === voice.lang);
-          if (real) u.voice = real;
-        }
-        u.rate = 1;
+      keyRef.current = key;
+      setSpeakingKey(key);
+      void (async () => {
         const done = () => {
           if (keyRef.current === key) {
             keyRef.current = null;
             setSpeakingKey(null);
           }
         };
-        u.onend = done;
-        u.onerror = done;
-        keyRef.current = key;
-        setSpeakingKey(key);
-        synth.speak(u);
-      } catch {
-        keyRef.current = null;
-        setSpeakingKey(null);
-      }
+        try {
+          const synth = window.speechSynthesis;
+          synth.cancel();
+          // Wait (bounded) for the voice list — otherwise Korean falls
+          // back to the default, usually English, voice.
+          await awaitVoices();
+          if (keyRef.current !== key) return;
+          try {
+            voicesRef.current = synth.getVoices();
+          } catch {
+            // keep warmed list
+          }
+          const voice = pickSpeechVoice(voicesRef.current, lang);
+          const chunks = splitSpeechChunks(text);
+          chunks.forEach((part, i) => {
+            const u = new SpeechSynthesisUtterance(part);
+            u.lang = speechLang(lang);
+            if (voice) {
+              const real = voicesRef.current.find(
+                (v) => v.name === voice.name && v.lang === voice.lang,
+              );
+              if (real) u.voice = real;
+            }
+            u.rate = 1;
+            if (i === chunks.length - 1) {
+              u.onend = done;
+              u.onerror = done;
+            }
+            synth.speak(u);
+          });
+        } catch {
+          done();
+        }
+      })();
     },
     [],
   );

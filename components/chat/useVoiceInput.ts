@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Lang } from "@/lib/i18n";
+import { speechLang } from "@/lib/speech";
 
 interface SpeechResultEvent {
   resultIndex: number;
@@ -20,17 +21,6 @@ interface SpeechRec {
 }
 
 type SpeechCtor = new () => SpeechRec;
-
-/** BCP-47 voice locale per UI language (shared with the read-aloud hook). */
-export function speechLang(lang: Lang): string {
-  switch (lang) {
-    case "ko": return "ko-KR";
-    case "en": return "en-US";
-    case "ja": return "ja-JP";
-    case "zh": return "zh-CN";
-    case "es": return "es-ES";
-  }
-}
 
 export function useVoiceInput({
   input,
