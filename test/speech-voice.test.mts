@@ -55,6 +55,16 @@ describe("pickSpeechVoice", () => {
     assert.equal(pickSpeechVoice([], "ko"), null);
     assert.equal(pickSpeechVoice([EN], "ko"), null);
   });
+
+  it("prefers a neural voice within the same locale", () => {
+    const legacy = { lang: "ko-KR", name: "Microsoft Heami Desktop" };
+    const neural = {
+      lang: "ko-KR",
+      name: "Microsoft SunHi Online (Natural)",
+    };
+    assert.equal(pickSpeechVoice([legacy, neural], "ko"), neural);
+    assert.equal(pickSpeechVoice([neural, legacy], "ko"), neural);
+  });
 });
 
 describe("splitSpeechChunks", () => {

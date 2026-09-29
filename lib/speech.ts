@@ -70,7 +70,11 @@ export interface VoiceLike {
   name: string;
 }
 
-/** Best voice for the UI language: exact locale → prefix → name hint. */
+/** Best voice for the UI language: exact locale → prefix → name hint.
+ * Within each tier, neural voices win: OS vendors ship both robotic
+ * legacy voices and "Natural"/"Online" neural ones under the same locale
+ * (e.g. Windows 11 Korean "Online (Natural)"), and the legacy one usually
+ * sorts first. */
 export function pickSpeechVoice(
   voices: VoiceLike[],
   lang: Lang,
@@ -78,10 +82,21 @@ export function pickSpeechVoice(
   if (voices.length === 0) return null;
   const want = speechLang(lang).toLowerCase();
   const prefix = want.split("-")[0];
+  const naturalFirst = (list: VoiceLike[]): VoiceLike | null => {
+    if (list.length === 0) return null;
+    return (
+      list.find((v) => /natural|online|neural/i.test(v.name || "")) ?? list[0]
+    );
+  };
   return (
-    voices.find((v) => (v.lang || "").toLowerCase() === want) ??
-    voices.find((v) => (v.lang || "").toLowerCase().startsWith(prefix)) ??
-    voices.find((v) => /korean|한국어|한국/i.test(v.name || "")) ??
-    null
+    naturalFirst(
+      voices.filter((v) => (v.lang || "").toLowerCase() === want),
+    ) ??
+    naturalFirst(
+      voices.filter((v) => (v.lang || "").toLowerCase().startsWith(prefix)),
+    ) ??
+    naturalFirst(
+      voices.filter((v) => /korean|한국어|한국/i.test(v.name || "")),
+    )
   );
 }
