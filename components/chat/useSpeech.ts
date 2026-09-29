@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Lang } from "@/lib/i18n";
 import { toSpokenText } from "@/lib/markdown";
 import {
+  detectSpeechLang,
   pickSpeechVoice,
   speechLang,
   splitSpeechChunks,
@@ -118,11 +119,14 @@ export function useSpeech() {
           } catch {
             // keep warmed list
           }
-          const voice = pickSpeechVoice(voicesRef.current, lang);
           const chunks = splitSpeechChunks(text);
           chunks.forEach((part, i) => {
+            // Voice follows the chunk's own language, never the UI
+            // language: the top picker only switches UI text.
+            const chunkLang = detectSpeechLang(part, lang);
+            const voice = pickSpeechVoice(voicesRef.current, chunkLang);
             const u = new SpeechSynthesisUtterance(part);
-            u.lang = speechLang(lang);
+            u.lang = speechLang(chunkLang);
             if (voice) {
               const real = voicesRef.current.find(
                 (v) => v.name === voice.name && v.lang === voice.lang,

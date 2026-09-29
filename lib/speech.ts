@@ -19,6 +19,19 @@ export function speechLang(lang: Lang): string {
   }
 }
 
+/**
+ * Voice language from the CONTENT, not the UI language: the top language
+ * picker only switches UI text, so reading must follow what the message
+ * actually says. Script heuristic (ko > ja-kana > zh-hanzi); anything else
+ * falls back to the UI language.
+ */
+export function detectSpeechLang(text: string, fallback: Lang): Lang {
+  if (/[가-힣]/.test(text)) return "ko";
+  if (/[ぁ-ゔァ-ヴー]/.test(text)) return "ja";
+  if (/[一-鿿豈-﫿]/.test(text)) return "zh";
+  return fallback;
+}
+
 /** Max chars per utterance — long single utterances get cut off. */
 export const TTS_CHUNK_MAX = 200;
 

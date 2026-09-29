@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   TTS_CHUNK_MAX,
+  detectSpeechLang,
   pickSpeechVoice,
   speechLang,
   splitSpeechChunks,
@@ -14,6 +15,19 @@ describe("speech locales", () => {
   });
 });
 
+describe("detectSpeechLang", () => {
+  it("follows the content script, not the UI language", () => {
+    assert.equal(detectSpeechLang("저는 Gemma입니다.", "en"), "ko");
+    assert.equal(detectSpeechLang("こんにちは。", "en"), "ja");
+    assert.equal(detectSpeechLang("你好。", "en"), "zh");
+  });
+
+  it("falls back to the UI language for anything else", () => {
+    assert.equal(detectSpeechLang("Hello there.", "es"), "es");
+    assert.equal(detectSpeechLang("Hello there.", "ko"), "ko");
+    assert.equal(detectSpeechLang("", "en"), "en");
+  });
+});
 describe("pickSpeechVoice", () => {
   const EN = { lang: "en-US", name: "Google US English" };
   const KO = { lang: "ko-KR", name: "Google 한국의" };
