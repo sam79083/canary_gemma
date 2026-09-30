@@ -1,0 +1,323 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useLanguage } from "@/hooks/useLanguage";
+import {
+  ALL_ITEMS,
+  CEFR_ORDER,
+  SELF_CHECK,
+  buildDailyLesson,
+  getPlacementTest,
+  scoreToCEFR,
+  suggestLevelFromChecks,
+  type BankItem,
+  type CEFR,
+} from "@/lib/learn-bank";
+import QuizCard from "@/components/learn/QuizCard";
+import { dayStr } from "@/lib/learn-srs";
+import {
+  dueWords,
+  emptyState,
+  leechWords,
+  loadLearn,
+  recordAnswers,
+  saveLearn,
+  setLevel,
+  weakestSkill,
+  weekSeries,
+  type AnswerResult,
+  type LearnState,
+} from "@/lib/learn-store";
+
+type Tab = "assess" | "lesson" | "review" | "progress";
+
+function useT() {
+  const { lang, t } = useLanguage();
+  const L = (key: string, fallback: string) => {
+    try {
+      const s = t(key);
+      return s === key ? fallback : s;
+    } catch {
+      return fallback;
+    }
+  };
+  return { lang, L };
+}
+
+function QuizRunner({
+  items,
+  onDone,
+  cta,
+}: {
+  items: BankItem[];
+  onDone: (results: AnswerResult[]) => void;
+  cta: string;
+}) {
+  return <QuizCard items={items} onDone={onDone} cta={cta} />;
+}
+
+export default function LearnPage() {
+  const { L } = useT();
+  const [tab, setTab] = useState<Tab>("lesson");
+  const [assessMode, setAssessMode] = useState<"menu" | "check" | "test">("menu");
+  const [checks, setChecks] = useState<Record<string, boolean>>({});
+  const [state, setState] = useState<LearnState>(() => emptyState());
+  const [hydrated, setHydrated] = useState(false);
+  const today = useMemo(() => dayStr(new Date()), []);
+  const [sessionKey, setSessionKey] = useState(0);
+
+  useEffect(() => {
+    setState(loadLearn());
+    setHydrated(true);
+  }, []);
+  useEffect(() => {
+    if (hydrated) saveLearn(state);
+  }, [state, hydrated]);
+
+  const placement = useMemo(() => getPlacementTest(), []);
+  const lesson = useMemo(
+    () => buildDailyLesson(today, state.level),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [today, state.level, sessionKey],
+  );
+  const reviewItems = useMemo(() => {
+    const byWord = new Map(ALL_ITEMS.filter((i) => i.word).map((i) => [i.word as string, i]));
+    return dueWords(state, today)
+      .map((w) => byWord.get(w))
+      .filter((x): x is BankItem => Boolean(x))
+      .slice(0, 10);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, today, sessionKey]);
+  const week = useMemo(() => weekSeries(state, today), [state, today]);
+  const weak = weakestSkill(state);
+  const leeches = leechWords(state);
+  const vocabAcc = state.skills.vocab.asked ? Math.round((100 * state.skills.vocab.correct) / state.skills.vocab.asked) : 0;
+  const gramAcc = state.skills.grammar.asked ? Math.round((100 * state.skills.grammar.correct) / state.skills.grammar.asked) : 0;
+  const maxXp = Math.max(1, ...week.map((d) => d.xp));
+
+  const finish = (results: AnswerResult[], levelize: boolean) => {
+    setState((prev) => {
+      let next = recordAnswers(prev, results, today);
+      if (levelize) {
+        const correct = results.filter((r) => r.correct).length;
+        next = setLevel(next, scoreToCEFR(correct, results.length));
+      }
+      return next;
+    });
+    setSessionKey((k) => k + 1);
+    setTab("progress");
+  };
+
+  const exportVocab = () => {
+    const rows = Object.entries(state.cards).sort();
+    const body =
+      `# My English vocab (${today})\n\n` +
+      (rows.length === 0 ? "No tracked words yet — finish a lesson first.\n" : rows.map(([w, c]) => `- ${w} — due ${c.due}, fails ${c.fails}, passes ${c.passes}`).join("\n") + "\n");
+    const blob = new Blob([body], { type: "text/markdown" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `vocab-${today}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
+
+  const board = [...week].sort((a, b) => b.xp - a.xp);
+
+  const pickLevel = (lv: CEFR, go: Tab = "lesson") => {
+    setState((prev) => setLevel(prev, lv));
+    setSessionKey((k) => k + 1);
+    setTab(go);
+  };
+
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto", padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <Link href="/" className="sidebar-btn small" style={{ width: "auto" }}>← Chat</Link>
+        <h1 style={{ fontSize: 20, margin: 0 }}>📚 {L("lnTitle", "English Learning")}</h1>
+        <span style={{ marginLeft: "auto", fontSize: 13, opacity: 0.85 }}>
+          {state.level ? `Level ${state.level}` : "Unplaced"} · ⚡{state.xp} XP · 🔥{state.lessons} lessons
+        </span>
+      </div>
+      <p style={{ fontSize: 13, opacity: 0.75, margin: 0 }}>
+        {L("lnFree", "100% free · no tokens · works offline. Questions are fixed banks graded on-device; your progress stays in this browser.")}
+      </p>
+      <div style={{ display: "flex", gap: 6 }}>
+        {(["assess", "lesson", "review", "progress"] as Tab[]).map((id) => (
+          <button
+            key={id}
+            className={`sidebar-btn small${tab === id ? " secondary" : ""}`}
+            onClick={() => setTab(id)}
+            style={{ flex: 1, justifyContent: "center" }}
+          >
+            {id === "assess" ? `🎯 ${L("lnAssess", "Assess")}` : id === "lesson" ? `✏️ ${L("lnLesson", "Lesson")}` : id === "review" ? `🔁 ${L("lnReview", "Review")} (${reviewItems.length})` : `📊 ${L("lnProgress", "Progress")}`}
+          </button>
+        ))}
+      </div>
+
+      {tab === "assess" ? (
+        <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 13, border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>
+              {L("lnKnowLevel", "I know my level — just let me pick it")}
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {CEFR_ORDER.map((lv) => (
+                <button
+                  key={lv}
+                  className={`sidebar-btn small${state.level === lv ? " secondary" : ""}`}
+                  onClick={() => pickLevel(lv)}
+                  style={{ flex: "1 1 60px", justifyContent: "center" }}
+                >
+                  {lv}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>
+              A1 Beginner · A2 Elementary · B1 Intermediate · B2 Upper-intermediate — {L("lnSkipHint", "skipping is fine: picking manually works, and lessons adapt either way.")}
+            </div>
+          </div>
+
+          {assessMode === "menu" ? (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button className="sidebar-btn small primary" onClick={() => { setChecks({}); setAssessMode("check"); }} style={{ flex: 1, justifyContent: "center" }}>
+                {L("lnSelfCheck", "❓ Not sure — 30-sec self-check")}
+              </button>
+              <button className="sidebar-btn small" onClick={() => setAssessMode("test")} style={{ flex: 1, justifyContent: "center" }}>
+                {L("lnFullTest", "📝 Full 12-question test")}
+              </button>
+              <button className="sidebar-btn small" onClick={() => pickLevel("A1")} style={{ flex: 1, justifyContent: "center" }}>
+                {L("lnSkip", "⏩ Skip — start at A1")}
+              </button>
+            </div>
+          ) : null}
+
+          {assessMode === "check" ? (
+            <div style={{ fontSize: 13, border: "1px solid var(--border)", borderRadius: 8, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ fontWeight: 700 }}>{L("lnCheckTitle", "Check what you can already do:")}</div>
+              {SELF_CHECK.map((s) => (
+                <label key={s.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer", background: checks[s.id] ? "var(--border)" : "transparent", borderRadius: 6, padding: "6px 8px" }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(checks[s.id])}
+                    onChange={() => setChecks((prev) => ({ ...prev, [s.id]: !prev[s.id] }))}
+                    style={{ marginTop: 3, accentColor: "var(--green)" }}
+                  />
+                  <span>
+                    <span style={{ fontSize: 11, opacity: 0.6 }}>[{s.level}] </span>
+                    {s.en}
+                    <br />
+                    <span style={{ opacity: 0.65 }}>{s.ko}</span>
+                  </span>
+                </label>
+              ))}
+              {(() => {
+                const n = Object.values(checks).filter(Boolean).length;
+                const sug = suggestLevelFromChecks(n);
+                return (
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 4 }}>
+                    <span>→ {L("lnSuggests", "Suggested level")}: <b>{n === 0 ? "—" : sug}</b></span>
+                    {n > 0 ? (
+                      <button className="sidebar-btn small primary" onClick={() => pickLevel(sug)} style={{ width: "auto" }}>
+                        {L("lnUseLevel", "Use this level →")}
+                      </button>
+                    ) : null}
+                    <button className="sidebar-btn small" onClick={() => setAssessMode("menu")} style={{ width: "auto" }}>←</button>
+                  </div>
+                );
+              })()}
+            </div>
+          ) : null}
+
+          {assessMode === "test" ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <p style={{ fontSize: 13, opacity: 0.8, margin: 0 }}>12 fixed questions (A1→B2). Result sets your level and unlocks the right daily lesson.</p>
+              <QuizRunner key={`a-${sessionKey}`} items={placement} cta="Save my level →" onDone={(r) => { setAssessMode("menu"); finish(r, true); }} />
+              <button className="sidebar-btn small" onClick={() => setAssessMode("menu")} style={{ width: "auto", alignSelf: "flex-start" }}>← Back</button>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {tab === "lesson" ? (
+        <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <p style={{ fontSize: 13, opacity: 0.8 }}>
+            Daily set for {today}{state.level ? ` · Level ${state.level}` : " · finish Assess to personalize"}. Same set all day — refresh-safe.
+          </p>
+          <QuizRunner key={`l-${sessionKey}`} items={lesson} cta="Record lesson →" onDone={(r) => finish(r, false)} />
+        </section>
+      ) : null}
+
+      {tab === "review" ? (
+        <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <p style={{ fontSize: 13, opacity: 0.8 }}>Spaced-repetition queue: words you missed come back after 1 → 6 → N days. Fail 3× = leech.</p>
+          {reviewItems.length === 0 ? (
+            <p>✅ Nothing due today. {leeches.length > 0 ? `But you have ${leeches.length} leech word(s) below — keep an eye on them.` : "Come back tomorrow."}</p>
+          ) : (
+            <QuizRunner key={`r-${sessionKey}`} items={reviewItems} cta="Record review →" onDone={(r) => finish(r, false)} />
+          )}
+          {leeches.length > 0 ? (
+            <div style={{ fontSize: 13, background: "var(--border)", borderRadius: 6, padding: 8 }}>
+              🐛 <b>Keep-forgetting ({leeches.length}):</b> {leeches.slice(0, 12).join(", ")}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {tab === "progress" ? (
+        <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 1, border: "1px solid var(--border)", borderRadius: 8, padding: 10, textAlign: "center" }}>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>Vocab accuracy</div>
+              <div style={{ fontSize: 20, fontWeight: 800 }}>{vocabAcc}%</div>
+              <div style={{ fontSize: 11, opacity: 0.7 }}>{state.skills.vocab.correct}/{state.skills.vocab.asked}</div>
+            </div>
+            <div style={{ flex: 1, border: "1px solid var(--border)", borderRadius: 8, padding: 10, textAlign: "center" }}>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>Grammar accuracy</div>
+              <div style={{ fontSize: 20, fontWeight: 800 }}>{gramAcc}%</div>
+              <div style={{ fontSize: 11, opacity: 0.7 }}>{state.skills.grammar.correct}/{state.skills.grammar.asked}</div>
+            </div>
+          </div>
+          {weak ? (
+            <div style={{ fontSize: 13, background: "var(--border)", borderRadius: 6, padding: 8 }}>
+              💡 <b>Improve next:</b> {weak === "grammar" ? "grammar — try articles (a/an/the), prepositions (in/at/since), and plurals in Review." : "vocab — drill the leech list in Review, 5 min/day."}
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, opacity: 0.8 }}>Finish 5+ answers per skill to unlock the “what to improve” hint.</div>
+          )}
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Last 7 days XP (this device — free local leaderboard)</div>
+            <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 90 }}>
+              {week.map((d) => (
+                <div key={d.day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                  <div style={{ fontSize: 11 }}>{d.xp > 0 ? d.xp : ""}</div>
+                  <div style={{ width: "100%", height: Math.max(2, Math.round((d.xp / maxXp) * 60)), background: "var(--green)", borderRadius: 3, opacity: d.xp ? 1 : 0.2 }} />
+                  <div style={{ fontSize: 10, opacity: 0.7 }}>{d.day.slice(5)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>🏆 This-week board (device)</div>
+            {board.every((d) => d.xp === 0) ? (
+              <p style={{ fontSize: 13, opacity: 0.7 }}>No XP yet — finish a lesson to open your board.</p>
+            ) : (
+              <ol style={{ fontSize: 13, margin: 0, paddingLeft: 20 }}>
+                {board.filter((d) => d.xp > 0).map((d) => (
+                  <li key={d.day}>{d.day} — {d.xp} XP · {d.correct}/{d.asked} correct</li>
+                ))}
+              </ol>
+            )}
+            <p style={{ fontSize: 12, opacity: 0.7 }}>Global member board (Supabase) needs only 1 row/user/day — see <code>supabase/migrations/003_learn.sql</code>. Until then this local board costs $0 and never sleeps.</p>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="sidebar-btn small" onClick={exportVocab}>⬇ Export vocab (.md)</button>
+            <Link href="/" className="sidebar-btn small" style={{ textAlign: "center" }}>💬 Ask the AI about a mistake</Link>
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
+}

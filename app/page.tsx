@@ -10,6 +10,7 @@ import FileTree from "@/components/FileTree";
 import HelpDialog from "@/components/HelpDialog";
 import LoginDialog from "@/components/LoginDialog";
 import ReviewCard from "@/components/ReviewCard";
+import TutorPanel from "@/components/learn/TutorPanel";
 import Onboarding from "@/components/Onboarding";
 import Tip from "@/components/Tip";
 import TrialOverDialog from "@/components/TrialOverDialog";
@@ -267,7 +268,8 @@ export default function Home() {
   const confirmCtl = useConfirm();
   // Command palette (Ctrl+K quick switcher).
   const [paletteOpen, setPaletteOpen] = useState(false);
-  useEffect(() => {
+  // 🦜 English tutor slide-over (same screen as chat, shared learn progress).
+  const [tutorOpen, setTutorOpen] = useState(false);  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -1540,6 +1542,24 @@ export default function Home() {
           {t("obGuide")}
         </button>
         <Link
+          href="/learn"
+          className="sidebar-btn"
+          id="learn-btn"
+          title={t("lnTitle")}
+          style={{ marginTop: 8 }}
+        >
+          {t("lnLearn")}
+        </Link>
+        <button
+          className="sidebar-btn"
+          id="tutor-btn"
+          title={t("lnTutor")}
+          onClick={() => setTutorOpen(true)}
+          style={{ marginTop: 8 }}
+        >
+          {t("lnTutor")}
+        </button>
+        <Link
           href="/settings"
           className="sidebar-btn"
           id="settings-btn"
@@ -1585,6 +1605,7 @@ export default function Home() {
       {sideOpen ? (
         <div className="sidebar-backdrop" onClick={() => setSideOpen(false)} />
       ) : null}
+      {tutorOpen ? <TutorPanel onClose={() => setTutorOpen(false)} /> : null}
 
       <div className="main">
         <div className="model-bar">

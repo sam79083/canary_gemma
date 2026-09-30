@@ -14,6 +14,9 @@ export const ACHIEVEMENTS: AchDef[] = [
   { id: "first-link", icon: "🔗", nameKey: "achFirstLink" },
   { id: "ten-chats", icon: "💬", nameKey: "achTenChats" },
   { id: "night-owl", icon: "🦉", nameKey: "achNightOwl" },
+  { id: "first-lesson", icon: "📚", nameKey: "achFirstLesson" },
+  { id: "level-up", icon: "🚀", nameKey: "achLevelUp" },
+  { id: "slang-star", icon: "😎", nameKey: "achSlangStar" },
 ];
 
 const KEY = "canary-ach";
