@@ -1,13 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import Confetti from "@/components/Confetti";
 import QuizCard from "@/components/learn/QuizCard";
 import { useLanguage } from "@/hooks/useLanguage";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  chooseState,
+  fetchRemote,
+  loadMetaSavedAt,
+  pushRemote,
+  saveMetaSavedAt,
+} from "@/lib/learn-store";
 import { buildDailyLesson } from "@/lib/learn-bank";
 import type { CEFR } from "@/lib/learn-bank";
+import { CEFR_ORDER } from "@/lib/learn-bank";
 import {
   IDIOMS,
   nextLocked,
@@ -22,15 +31,17 @@ import {
   loadLearn,
   recordAnswers,
   saveLearn,
+  setLevel,
   type AnswerResult,
   type LearnState,
 } from "@/lib/learn-store";
+import { loadSeen, markSeen } from "@/lib/learn-seen";
 import { unlockAch } from "@/lib/achievements";
 
 type PTab = "quiz" | "idiom" | "me";
 
 function rank(l: CEFR): number {
-  return l === "A1" ? 0 : l === "A2" ? 1 : l === "B1" ? 2 : 3;
+  return (["A1", "A2", "B1", "B2", "C1"] as CEFR[]).indexOf(l);
 }
 
 const GREETS = [
@@ -76,6 +87,8 @@ function saveFun(f: { tryWins: number; celebrated: CEFR | null }): void {
 /** 🦜 Coco — the in-chat English buddy. Same progress as /learn, zero tokens. */
 export default function TutorPanel({ onClose }: { onClose: () => void }) {
   const { lang, t } = useLanguage();
+  const auth = useAuth();
+  const member = auth.user !== null;
   const L = (key: string, fallback: string) => {
     try {
       const s = t(key);
@@ -89,8 +102,11 @@ export default function TutorPanel({ onClose }: { onClose: () => void }) {
   const [hydrated, setHydrated] = useState(false);
   const [quizKey, setQuizKey] = useState(0);
   const [burstKey, setBurstKey] = useState(0);
+  const [cloudState, setCloudState] = useState<"local" | "syncing" | "synced">("local");
+  const pullingRef = useRef(false);
   const [levelUp, setLevelUp] = useState<CEFR | null>(null);
   const [revealed, setRevealed] = useState(false);
+  const [shownId, setShownId] = useState<string | null>(null);
   const [tryText, setTryText] = useState("");
   const [tryState, setTryState] = useState<null | boolean>(null);
   const today = useMemo(() => dayStr(new Date()), []);
@@ -117,21 +133,50 @@ export default function TutorPanel({ onClose }: { onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    if (hydrated) saveLearn(state);
-  }, [state, hydrated]);
+    if (!hydrated) return;
+    saveLearn(state);
+    saveMetaSavedAt(Date.now());
+    if (!member || pullingRef.current) return;
+    const timer = setTimeout(() => {
+      void pushRemote(state).then((ok) => {
+        if (ok) setCloudState("synced");
+      });
+    }, 2000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, hydrated, member]);
+  // Members: pull cloud save on login, push debounced. Guests stay local.
+  useEffect(() => {
+    if (auth.loading || !member || !hydrated) return;
+    setCloudState("syncing");
+    pullingRef.current = true;
+    void fetchRemote()
+      .then((remote) => {
+        if (remote) setState((prev) => chooseState(prev, loadMetaSavedAt(), remote).state);
+      })
+      .catch(() => {})
+      .finally(() => {
+        pullingRef.current = false;
+        setCloudState("synced");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.loading, member, hydrated]);
 
   const lesson = useMemo(
-    () => buildDailyLesson(today, state.level).slice(0, 5),
+    () => buildDailyLesson(today, state.level, loadSeen(), quizKey).slice(0, 5),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [today, state.level, quizKey],
   );
   const unlocked = useMemo(() => unlockedFor(IDIOMS, state.level), [state.level]);
   const locked = useMemo(() => nextLocked(IDIOMS, state.level), [state.level]);
-  const idiom = useMemo(
-    () => pickOfDay(today, unlocked),
+  const idiom = useMemo(() => {
+    if (shownId) {
+      const found = unlocked.find((i) => i.id === shownId);
+      if (found) return found;
+    }
+    return pickOfDay(today, unlocked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [today, state.level],
-  );
+  }, [today, state.level, shownId]);
   const leeches = useMemo(() => leechWords(state).slice(0, 6), [state]);
   const weekXp = useMemo(() => {
     let sum = 0;
@@ -146,11 +191,30 @@ export default function TutorPanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     setRevealed(false);
+    setShownId(null);
     setTryText("");
     setTryState(null);
   }, [today, state.level]);
 
+  const pickLevel = (lv: CEFR) => {
+    setState((prev) => setLevel(prev, lv));
+    const fun = loadFun();
+    if (!fun.celebrated || rank(lv) > rank(fun.celebrated)) {
+      fun.celebrated = lv;
+      saveFun(fun);
+      setLevelUp(lv);
+      setBurstKey((k) => k + 1);
+      try {
+        if (unlockAch("level-up"))
+          toast(t("achToast", { name: `🚀 ${t("achLevelUp")}` }));
+      } catch {
+        // best-effort
+      }
+    }
+  };
+
   const finishQuiz = (results: AnswerResult[]) => {
+    if (results.length > 0) markSeen(results.map((r) => r.item.id));
     setState((prev) => {
       const first = prev.lessons === 0 && results.length > 0;
       const next = recordAnswers(prev, results, today);
@@ -166,6 +230,16 @@ export default function TutorPanel({ onClose }: { onClose: () => void }) {
     });
     setQuizKey((k) => k + 1);
     setTab("me");
+  };
+
+  const shuffleIdiom = () => {
+    const pool = unlocked.filter((i) => i.id !== idiom?.id);
+    if (pool.length === 0) return;
+    const next = pool[Math.floor(Math.random() * pool.length)];
+    setShownId(next.id);
+    setRevealed(false);
+    setTryText("");
+    setTryState(null);
   };
 
   const submitTry = () => {
@@ -234,7 +308,7 @@ export default function TutorPanel({ onClose }: { onClose: () => void }) {
         <div style={{ margin: 12, padding: 12, borderRadius: 10, background: "var(--green)", color: "#fff", textAlign: "center" }}>
           <div style={{ fontSize: 20, fontWeight: 900 }}>🚀 {L("lnLevelUp", "LEVEL UP!")} {levelUp}</div>
           <div style={{ fontSize: 13 }}>
-            {levelUp === "B1" ? L("lnPerkB1", "Unlocked: 12 idioms & expressions 🎁") : levelUp === "B2" ? L("lnPerkB2", "Unlocked: real-world slang 😎") : L("lnPerkAny", "New lessons unlocked! Keep flying! 🦜")}
+            {levelUp === "C1" ? L("lnPerkC1", "Unlocked: advanced idioms 🐉") : levelUp === "B1" ? L("lnPerkB1", "Unlocked: 12 idioms & expressions 🎁") : levelUp === "B2" ? L("lnPerkB2", "Unlocked: real-world slang 😎") : L("lnPerkAny", "New lessons unlocked! Keep flying! 🦜")}
           </div>
           <button className="sidebar-btn small" onClick={() => setLevelUp(null)} style={{ marginTop: 8, width: "auto" }}>
             {L("lnKeepGoing", "Keep going! →")}
@@ -272,7 +346,12 @@ export default function TutorPanel({ onClose }: { onClose: () => void }) {
         {tab === "idiom" ? (
           idiom ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>{L("lnIdiomDay", "Idiom of the day")} · {today}</div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.7 }}>
+                <span style={{ flex: 1 }}>{L("lnIdiomDay", "Idiom of the day")} · {today}</span>
+                <button className="sidebar-btn small" onClick={shuffleIdiom} style={{ width: "auto" }} title="Another one!">
+                  🎲
+                </button>
+              </div>
               <div style={{ fontSize: 22, fontWeight: 900 }}>"{idiom.term}"</div>
               <div style={{ display: "flex", gap: 6, fontSize: 12 }}>
                 <span style={{ border: "1px solid var(--border)", borderRadius: 20, padding: "2px 10px" }}>
@@ -338,11 +417,29 @@ export default function TutorPanel({ onClose }: { onClose: () => void }) {
         {tab === "me" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 13 }}>
             <div style={{ textAlign: "center", padding: 8 }}>
-              <div style={{ fontSize: 44 }}>{state.level === "B2" ? "🦅" : state.level === "B1" ? "🦜" : state.level === "A2" ? "🐣" : "🥚"}</div>
+              <div style={{ fontSize: 44 }}>{state.level === "C1" ? "🐉" : state.level === "B2" ? "🦅" : state.level === "B1" ? "🦜" : state.level === "A2" ? "🐣" : "🥚"}</div>
               <div style={{ fontWeight: 800, fontSize: 16 }}>
                 {state.level ? `${L("lnLevelIs", "Level")} ${state.level}` : L("lnUnplaced", "Unplaced egg 🥚 — assess to hatch!")}
               </div>
               <div>⚡ {state.xp} XP · 🔥 {state.lessons} {L("lnLessons", "lessons")}</div>
+              <div style={{ fontSize: 11, opacity: 0.65 }}>
+                {member ? (cloudState === "synced" ? "☁️ saved to your account" : "☁️ syncing…") : "📱 saved on this device"}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{L("lnPickLevel", "My level:")}</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {CEFR_ORDER.map((lv) => (
+                  <button
+                    key={lv}
+                    className={`sidebar-btn small${state.level === lv ? " secondary" : ""}`}
+                    onClick={() => pickLevel(lv)}
+                    style={{ flex: 1, justifyContent: "center" }}
+                  >
+                    {lv}
+                  </button>
+                ))}
+              </div>
             </div>
             <div>
               <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>🔥 {weekXp} / 200 XP {L("lnThisWeek", "this week")}</div>

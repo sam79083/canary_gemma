@@ -19,6 +19,8 @@ import {
   tryCheck,
   unlockedFor,
 } from "../lib/learn-idioms.ts";
+import { clearSeen, loadSeen, markSeen } from "../lib/learn-seen.ts";
+import { chooseState, isEmptyState } from "../lib/learn-store.ts";
 import {
   dueWords,
   emptyState,
@@ -42,31 +44,43 @@ describe("learn-bank grading", () => {
     assert.ok(gradeChoice(1, 1));
     assert.ok(!gradeChoice(0, 1));
   });
-  it("placement is fixed 12qs and maps score to CEFR", () => {
-    assert.equal(getPlacementTest().length, 12);
-    assert.equal(scoreToCEFR(0, 12), "A1");
-    assert.equal(scoreToCEFR(4, 12), "A2");
-    assert.equal(scoreToCEFR(7, 12), "B1");
-    assert.equal(scoreToCEFR(11, 12), "B2");
+  it("placement is fixed 15qs and maps score to CEFR", () => {
+    assert.equal(getPlacementTest().length, 15);
+    assert.equal(scoreToCEFR(0, 15), "A1");
+    assert.equal(scoreToCEFR(3, 15), "A1");
+    assert.equal(scoreToCEFR(5, 15), "A2");
+    assert.equal(scoreToCEFR(8, 15), "B1");
+    assert.equal(scoreToCEFR(11, 15), "B2");
+    assert.equal(scoreToCEFR(14, 15), "C1");
   });
-  it("daily lesson is deterministic and mixed", () => {
+  it("daily lesson is deterministic per seed and skips seen ids", () => {
     const a = buildDailyLesson("2026-09-30", "A1").map((i) => i.id);
     const b = buildDailyLesson("2026-09-30", "A1").map((i) => i.id);
     assert.deepEqual(a, b);
     assert.equal(a.length, 10);
     assert.equal(new Set(a).size, 10);
+    // Same seed replays; a fresh salt reshuffles the pool.
+    const s1 = buildDailyLesson("2026-09-30", "B2", [], 7).map((i) => i.id);
+    const s2 = buildDailyLesson("2026-09-30", "B2", [], 7).map((i) => i.id);
+    assert.deepEqual(s1, s2);
+    // Seen ids never reappear while unseen items remain.
+    const seen = a.slice(0, 8);
+    const c = buildDailyLesson("2026-09-30", "A1", seen, 3).map((i) => i.id);
+    assert.equal(c.length, 10);
+    assert.ok(seen.every((id) => !c.includes(id)));
   });
   it("self-check maps checked count to CEFR", () => {
-    assert.equal(SELF_CHECK.length, 8);
+    assert.equal(SELF_CHECK.length, 10);
     assert.equal(suggestLevelFromChecks(0), "A1");
     assert.equal(suggestLevelFromChecks(2), "A1");
     assert.equal(suggestLevelFromChecks(3), "A2");
     assert.equal(suggestLevelFromChecks(5), "B1");
     assert.equal(suggestLevelFromChecks(8), "B2");
-    assert.equal(suggestLevelFromChecks(99), "B2");
+    assert.equal(suggestLevelFromChecks(10), "C1");
+    assert.equal(suggestLevelFromChecks(99), "C1");
   });
   it("lessons are leveled: nothing above level+1, core majority at/below", () => {
-    for (const lv of ["A1", "A2", "B1", "B2"] as const) {
+    for (const lv of ["A1", "A2", "B1", "B2", "C1"] as const) {
       const lesson = buildDailyLesson("2026-09-30", lv);
       assert.equal(lesson.length, 10);
       for (const item of lesson)
@@ -86,15 +100,18 @@ describe("learn-bank grading", () => {
 });
 
 describe("learn-idioms", () => {
-  it("gates idioms at B1 and slang at B2, teasers for locked", () => {
+  it("gates idioms at B1, slang at B2, advanced at C1, teasers for locked", () => {
     assert.ok(unlockedFor(IDIOMS, null).length === 0);
     assert.ok(unlockedFor(IDIOMS, "A2").length === 0);
     const b1 = unlockedFor(IDIOMS, "B1");
-    assert.ok(b1.length === 12 && b1.every((i) => i.kind !== "slang"));
-    assert.equal(unlockedFor(IDIOMS, "B2").length, 20);
+    assert.ok(b1.length === 16 && b1.every((i) => i.kind !== "slang"));
+    assert.equal(unlockedFor(IDIOMS, "B2").length, 28);
+    assert.equal(unlockedFor(IDIOMS, "C1").length, 34);
     const teaser = nextLocked(IDIOMS, "A1");
     assert.ok(teaser.length > 0 && teaser.every((i) => i.unlock === "B1"));
-    assert.deepEqual(nextLocked(IDIOMS, "B2"), []);
+    const teaser2 = nextLocked(IDIOMS, "B2");
+    assert.ok(teaser2.length > 0 && teaser2.every((i) => i.unlock === "C1"));
+    assert.deepEqual(nextLocked(IDIOMS, "C1"), []);
   });
   it("pick-of-the-day is deterministic", () => {
     const pool = unlockedFor(IDIOMS, "B2");
@@ -107,6 +124,61 @@ describe("learn-idioms", () => {
     assert.ok(!tryCheck("he broke something", ["break", "ice"]));
     assert.ok(!tryCheck("", ["cap"]));
     assert.ok(tryCheck("no cap, that was great", ["cap"]));
+  });
+});
+
+describe("learn-seen", () => {
+  it("remembers asked ids, dedupes, and restores cleanly", () => {
+    const mem = new Map<string, string>();
+    const stub = {
+      getItem: (k: string) => (mem.has(k) ? (mem.get(k) as string) : null),
+      setItem: (k: string, v: string) => { mem.set(k, String(v)); },
+      removeItem: (k: string) => { mem.delete(k); },
+      clear: () => mem.clear(),
+      key: () => null,
+      length: 0,
+    };
+    (globalThis as unknown as { localStorage: unknown }).localStorage = stub;
+    try {
+      assert.deepEqual(loadSeen(), []);
+      markSeen(["a", "b", "a"]);
+      assert.deepEqual(loadSeen(), ["a", "b"]);
+      markSeen(["c"]);
+      assert.deepEqual(loadSeen(), ["c", "a", "b"]);
+      clearSeen();
+      assert.deepEqual(loadSeen(), []);
+    } finally {
+      Reflect.deleteProperty(globalThis, "localStorage");
+    }
+  });
+});
+
+describe("learn-sync merge", () => {
+  it("picks remote for empty local, newer remote, else local", () => {
+    const local = emptyState();
+    assert.ok(isEmptyState(local));
+    const progressed = { ...local, xp: 50, lessons: 2 };
+    assert.ok(!isEmptyState(progressed));
+    const remote = {
+      state: { ...local, xp: 999, lessons: 9 },
+      updated_at: "2026-09-29T00:00:00.000Z",
+    };
+    // Empty local adopts remote (new device).
+    assert.equal(chooseState(local, 0, remote).from, "remote");
+    // Progressed local beats older remote.
+    const r1 = chooseState(progressed, Date.parse("2026-09-30T00:00:00.000Z"), remote);
+    assert.equal(r1.from, "local");
+    // Progressed local loses to newer remote.
+    const r2 = chooseState(
+      progressed,
+      Date.parse("2026-09-28T00:00:00.000Z"),
+      { ...remote, updated_at: "2026-09-29T12:00:00.000Z" },
+    );
+    assert.equal(r2.from, "remote");
+    assert.equal(r2.state.xp, 999);
+    // No remote, bad timestamp → local, never throws.
+    assert.equal(chooseState(progressed, 0, null).from, "local");
+    assert.equal(chooseState(progressed, 0, { ...remote, updated_at: "junk" }).from, "local");
   });
 });
 

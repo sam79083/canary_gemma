@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useLanguage } from "@/hooks/useLanguage";
+import { useAuth } from "@/hooks/useAuth";
 import {
   ALL_ITEMS,
   CEFR_ORDER,
@@ -16,6 +17,14 @@ import {
 } from "@/lib/learn-bank";
 import QuizCard from "@/components/learn/QuizCard";
 import { dayStr } from "@/lib/learn-srs";
+import { loadSeen, markSeen } from "@/lib/learn-seen";
+import {
+  chooseState,
+  fetchRemote,
+  loadMetaSavedAt,
+  pushRemote,
+  saveMetaSavedAt,
+} from "@/lib/learn-store";
 import {
   dueWords,
   emptyState,
@@ -59,11 +68,15 @@ function QuizRunner({
 
 export default function LearnPage() {
   const { L } = useT();
+  const auth = useAuth();
+  const member = auth.user !== null;
   const [tab, setTab] = useState<Tab>("lesson");
   const [assessMode, setAssessMode] = useState<"menu" | "check" | "test">("menu");
   const [checks, setChecks] = useState<Record<string, boolean>>({});
   const [state, setState] = useState<LearnState>(() => emptyState());
   const [hydrated, setHydrated] = useState(false);
+  const [cloudState, setCloudState] = useState<"local" | "syncing" | "synced">("local");
+  const pullingRef = useRef(false);
   const today = useMemo(() => dayStr(new Date()), []);
   const [sessionKey, setSessionKey] = useState(0);
 
@@ -71,13 +84,40 @@ export default function LearnPage() {
     setState(loadLearn());
     setHydrated(true);
   }, []);
+  // Members: pull cloud save on login (new device adopts server state),
+  // then push debounced. Guests stay local-only.
   useEffect(() => {
-    if (hydrated) saveLearn(state);
-  }, [state, hydrated]);
+    if (auth.loading || !member || !hydrated) return;
+    setCloudState("syncing");
+    pullingRef.current = true;
+    void fetchRemote()
+      .then((remote) => {
+        if (remote) setState((prev) => chooseState(prev, loadMetaSavedAt(), remote).state);
+      })
+      .catch(() => {})
+      .finally(() => {
+        pullingRef.current = false;
+        setCloudState(member ? "synced" : "local");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.loading, member, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveLearn(state);
+    saveMetaSavedAt(Date.now());
+    if (!member || pullingRef.current) return;
+    const timer = setTimeout(() => {
+      void pushRemote(state).then((ok) => {
+        if (ok) setCloudState("synced");
+      });
+    }, 2000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, hydrated, member]);
 
   const placement = useMemo(() => getPlacementTest(), []);
   const lesson = useMemo(
-    () => buildDailyLesson(today, state.level),
+    () => buildDailyLesson(today, state.level, loadSeen(), sessionKey),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [today, state.level, sessionKey],
   );
@@ -97,6 +137,7 @@ export default function LearnPage() {
   const maxXp = Math.max(1, ...week.map((d) => d.xp));
 
   const finish = (results: AnswerResult[], levelize: boolean) => {
+    if (results.length > 0) markSeen(results.map((r) => r.item.id));
     setState((prev) => {
       let next = recordAnswers(prev, results, today);
       if (levelize) {
@@ -142,7 +183,8 @@ export default function LearnPage() {
         </span>
       </div>
       <p style={{ fontSize: 13, opacity: 0.75, margin: 0 }}>
-        {L("lnFree", "100% free · no tokens · works offline. Questions are fixed banks graded on-device; your progress stays in this browser.")}
+        {L("lnFree", "100% free · no tokens · works offline. Questions are fixed banks graded on-device; your progress stays in this browser.")}{" "}
+        {member ? (cloudState === "synced" ? "☁️ saved to your account" : "☁️ syncing…") : "📱 saved on this device"}
       </p>
       <div style={{ display: "flex", gap: 6 }}>
         {(["assess", "lesson", "review", "progress"] as Tab[]).map((id) => (
@@ -176,7 +218,7 @@ export default function LearnPage() {
               ))}
             </div>
             <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>
-              A1 Beginner · A2 Elementary · B1 Intermediate · B2 Upper-intermediate — {L("lnSkipHint", "skipping is fine: picking manually works, and lessons adapt either way.")}
+              A1 Beginner · A2 Elementary · B1 Intermediate · B2 Upper-inter · C1 Advanced — {L("lnSkipHint", "skipping is fine: picking manually works, and lessons adapt either way.")}
             </div>
           </div>
 
@@ -186,7 +228,7 @@ export default function LearnPage() {
                 {L("lnSelfCheck", "❓ Not sure — 30-sec self-check")}
               </button>
               <button className="sidebar-btn small" onClick={() => setAssessMode("test")} style={{ flex: 1, justifyContent: "center" }}>
-                {L("lnFullTest", "📝 Full 12-question test")}
+                {L("lnFullTest", "📝 Full 15-question test")}
               </button>
               <button className="sidebar-btn small" onClick={() => pickLevel("A1")} style={{ flex: 1, justifyContent: "center" }}>
                 {L("lnSkip", "⏩ Skip — start at A1")}
@@ -233,7 +275,7 @@ export default function LearnPage() {
 
           {assessMode === "test" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <p style={{ fontSize: 13, opacity: 0.8, margin: 0 }}>12 fixed questions (A1→B2). Result sets your level and unlocks the right daily lesson.</p>
+              <p style={{ fontSize: 13, opacity: 0.8, margin: 0 }}>15 fixed questions (A1→C1). Result sets your level and unlocks the right daily lesson.</p>
               <QuizRunner key={`a-${sessionKey}`} items={placement} cta="Save my level →" onDone={(r) => { setAssessMode("menu"); finish(r, true); }} />
               <button className="sidebar-btn small" onClick={() => setAssessMode("menu")} style={{ width: "auto", alignSelf: "flex-start" }}>← Back</button>
             </div>
@@ -244,7 +286,7 @@ export default function LearnPage() {
       {tab === "lesson" ? (
         <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <p style={{ fontSize: 13, opacity: 0.8 }}>
-            Daily set for {today}{state.level ? ` · Level ${state.level}` : " · finish Assess to personalize"}. Same set all day — refresh-safe.
+            Daily set for {today}{state.level ? ` · Level ${state.level}` : " · finish Assess to personalize"}. Fresh questions every session — recent ones won't repeat.
           </p>
           <QuizRunner key={`l-${sessionKey}`} items={lesson} cta="Record lesson →" onDone={(r) => finish(r, false)} />
         </section>

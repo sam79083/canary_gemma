@@ -28,7 +28,7 @@ export interface Idiom {
 }
 
 function rank(l: CEFR): number {
-  return l === "A1" ? 0 : l === "A2" ? 1 : l === "B1" ? 2 : 3;
+  return (["A1", "A2", "B1", "B2", "C1"] as CEFR[]).indexOf(l);
 }
 
 function hashStr(s: string): number {
@@ -62,6 +62,10 @@ export const IDIOMS: Idiom[] = [
   { id: "i-b1-10", kind: "idiom", unlock: "B1", term: "blow off steam", meaning: "release stress or energy", ko: "스트레스를 풀다", example: "I play football to blow off steam.", register: "casual", caution: "Casual — fine with friends, not in formal writing.", keywords: ["blow", "steam"] },
   { id: "i-b1-11", kind: "idiom", unlock: "B1", term: "pull yourself together", meaning: "calm down and act normally", ko: "정신 차리다", example: "Come on, pull yourself together!", register: "neutral", keywords: ["pull", "together"] },
   { id: "i-b1-12", kind: "idiom", unlock: "B1", term: "by the skin of your teeth", meaning: "only just barely succeed", ko: "간신히, 턱걸이로", example: "I passed by the skin of my teeth.", register: "neutral", note: "Natives swap your → my/his: 'by the skin of MY teeth'.", keywords: ["skin", "teeth"] },
+  { id: "i-b1-13", kind: "idiom", unlock: "B1", term: "spill the beans", meaning: "reveal a secret", ko: "비밀을 누설하다", example: "Who spilled the beans about the party?", register: "neutral", note: "Cousin of 'spill the tea' — beans is the older one.", keywords: ["spill", "beans"] },
+  { id: "i-b1-14", kind: "idiom", unlock: "B1", term: "hit the sack", meaning: "go to bed", ko: "잠자리에 들다", example: "I'm beat. Time to hit the sack.", register: "casual", caution: "Casual — fine with friends, not in formal writing.", keywords: ["hit", "sack"] },
+  { id: "i-b1-15", kind: "idiom", unlock: "B1", term: "miss the boat", meaning: "miss an opportunity", ko: "기회를 놓치다", example: "Apply now or you'll miss the boat.", register: "neutral", keywords: ["miss", "boat"] },
+  { id: "i-b1-16", kind: "expression", unlock: "B1", term: "speak of the devil", meaning: "said when someone arrives just as you talk about them", ko: "호랑이도 제 말 하면 온다", example: "Speak of the devil — we were just talking about you!", register: "neutral", keywords: ["speak", "devil"] },
   // ---- B2: real-world slang (prize for Upper-intermediate)
   { id: "s-b2-01", kind: "slang", unlock: "B2", term: "no cap", meaning: "no lie — for real", ko: "뻥 안 치고, 진짜로", example: "That movie was amazing, no cap.", register: "casual", caution: "Friends & texting only — never at work.", keywords: ["cap"] },
   { id: "s-b2-02", kind: "slang", unlock: "B2", term: "sus", meaning: "suspicious, shady", ko: "수상쩍은", example: "That deal sounds sus.", register: "casual", caution: "Casual speech/texting — not for email.", keywords: ["sus"] },
@@ -71,6 +75,17 @@ export const IDIOMS: Idiom[] = [
   { id: "s-b2-06", kind: "slang", unlock: "B2", term: "touch grass", meaning: "go outside, log off for a while", ko: "밖에 나가서 바람 쐬다", example: "You've gamed all day — go touch grass.", register: "casual", caution: "Joking tone — can sting if aimed at someone.", keywords: ["touch", "grass"] },
   { id: "s-b2-07", kind: "slang", unlock: "B2", term: "hits different", meaning: "feels special in this moment", ko: "유독 다르게 느껴지다", example: "Coffee on a rainy day hits different.", register: "casual", note: "'Hits' with a singular vibe — ungrammatical on purpose. That's the joke natives love.", keywords: ["hits", "different"] },
   { id: "s-b2-08", kind: "slang", unlock: "B2", term: "vibe check", meaning: "assessing the mood of a place/moment", ko: "분위기 파악", example: "This meeting needs a vibe check.", register: "casual", caution: "Casual — but sneaking into startup offices. 😄", keywords: ["vibe", "check"] },
+  { id: "s-b2-09", kind: "slang", unlock: "B2", term: "rent-free", meaning: "stuck in someone's head", ko: "머릿속에 계속 맴돎", example: "That song is living rent-free in my head.", register: "casual", caution: "Texting/friends — never formal.", keywords: ["rent", "free"] },
+  { id: "s-b2-10", kind: "slang", unlock: "B2", term: "delulu", meaning: "delusional, but playfully", ko: "망상 (장난스럽게)", example: "Thinking he'll text back? That's delulu.", register: "casual", caution: "Playful only — it can genuinely offend.", keywords: ["delulu"] },
+  { id: "s-b2-11", kind: "slang", unlock: "B2", term: "based", meaning: "confidently being yourself", ko: "소신 있는", example: "Saying no to overtime? Based.", register: "casual", caution: "Internet praise — your boss won't get it.", keywords: ["based"] },
+  { id: "s-b2-12", kind: "slang", unlock: "B2", term: "mid", meaning: "mediocre, underwhelming", ko: "별로인", example: "The movie was mid, honestly.", register: "casual", caution: "Dismissive — never say it to the creator!", keywords: ["mid"] },
+  // ---- C1: advanced idioms (prize for Advanced)
+  { id: "i-c1-01", kind: "idiom", unlock: "C1", term: "cut to the chase", meaning: "get directly to the point", ko: "본론으로 들어가다", example: "Let's cut to the chase — what's the price?", register: "work-safe", keywords: ["cut", "chase"] },
+  { id: "i-c1-02", kind: "idiom", unlock: "C1", term: "bite the bullet", meaning: "face something unpleasant bravely", ko: "과감히 감수하다", example: "I bit the bullet and called the dentist.", register: "neutral", keywords: ["bite", "bullet"] },
+  { id: "i-c1-03", kind: "idiom", unlock: "C1", term: "the elephant in the room", meaning: "an obvious problem nobody mentions", ko: "모두가 외면하는 명백한 문제", example: "The budget cuts were the elephant in the room.", register: "neutral", note: "Always THE room — never 'a room'.", keywords: ["elephant", "room"] },
+  { id: "i-c1-04", kind: "idiom", unlock: "C1", term: "burn the midnight oil", meaning: "work or study late into the night", ko: "밤샘 작업하다", example: "She burned the midnight oil before the deadline.", register: "neutral", keywords: ["burn", "midnight", "oil"] },
+  { id: "i-c1-05", kind: "idiom", unlock: "C1", term: "add insult to injury", meaning: "make a bad situation worse", ko: "엎친 데 덮친 격", example: "Rain added insult to injury on our camping trip.", register: "neutral", keywords: ["insult", "injury"] },
+  { id: "i-c1-06", kind: "idiom", unlock: "C1", term: "jump on the bandwagon", meaning: "join something because it's popular", ko: "유행에 편승하다", example: "Every brand jumped on the AI bandwagon.", register: "neutral", keywords: ["jump", "bandwagon"] },
 ];
 
 /** Items a learner at `level` (null = A1) has unlocked. */

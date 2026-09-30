@@ -215,34 +215,73 @@ export function leechWords(state: LearnState): string[] {
 
 // --- localStorage wrappers (client only; silent no-op on server) -------------
 
+/** Validate/coerce unknown data (localStorage, server) into a LearnState. */
+export function sanitizeLearnState(p: Partial<LearnState>): LearnState {
+  const base = emptyState();
+  const cleanCards: Record<string, CardState> = {};
+  if (p.cards && typeof p.cards === "object") {
+    for (const [w, c] of Object.entries(p.cards)) {
+      if (typeof w !== "string" || !w || typeof c !== "object" || !c) continue;
+      const cc = c as Partial<CardState>;
+      if (typeof cc.due !== "string") continue;
+      cleanCards[w.slice(0, 60)] = {
+        ease: typeof cc.ease === "number" ? Math.min(2.5, Math.max(1.3, cc.ease)) : 2.5,
+        interval: typeof cc.interval === "number" ? Math.min(3650, Math.max(1, Math.floor(cc.interval))) : 1,
+        due: cc.due.slice(0, 10),
+        fails: typeof cc.fails === "number" ? Math.min(1000, Math.max(0, Math.floor(cc.fails))) : 0,
+        passes: typeof cc.passes === "number" ? Math.min(1000, Math.max(0, Math.floor(cc.passes))) : 0,
+      };
+      if (Object.keys(cleanCards).length >= 5000) break;
+    }
+  }
+  const cleanDays: Record<string, DayEntry> = {};
+  if (p.days && typeof p.days === "object") {
+    for (const [d, e] of Object.entries(p.days)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || typeof e !== "object" || !e) continue;
+      const ee = e as Partial<DayEntry>;
+      cleanDays[d] = {
+        day: d,
+        xp: num(ee.xp),
+        lessons: num(ee.lessons),
+        correct: num(ee.correct),
+        asked: num(ee.asked),
+      };
+      if (Object.keys(cleanDays).length >= 370) break;
+    }
+  }
+  return {
+    version: 1,
+    level:
+      p.level === "A1" || p.level === "A2" || p.level === "B1" || p.level === "B2" || p.level === "C1"
+        ? p.level
+        : null,
+    xp: num(p.xp),
+    lessons: num(p.lessons),
+    skills: {
+      vocab: {
+        asked: num(p.skills?.vocab?.asked),
+        correct: num(p.skills?.vocab?.correct),
+      },
+      grammar: {
+        asked: num(p.skills?.grammar?.asked),
+        correct: num(p.skills?.grammar?.correct),
+      },
+    },
+    days: cleanDays,
+    cards: cleanCards,
+  };
+}
+
+function num(v: unknown): number {
+  return typeof v === "number" && v >= 0 && Number.isFinite(v) ? Math.floor(v) : 0;
+}
+
 export function loadLearn(): LearnState {
   try {
     if (typeof localStorage === "undefined") return emptyState();
     const raw = localStorage.getItem(LEARN_KEY);
     if (!raw) return emptyState();
-    const p = JSON.parse(raw) as Partial<LearnState>;
-    const base = emptyState();
-    return {
-      version: 1,
-      level:
-        p.level === "A1" || p.level === "A2" || p.level === "B1" || p.level === "B2"
-          ? p.level
-          : null,
-      xp: typeof p.xp === "number" && p.xp >= 0 ? Math.floor(p.xp) : 0,
-      lessons: typeof p.lessons === "number" && p.lessons >= 0 ? Math.floor(p.lessons) : 0,
-      skills: {
-        vocab: {
-          asked: Math.max(0, Math.floor(p.skills?.vocab?.asked ?? 0)),
-          correct: Math.max(0, Math.floor(p.skills?.vocab?.correct ?? 0)),
-        },
-        grammar: {
-          asked: Math.max(0, Math.floor(p.skills?.grammar?.asked ?? 0)),
-          correct: Math.max(0, Math.floor(p.skills?.grammar?.correct ?? 0)),
-        },
-      },
-      days: p.days && typeof p.days === "object" ? p.days : base.days,
-      cards: p.cards && typeof p.cards === "object" ? p.cards : base.cards,
-    };
+    return sanitizeLearnState(JSON.parse(raw) as Partial<LearnState>);
   } catch {
     return emptyState();
   }
@@ -254,5 +293,92 @@ export function saveLearn(state: LearnState): void {
     localStorage.setItem(LEARN_KEY, JSON.stringify(state));
   } catch {
     // storage full/blocked — progress keeps working in memory this session
+  }
+}
+
+// --- per-user cloud save (members only; guests stay local) -------------------
+// One small JSONB row per member via /api/learn-state. Guests never call
+// these. Free-tier safe: a handful of requests per day, ~KBs per member.
+
+export interface RemoteLearn {
+  state: LearnState;
+  updated_at: string;
+}
+
+const META_KEY = "canary-learn-meta";
+
+/** True when no learning has happened yet (fresh install / new account). */
+export function isEmptyState(s: LearnState): boolean {
+  return s.level === null && s.xp === 0 && s.lessons === 0;
+}
+
+/**
+ * Pick the winning state. Remote wins when local is empty (new device) or
+ * when the server copy is strictly newer than our last local save.
+ * Otherwise local wins (offline-first). Never throws.
+ */
+export function chooseState(
+  local: LearnState,
+  localSavedAt: number,
+  remote: RemoteLearn | null,
+): { state: LearnState; from: "local" | "remote" } {
+  if (!remote) return { state: local, from: "local" };
+  if (isEmptyState(local)) return { state: remote.state, from: "remote" };
+  const remoteTs = Date.parse(remote.updated_at);
+  if (Number.isFinite(remoteTs) && remoteTs > localSavedAt) {
+    return { state: remote.state, from: "remote" };
+  }
+  return { state: local, from: "local" };
+}
+
+/** Last local save timestamp (ms). 0 = never saved on this device. */
+export function loadMetaSavedAt(): number {
+  try {
+    if (typeof localStorage === "undefined") return 0;
+    const raw = localStorage.getItem(META_KEY);
+    if (!raw) return 0;
+    const v = (JSON.parse(raw) as { savedAt?: unknown }).savedAt;
+    return typeof v === "number" && v > 0 ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function saveMetaSavedAt(ts: number): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(META_KEY, JSON.stringify({ savedAt: ts }));
+  } catch {
+    // best-effort
+  }
+}
+
+/** GET /api/learn-state — null for visitors, errors, or no saved row. */
+export async function fetchRemote(): Promise<RemoteLearn | null> {
+  try {
+    const res = await fetch("/api/learn-state", { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { state?: unknown; updated_at?: unknown };
+    if (!data.state || typeof data.state !== "object") return null;
+    return {
+      state: sanitizeLearnState(data.state as Partial<LearnState>),
+      updated_at: typeof data.updated_at === "string" ? data.updated_at : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** PUT /api/learn-state — false for visitors, errors, or oversized blobs. */
+export async function pushRemote(state: LearnState): Promise<boolean> {
+  try {
+    const res = await fetch("/api/learn-state", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state }),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
