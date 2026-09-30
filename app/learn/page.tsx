@@ -10,12 +10,23 @@ import {
   SELF_CHECK,
   buildDailyLesson,
   getPlacementTest,
+  levelRank,
   scoreToCEFR,
   suggestLevelFromChecks,
   type BankItem,
   type CEFR,
 } from "@/lib/learn-bank";
 import QuizCard from "@/components/learn/QuizCard";
+import {
+  ESSAY_DRAFT_KEY,
+  ESSAY_TOPICS,
+  buildEssayCoachPrompt,
+  gradeEssay,
+  loadEssayHistory,
+  saveEssayAttempt,
+  type EssayAttempt,
+  type EssayScore,
+} from "@/lib/learn-essay";
 import { dayStr } from "@/lib/learn-srs";
 import { loadSeen, markSeen } from "@/lib/learn-seen";
 import {
@@ -39,7 +50,7 @@ import {
   type LearnState,
 } from "@/lib/learn-store";
 
-type Tab = "assess" | "lesson" | "review" | "progress";
+type Tab = "assess" | "lesson" | "review" | "essay" | "progress";
 
 function useT() {
   const { lang, t } = useLanguage();
@@ -71,7 +82,10 @@ export default function LearnPage() {
   const auth = useAuth();
   const member = auth.user !== null;
   const [tab, setTab] = useState<Tab>("lesson");
-  const [assessMode, setAssessMode] = useState<"menu" | "check" | "test">("menu");
+  const [essayTopicId, setEssayTopicId] = useState<string | null>(null);
+  const [essayText, setEssayText] = useState("");
+  const [essayResult, setEssayResult] = useState<EssayScore | null>(null);
+  const [essayHistory, setEssayHistory] = useState<EssayAttempt[]>([]);  const [assessMode, setAssessMode] = useState<"menu" | "check" | "test">("menu");
   const [checks, setChecks] = useState<Record<string, boolean>>({});
   const [state, setState] = useState<LearnState>(() => emptyState());
   const [hydrated, setHydrated] = useState(false);
@@ -134,6 +148,8 @@ export default function LearnPage() {
   const leeches = leechWords(state);
   const vocabAcc = state.skills.vocab.asked ? Math.round((100 * state.skills.vocab.correct) / state.skills.vocab.asked) : 0;
   const gramAcc = state.skills.grammar.asked ? Math.round((100 * state.skills.grammar.correct) / state.skills.grammar.asked) : 0;
+  const readAcc = state.skills.reading.asked ? Math.round((100 * state.skills.reading.correct) / state.skills.reading.asked) : 0;
+  const writeAcc = state.skills.writing.asked ? Math.round((100 * state.skills.writing.correct) / state.skills.writing.asked) : 0;
   const maxXp = Math.max(1, ...week.map((d) => d.xp));
 
   const finish = (results: AnswerResult[], levelize: boolean) => {
@@ -173,6 +189,66 @@ export default function LearnPage() {
     setTab(go);
   };
 
+  // ---- essay mode ----
+  const essayTopic = useMemo(() => {
+    const mine = ESSAY_TOPICS.filter(
+      (t) => !state.level || levelRank(t.level) <= levelRank(state.level),
+    );
+    const list = mine.length > 0 ? mine : ESSAY_TOPICS;
+    return list.find((t) => t.id === essayTopicId) ?? list[0];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.level, essayTopicId]);
+  const essayWords = useMemo(
+    () => essayText.split(/\s+/).filter(Boolean).length,
+    [essayText],
+  );
+  useEffect(() => {
+    if (tab === "essay") setEssayHistory(loadEssayHistory());
+  }, [tab]);
+  const gradeCurrentEssay = () => {
+    const score = gradeEssay(essayText, essayTopic);
+    setEssayResult(score);
+    setState((prev) =>
+      recordAnswers(
+        prev,
+        [{
+          item: {
+            id: `essay-${Date.now()}`,
+            skill: "writing",
+            level: essayTopic.level,
+            kind: "choice",
+            prompt: `Essay: ${essayTopic.topic}`,
+            explain: `${score.total}/100`,
+          },
+          correct: score.pass,
+        }],
+        today,
+      ),
+    );
+    setEssayHistory(
+      saveEssayAttempt({
+        id: new Date().toISOString(),
+        topicId: essayTopic.id,
+        topic: essayTopic.topic,
+        words: score.wordCount,
+        total: score.total,
+        pass: score.pass,
+        at: today,
+      }),
+    );
+  };
+  const sendEssayToChat = () => {
+    if (!essayResult) return;
+    try {
+      localStorage.setItem(
+        ESSAY_DRAFT_KEY,
+        buildEssayCoachPrompt(essayTopic, essayText, essayResult),
+      );
+    } catch {
+      // best-effort
+    }
+  };
+
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -186,15 +262,15 @@ export default function LearnPage() {
         {L("lnFree", "100% free · no tokens · works offline. Questions are fixed banks graded on-device; your progress stays in this browser.")}{" "}
         {member ? (cloudState === "synced" ? "☁️ saved to your account" : "☁️ syncing…") : "📱 saved on this device"}
       </p>
-      <div style={{ display: "flex", gap: 6 }}>
-        {(["assess", "lesson", "review", "progress"] as Tab[]).map((id) => (
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {(["assess", "lesson", "review", "essay", "progress"] as Tab[]).map((id) => (
           <button
             key={id}
             className={`sidebar-btn small${tab === id ? " secondary" : ""}`}
             onClick={() => setTab(id)}
-            style={{ flex: 1, justifyContent: "center" }}
+            style={{ flex: 1, justifyContent: "center", minWidth: 90 }}
           >
-            {id === "assess" ? `🎯 ${L("lnAssess", "Assess")}` : id === "lesson" ? `✏️ ${L("lnLesson", "Lesson")}` : id === "review" ? `🔁 ${L("lnReview", "Review")} (${reviewItems.length})` : `📊 ${L("lnProgress", "Progress")}`}
+            {id === "assess" ? `🎯 ${L("lnAssess", "Assess")}` : id === "lesson" ? `✏️ ${L("lnLesson", "Lesson")}` : id === "review" ? `🔁 ${L("lnReview", "Review")} (${reviewItems.length})` : id === "essay" ? `✍️ ${L("lnEssay", "Essay")}` : `📊 ${L("lnProgress", "Progress")}`}
           </button>
         ))}
       </div>
@@ -218,7 +294,7 @@ export default function LearnPage() {
               ))}
             </div>
             <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>
-              A1 Beginner · A2 Elementary · B1 Intermediate · B2 Upper-inter · C1 Advanced — {L("lnSkipHint", "skipping is fine: picking manually works, and lessons adapt either way.")}
+              A1 Beginner · A2 Elementary · B1 Intermediate · B2 Upper-inter · C1 Advanced · C2 Mastery — {L("lnSkipHint", "skipping is fine: picking manually works, and lessons adapt either way.")}
             </div>
           </div>
 
@@ -228,7 +304,7 @@ export default function LearnPage() {
                 {L("lnSelfCheck", "❓ Not sure — 30-sec self-check")}
               </button>
               <button className="sidebar-btn small" onClick={() => setAssessMode("test")} style={{ flex: 1, justifyContent: "center" }}>
-                {L("lnFullTest", "📝 Full 15-question test")}
+                {L("lnFullTest", "📝 Full 18-question test")}
               </button>
               <button className="sidebar-btn small" onClick={() => pickLevel("A1")} style={{ flex: 1, justifyContent: "center" }}>
                 {L("lnSkip", "⏩ Skip — start at A1")}
@@ -275,7 +351,7 @@ export default function LearnPage() {
 
           {assessMode === "test" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <p style={{ fontSize: 13, opacity: 0.8, margin: 0 }}>15 fixed questions (A1→C1). Result sets your level and unlocks the right daily lesson.</p>
+              <p style={{ fontSize: 13, opacity: 0.8, margin: 0 }}>18 fixed questions (A1→C2). Result sets your level and unlocks the right daily lesson.</p>
               <QuizRunner key={`a-${sessionKey}`} items={placement} cta="Save my level →" onDone={(r) => { setAssessMode("menu"); finish(r, true); }} />
               <button className="sidebar-btn small" onClick={() => setAssessMode("menu")} style={{ width: "auto", alignSelf: "flex-start" }}>← Back</button>
             </div>
@@ -286,7 +362,7 @@ export default function LearnPage() {
       {tab === "lesson" ? (
         <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <p style={{ fontSize: 13, opacity: 0.8 }}>
-            Daily set for {today}{state.level ? ` · Level ${state.level}` : " · finish Assess to personalize"}. Fresh questions every session — recent ones won't repeat.
+            Practice set{state.level ? ` · Level ${state.level}` : " · finish Assess to personalize"}: 3 warm-up, 5 at your level, 2 stretch. Fresh questions every session — recent ones won't repeat.
           </p>
           <QuizRunner key={`l-${sessionKey}`} items={lesson} cta="Record lesson →" onDone={(r) => finish(r, false)} />
         </section>
@@ -308,6 +384,85 @@ export default function LearnPage() {
         </section>
       ) : null}
 
+      {tab === "essay" ? (
+        <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <p style={{ fontSize: 13, opacity: 0.8, margin: 0 }}>
+            Pick a topic, write your essay, get a 0–100 grade. <b>80+ = pass.</b> Same essay always earns the same score — track real progress.
+          </p>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {ESSAY_TOPICS.map((t) => (
+              <button
+                key={t.id}
+                className={`sidebar-btn small${essayTopic.id === t.id ? " secondary" : ""}`}
+                onClick={() => { setEssayTopicId(t.id); setEssayResult(null); }}
+                style={{ width: "auto" }}
+                title={t.topic}
+              >
+                [{t.level}] {t.topic.slice(0, 28)}…
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>"{essayTopic.topic}"</div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>💡 {essayTopic.hint} · target {essayTopic.minWords}–{essayTopic.maxWords} words</div>
+          <textarea
+            value={essayText}
+            onChange={(e) => { setEssayText(e.target.value); setEssayResult(null); }}
+            placeholder="Write your essay here… (blank lines = new paragraphs)"
+            rows={10}
+            style={{ width: "100%", boxSizing: "border-box", padding: 10, borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", fontSize: 14, lineHeight: 1.6, resize: "vertical" }}
+          />
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, opacity: 0.8 }}>{essayWords} words</span>
+            <button className="sidebar-btn small primary" onClick={gradeCurrentEssay} disabled={essayWords === 0} style={{ width: "auto" }}>
+              📝 Grade my essay
+            </button>
+            {essayResult ? (
+              <Link href="/" onClick={sendEssayToChat} className="sidebar-btn small" style={{ width: "auto", textAlign: "center" }}>
+                💬 Get AI coaching →
+              </Link>
+            ) : null}
+          </div>
+          {essayResult ? (
+            <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 36, fontWeight: 900 }}>{essayResult.total}<span style={{ fontSize: 16, opacity: 0.6 }}>/100</span></div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: essayResult.pass ? "var(--green)" : "inherit" }}>
+                  {essayResult.pass ? "🎉 PASS! Exam-ready writing." : "💪 Not yet — 80 to pass. Read the fixes and retry!"}
+                </div>
+              </div>
+              {essayResult.axes.map((a) => (
+                <div key={a.key} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+                  <span style={{ width: 90, textTransform: "capitalize" }}>
+                    {a.key === "task" ? "📋 Task" : a.key === "coherence" ? "🔗 Flow" : a.key === "lexical" ? "📚 Words" : a.key === "grammar" ? "✏️ Grammar" : "🔧 Polish"}
+                  </span>
+                  <div style={{ flex: 1, height: 8, borderRadius: 4, background: "var(--border)", overflow: "hidden" }}>
+                    <div style={{ width: `${(a.score / 20) * 100}%`, height: "100%", background: "var(--green)" }} />
+                  </div>
+                  <span style={{ width: 44, textAlign: "right" }}>{a.score}/20</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 13, display: "flex", flexDirection: "column", gap: 4 }}>
+                {essayResult.feedback.map((f, i) => (
+                  <div key={i}>{f}</div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {essayHistory.length > 0 ? (
+            <div style={{ fontSize: 13 }}>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>🗂️ My essays</div>
+              <ol style={{ margin: 0, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 2 }}>
+                {essayHistory.slice(0, 5).map((h) => (
+                  <li key={h.id}>
+                    {h.pass ? "✅" : "📝"} {h.total}/100 · {h.words} words · {h.at} — {h.topic.slice(0, 40)}…
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       {tab === "progress" ? (
         <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "flex", gap: 8 }}>
@@ -321,10 +476,20 @@ export default function LearnPage() {
               <div style={{ fontSize: 20, fontWeight: 800 }}>{gramAcc}%</div>
               <div style={{ fontSize: 11, opacity: 0.7 }}>{state.skills.grammar.correct}/{state.skills.grammar.asked}</div>
             </div>
+            <div style={{ flex: 1, border: "1px solid var(--border)", borderRadius: 8, padding: 10, textAlign: "center" }}>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>Reading accuracy</div>
+              <div style={{ fontSize: 20, fontWeight: 800 }}>{readAcc}%</div>
+              <div style={{ fontSize: 11, opacity: 0.7 }}>{state.skills.reading.correct}/{state.skills.reading.asked}</div>
+            </div>
+            <div style={{ flex: 1, border: "1px solid var(--border)", borderRadius: 8, padding: 10, textAlign: "center" }}>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>Essay pass rate</div>
+              <div style={{ fontSize: 20, fontWeight: 800 }}>{writeAcc}%</div>
+              <div style={{ fontSize: 11, opacity: 0.7 }}>{state.skills.writing.correct}/{state.skills.writing.asked} passed</div>
+            </div>
           </div>
           {weak ? (
             <div style={{ fontSize: 13, background: "var(--border)", borderRadius: 6, padding: 8 }}>
-              💡 <b>Improve next:</b> {weak === "grammar" ? "grammar — try articles (a/an/the), prepositions (in/at/since), and plurals in Review." : "vocab — drill the leech list in Review, 5 min/day."}
+              💡 <b>Improve next:</b> {weak === "grammar" ? "grammar — try articles (a/an/the), prepositions (in/at/since), and plurals in Review." : weak === "reading" ? "reading — slow down on passages: read the question first, then scan. Exam arena lives at C1+." : weak === "writing" ? "writing — write one essay this week: paragraphs + linkers carry 40 of your 100 points." : "vocab — drill the leech list in Review, 5 min/day."}
             </div>
           ) : (
             <div style={{ fontSize: 13, opacity: 0.8 }}>Finish 5+ answers per skill to unlock the “what to improve” hint.</div>

@@ -6,8 +6,8 @@
 // - Daily lesson is deterministic per (date, level) so refresh doesn't reshuffle.
 // - Fill-in-the-blank grading is normalized string compare (case/space/punct blind).
 
-export type CEFR = "A1" | "A2" | "B1" | "B2" | "C1";
-export type Skill = "vocab" | "grammar";
+export type CEFR = "A1" | "A2" | "B1" | "B2" | "C1" | "C2";
+export type Skill = "vocab" | "grammar" | "reading" | "writing";
 
 export interface BankItem {
   id: string;
@@ -16,17 +16,19 @@ export interface BankItem {
   kind: "choice" | "fill";
   /** Question prompt (English). Choices rendered only for kind === "choice". */
   prompt: string;
-  choices?: [string, string, string, string];
+  choices?: string[];
   answerIndex?: number;
   /** Accepted answers for fill (lowercase compare after normalize). */
   accept?: string[];
+  /** Exam-style reading passage shown above the question (TOEIC/TOEFL/IELTS). */
+  passage?: string;
   /** Short teacher explanation shown after answering. */
   explain: string;
   /** Vocab word id for SRS tracking (vocab items only). */
   word?: string;
 }
 
-export const CEFR_ORDER: CEFR[] = ["A1", "A2", "B1", "B2", "C1"];
+export const CEFR_ORDER: CEFR[] = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
 export function levelRank(l: CEFR): number {
   return CEFR_ORDER.indexOf(l);
@@ -127,6 +129,15 @@ const VOCAB: BankItem[] = [
   { id: "v-c1-10", skill: "vocab", level: "C1", kind: "choice", word: "resilient", prompt: 'Choose the meaning of "resilient".', choices: ["연약한", "회복력 있는", "고집스러운", "민감한"], answerIndex: 1, explain: "resilient = 회복력 있는. resilient kids." },
   { id: "v-c1-11", skill: "vocab", level: "C1", kind: "choice", word: "altruistic", prompt: 'Choose the meaning of "altruistic".', choices: ["이기적인", "이타적인", "낙관적인", "비관적인"], answerIndex: 1, explain: "altruistic = 이타적인. Opposite of selfish." },
   { id: "v-c1-12", skill: "vocab", level: "C1", kind: "choice", word: "nostalgia", prompt: 'Choose the meaning of "nostalgia".', choices: ["불안", "그리움", "분노", "환희"], answerIndex: 1, explain: "nostalgia = (지난 시절에 대한) 그리움. a sense of nostalgia." },
+  // C2 — exam-grade academic words (TOEFL/IELTS territory)
+  { id: "v-c2-1", skill: "vocab", level: "C2", kind: "choice", word: "anomaly", prompt: 'Choose the meaning of "anomaly".', choices: ["정상", "이상(변이)", "평균", "모범"], answerIndex: 1, explain: "anomaly = 이상, 변칙. Scientists investigated the anomaly." },
+  { id: "v-c2-2", skill: "vocab", level: "C2", kind: "choice", word: "conundrum", prompt: 'Choose the meaning of "conundrum".', choices: ["난제", "음모", "기회", "결론"], answerIndex: 0, explain: "conundrum = 난제, 수수께끼. an ethical conundrum." },
+  { id: "v-c2-3", skill: "vocab", level: "C2", kind: "choice", word: "dichotomy", prompt: 'Choose the meaning of "dichotomy".', choices: ["조화", "이분법", "모순", "유사성"], answerIndex: 1, explain: "dichotomy = 이분법. the dichotomy between work and life." },
+  { id: "v-c2-4", skill: "vocab", level: "C2", kind: "choice", word: "incongruous", prompt: 'Choose the meaning of "incongruous".', choices: ["어울리지 않는", "조화로운", "분명한", "일시적인"], answerIndex: 0, explain: "incongruous = 어울리지 않는. an incongruous modern tower in the old town." },
+  { id: "v-c2-5", skill: "vocab", level: "C2", kind: "choice", word: "laconic", prompt: 'Choose the meaning of "laconic".', choices: ["수다스러운", "과묵한", "감정적인", "모호한"], answerIndex: 1, explain: "laconic = 과묵한. a laconic reply: 'Fine.'" },
+  { id: "v-c2-6", skill: "vocab", level: "C2", kind: "choice", word: "magnanimous", prompt: 'Choose the meaning of "magnanimous".', choices: ["인색한", "관대한", "교만한", "소심한"], answerIndex: 1, explain: "magnanimous = (패자에게도) 관대한. a magnanimous winner." },
+  { id: "v-c2-7", skill: "vocab", level: "C2", kind: "choice", word: "obfuscate", prompt: 'Choose the meaning of "obfuscate".', choices: ["명확히 하다", "모호하게 하다", "반박하다", "지지하다"], answerIndex: 1, explain: "obfuscate = 모호하게 하다. Politicians obfuscate the issue." },
+  { id: "v-c2-8", skill: "vocab", level: "C2", kind: "choice", word: "tenacious", prompt: 'Choose the meaning of "tenacious".', choices: ["끈질긴", "나약한", "신중한", "충동적인"], answerIndex: 0, explain: "tenacious = 끈질긴. tenacious journalists uncovered the scandal." },
 ];
 
 // ---------------------------------------------------------------------------
@@ -150,10 +161,14 @@ const GRAMMAR_CHOICE: BankItem[] = [
   { id: "g-c1-2", skill: "grammar", level: "C1", kind: "choice", prompt: "Not only ___ late, but he forgot the files.", choices: ["he was", "was he", "he is", "is he"], answerIndex: 1, explain: "Not only + 도치: Not only was he late…" },
   { id: "g-c1-3", skill: "grammar", level: "C1", kind: "choice", prompt: "It is imperative that everyone ___ silent.", choices: ["is", "remains", "remain", "remained"], answerIndex: 2, explain: "imperative/essential + that + 동사원형 (formal subjunctive)." },
   { id: "g-c1-4", skill: "grammar", level: "C1", kind: "choice", prompt: "No sooner ___ than she regretted it.", choices: ["she spoke", "she had spoken", "had she spoken", "has she spoken"], answerIndex: 2, explain: "No sooner + 도치: No sooner had she spoken…" },
+  // C2 — conditionals and subjunctives at exam difficulty
+  { id: "g-c2-1", skill: "grammar", level: "C2", kind: "choice", prompt: "But for your help, we ___ failed.", choices: ["will have", "would have", "had", "have"], answerIndex: 1, explain: "But for + 명사, would have p.p. (= If it had not been for…)." },
+  { id: "g-c2-2", skill: "grammar", level: "C2", kind: "choice", prompt: "___ it not been for the storm, we would have left.", choices: ["Had", "Was", "If", "Has"], answerIndex: 0, explain: "도치 가정법: Had it not been for… (If 생략)." },
+  { id: "g-c2-3", skill: "grammar", level: "C2", kind: "choice", prompt: "He speaks as though he ___ everything.", choices: ["knows", "knew", "had known", "will know"], answerIndex: 1, explain: "as though + 과거 (사실과 반대되는 현재 가정)." },
+  { id: "g-c2-4", skill: "grammar", level: "C2", kind: "choice", prompt: "So ___ was she that she couldn't speak.", choices: ["absorbed", "absorbing", "absorb", "to absorb"], answerIndex: 0, explain: "So + 형용사 + be동사 + that: So absorbed was she…" },
 ];
 
-const GRAMMAR_FILL: BankItem[] = [
-  { id: "g-a1-3", skill: "grammar", level: "A1", kind: "fill", prompt: "Fill in: I go to school ___ bus. (I go to school ___ bus.)", accept: ["by"], explain: "교통수단 by + 무관사: by bus / by subway." },
+const GRAMMAR_FILL: BankItem[] = [  { id: "g-a1-3", skill: "grammar", level: "A1", kind: "fill", prompt: "Fill in: I go to school ___ bus. (I go to school ___ bus.)", accept: ["by"], explain: "교통수단 by + 무관사: by bus / by subway." },
   { id: "g-a1-4", skill: "grammar", level: "A1", kind: "fill", prompt: "Fill in: She ___ (go) to work every day.", accept: ["goes"], explain: "3인칭 단수 현재: go → goes." },
   { id: "g-a1-5", skill: "grammar", level: "A1", kind: "choice", prompt: "They ___ my friends.", choices: ["is", "are", "am", "be"], answerIndex: 1, explain: "They (복수) + are." },
   { id: "g-a1-6", skill: "grammar", level: "A1", kind: "choice", prompt: "___ you ready?", choices: ["Is", "Are", "Am", "Does"], answerIndex: 1, explain: "you + Are. Are you ready?" },
@@ -184,17 +199,56 @@ const GRAMMAR_FILL: BankItem[] = [
   { id: "g-c1-8", skill: "grammar", level: "C1", kind: "fill", prompt: "Fill in: Hardly had we ___ (begin) when it rained.", accept: ["begun"], explain: "Hardly + had + 과거분사: begin → begun." },
   { id: "g-c1-9", skill: "grammar", level: "C1", kind: "fill", prompt: "Fill in: Having ___ (finish) his work, he went home.", accept: ["finished"], explain: "완료 분사구문: Having + 과거분사." },
   { id: "g-c1-10", skill: "grammar", level: "C1", kind: "fill", prompt: "Fill in: Little ___ (I know) the truth back then. (did / do)", accept: ["did"], explain: "Little + 도치 + 과거: Little did I know." },
+  { id: "g-c2-5", skill: "grammar", level: "C2", kind: "fill", prompt: "Fill in: So ___ (absorb) was he that he missed dinner.", accept: ["absorbed"], explain: "So + 과거분사형용사 + be동사 + that." },
+  { id: "g-c2-6", skill: "grammar", level: "C2", kind: "fill", prompt: "Fill in: Were she ___ (inform) earlier, she would have come.", accept: ["informed"], explain: "Were + 주어 + 과거분사 (가정법 과거완료의 도치)." },
+  { id: "g-c2-7", skill: "grammar", level: "C2", kind: "fill", prompt: "Fill in: ___ as they might, they couldn't solve it. (Try / Tried)", accept: ["try"], explain: "양보 도치: Try as they might (= Although they tried hard)." },
+  { id: "g-c2-8", skill: "grammar", level: "C2", kind: "fill", prompt: "Fill in: Never before ___ (I witness) such courage. (use 3 words)", accept: ["had i witnessed"], explain: "Never + 도치 + 과거완료: Never before had I witnessed…" },
 ];
 
-export const ALL_ITEMS: BankItem[] = [...VOCAB, ...GRAMMAR_CHOICE, ...GRAMMAR_FILL];
+// ---------------------------------------------------------------------------
+// Exam arena (C2) — original TOEIC / TOEFL / IELTS-style passages.
+// Each question carries its passage so items survive shuffling. Skill is
+// "reading": tracked separately in learn-store.
+// ---------------------------------------------------------------------------
 
-/** Fixed placement test: 15 Qs, 3 per level, easiest first. */
+const P_TOEIC = `To: All Staff
+From: Facilities Team
+Date: September 30
+Subject: 5th-floor renovation (Oct 6–17)
+
+The fifth floor will close for renovation from October 6 to 17. During this period, all 5th-floor teams will work from temporary desks on the 3rd floor, available starting October 3. Noisy construction work is restricted to 12:00–14:00 daily. The 5th-floor kitchen will be closed; please use the 3rd-floor kitchen via stairwell B. A phased reopening begins October 20. Direct questions to facilities@example.com.`;
+
+const P_TOEFL = `Bioluminescence — the production of light by living organisms — is widespread in the deep sea, where sunlight never reaches. One common strategy is counterillumination: animals such as the lanternfish produce light on their undersides that matches the faint glow from above, erasing their silhouette and eluding predators hunting from below. The chemistry relies on luciferin, a molecule that emits light when oxidized. Remarkably, many species cannot synthesize luciferin themselves and must acquire it through their diet, which suggests that deep-sea food webs are linked by the exchange of light-producing chemicals as well as nutrients.`;
+
+const P_IELTS = `Urban beekeeping has grown rapidly over the past decade. Rooftop hives now appear on offices and apartments across major cities, and several municipalities that once banned the practice have lifted their restrictions. Advocates argue that cities offer bees a longer foraging season: parks, balconies, and gardens bloom in succession from spring to autumn. Critics counter that too many hives in one district can strain local flowers, and some studies suggest urban honey yields vary widely. What is undisputed is that a single colony may travel several kilometers in a day in search of nectar.`;
+
+const EXAM_READING: BankItem[] = [
+  // TOEIC-style: office memo
+  { id: "r-c2-01", skill: "reading", level: "C2", kind: "choice", passage: P_TOEIC, prompt: "What is the main purpose of the memo?", choices: ["To announce a renovation and temporary relocation", "To request volunteers for construction", "To report a facilities budget cut", "To introduce a new kitchen menu"], answerIndex: 0, explain: "Renovation dates + temporary 3F desks = announcement + relocation." },
+  { id: "r-c2-02", skill: "reading", level: "C2", kind: "choice", passage: P_TOEIC, prompt: "What must 5th-floor teams do by October 3?", choices: ["Submit renovation requests", "Move to temporary desks on the 3rd floor", "Avoid stairwell B", "Stop all noisy work"], answerIndex: 1, explain: "Temporary desks available starting Oct 3 — move before the Oct 6 closure." },
+  { id: "r-c2-03", skill: "reading", level: "C2", kind: "choice", passage: P_TOEIC, prompt: 'The word "phased" in "a phased reopening" is closest in meaning to…', choices: ["sudden", "gradual, in stages", "partially cancelled", "loud"], answerIndex: 1, explain: "phased = 단계적인. TOEIC loves this word." },
+  { id: "r-c2-04", skill: "reading", level: "C2", kind: "choice", passage: P_TOEIC, prompt: "What is NOT mentioned in the memo?", choices: ["Where to direct questions", "When noisy work is allowed", "How the renovation is funded", "Which stairwell to use"], answerIndex: 2, explain: "Budget/funding never appears — classic NOT question." },
+  // TOEFL-style: academic passage
+  { id: "r-c2-05", skill: "reading", level: "C2", kind: "choice", passage: P_TOEFL, prompt: "What is the passage mainly about?", choices: ["How deep-sea animals use and obtain bioluminescence", "Why the deep sea has no light at all", "How luciferin was first discovered", "Why predators avoid lanternfish"], answerIndex: 0, explain: "Whole passage = mechanism (counterillumination) + chemistry source." },
+  { id: "r-c2-06", skill: "reading", level: "C2", kind: "choice", passage: P_TOEFL, prompt: "Why do animals use counterillumination?", choices: ["To attract mates", "To hide their silhouette from predators below", "To digest luciferin faster", "To signal other lanternfish"], answerIndex: 1, explain: "Stated directly: erasing silhouette, eluding predators hunting from below." },
+  { id: "r-c2-07", skill: "reading", level: "C2", kind: "choice", passage: P_TOEFL, prompt: 'The word "eluding" is closest in meaning to…', choices: ["escaping / avoiding", "attacking", "feeding", "glowing"], answerIndex: 0, explain: "elude = 피하다. TOEFL vocabulary-in-context staple." },
+  { id: "r-c2-08", skill: "reading", level: "C2", kind: "choice", passage: P_TOEFL, prompt: "What can be inferred about deep-sea food webs?", choices: ["They depend only on sunlight", "They circulate light-producing chemicals as well as nutrients", "They contain no predators", "They are simpler than surface webs"], answerIndex: 1, explain: "Final sentence: linked by exchange of light-chemicals AND nutrients." },
+  // IELTS-style: True / False / Not Given
+  { id: "r-c2-09", skill: "reading", level: "C2", kind: "choice", passage: P_IELTS, prompt: "Rooftop hives produce more honey than rural hives. (True / False / Not Given)", choices: ["True", "False", "Not Given"], answerIndex: 2, explain: "Yields 'vary widely' — no urban-vs-rural comparison given." },
+  { id: "r-c2-10", skill: "reading", level: "C2", kind: "choice", passage: P_IELTS, prompt: "City bans on beekeeping have increased recently. (True / False / Not Given)", choices: ["True", "False", "Not Given"], answerIndex: 1, explain: "Contradicted: cities 'lifted their restrictions'." },
+  { id: "r-c2-11", skill: "reading", level: "C2", kind: "choice", passage: P_IELTS, prompt: "Bees may travel several kilometers in a day for food. (True / False / Not Given)", choices: ["True", "False", "Not Given"], answerIndex: 0, explain: "Stated in the final sentence." },
+];
+
+export const ALL_ITEMS: BankItem[] = [...VOCAB, ...GRAMMAR_CHOICE, ...GRAMMAR_FILL, ...EXAM_READING];
+
+/** Fixed placement test: 18 Qs, 3 per level, easiest first. */
 export const PLACEMENT_IDS = [
   "v-a1-1", "g-a1-1", "g-a1-3",
   "v-a2-1", "g-a2-1", "g-a2-3",
   "v-b1-1", "g-b1-1", "g-b1-3",
   "v-b2-2", "g-b2-1", "g-b2-3",
   "v-c1-1", "g-c1-3", "g-c1-5",
+  "v-c2-1", "g-c2-1", "g-c2-5",
 ];
 
 export function getPlacementTest(): BankItem[] {
@@ -206,10 +260,11 @@ export function getPlacementTest(): BankItem[] {
 
 export function scoreToCEFR(score: number, total: number): CEFR {
   const r = total <= 0 ? 0 : score / total;
-  if (r >= 0.87) return "C1";
-  if (r >= 0.67) return "B2";
-  if (r >= 0.47) return "B1";
-  if (r >= 0.27) return "A2";
+  if (r >= 0.88) return "C2";
+  if (r >= 0.72) return "C1";
+  if (r >= 0.55) return "B2";
+  if (r >= 0.38) return "B1";
+  if (r >= 0.22) return "A2";
   return "A1";
 }
 
@@ -236,11 +291,14 @@ export const SELF_CHECK: CanDo[] = [
   { id: "s-b2-2", level: "B2", en: "I can understand jokes and sarcasm in movies.", ko: "영화의 농담·빈정거림 알아듣기" },
   { id: "s-c1-1", level: "C1", en: "I can follow fast native conversation without subtitles.", ko: "자막 없이 원어민 대화 따라가기" },
   { id: "s-c1-2", level: "C1", en: "I can write a formal complaint email.", ko: "공식 항의 이메일 쓰기" },
+  { id: "s-c2-1", level: "C2", en: "I can understand academic lectures and take notes.", ko: "학술 강의 듣고 필기하기" },
+  { id: "s-c2-2", level: "C2", en: "I can read contracts and spot key conditions.", ko: "계약서 읽고 핵심 조건 찾기" },
 ];
 
-/** Map checked count → CEFR. 0–2 A1, 3–4 A2, 5–6 B1, 7–8 B2, 9–10 C1. */
+/** Map checked count → CEFR. 0–2 A1 … 9–10 C1, 11–12 C2. */
 export function suggestLevelFromChecks(checkedCount: number): CEFR {
   const n = Math.max(0, Math.floor(checkedCount));
+  if (n >= 11) return "C2";
   if (n >= 9) return "C1";
   if (n >= 7) return "B2";
   if (n >= 5) return "B1";
@@ -281,10 +339,11 @@ function shuffled<T>(arr: T[], rng: () => number): T[] {
 }
 
 /**
- * 10-item lesson leveled to the learner: ~60% at-or-below level (core),
- * ~40% one stretch level up (nothing above the learner's head). Top level
- * (C1) draws all 10 from core. Shuffled per (day, salt) and skips
- * recently-seen ids, so every session feels fresh. Zero-token.
+ * 10-item lesson centered on the learner: 3 warm-up (one step below),
+ * 5 at-level (the main set), 2 stretch (one step above). Edges fold inward
+ * (A1 warms up at A1; C1 stretches at C1), so nothing is ever above the
+ * learner's head. Shuffled per (day, salt), skips recently-seen ids.
+ * Zero-token.
  */
 export function buildDailyLesson(
   dateStr: string,
@@ -293,24 +352,38 @@ export function buildDailyLesson(
   salt: string | number = "",
 ): BankItem[] {
   const lv = levelRank(level ?? "A1");
-  const core = ALL_ITEMS.filter((i) => levelRank(i.level) <= lv);
-  const stretch = ALL_ITEMS.filter((i) => levelRank(i.level) === lv + 1);
+  const top = CEFR_ORDER.length - 1;
+  const band = (l: number) => ALL_ITEMS.filter((i) => levelRank(i.level) === l);
+  const warm = band(Math.max(0, lv - 1));
+  const main = band(lv);
+  const reach = band(Math.min(top, lv + 1));
   const rng = mulberry32(hashStr(`${dateStr}|${level ?? "A1"}|${salt}`));
   const seen = new Set(exclude);
   const taken: BankItem[] = [];
 
   // Balanced take: alternate vocab/grammar from a shuffled band,
   // skipping recently-seen ids so sessions feel fresh.
-  const takeBalanced = (v: BankItem[], g: BankItem[], n: number): void => {
-    const vs = shuffled(v, rng);
-    const gs = shuffled(g, rng);
+  const takeBalanced = (pool: BankItem[], n: number): void => {
+    const vs = shuffled(
+      pool.filter((i) => i.skill === "vocab"),
+      rng,
+    );
+    const gs = shuffled(
+      pool.filter((i) => i.skill === "grammar"),
+      rng,
+    );
     let vi = 0;
     let gi = 0;
-    let preferVocab = true;
-    while (taken.length < n && (vi < vs.length || gi < gs.length)) {
+    let preferVocab = taken.length % 2 === 0;
+    const target = taken.length + n;
+    while (taken.length < target && (vi < vs.length || gi < gs.length)) {
       const cand = preferVocab
-        ? (vi < vs.length ? vs[vi++] : gs[gi++])
-        : (gi < gs.length ? gs[gi++] : vs[vi++]);
+        ? vi < vs.length
+          ? vs[vi++]
+          : gs[gi++]
+        : gi < gs.length
+          ? gs[gi++]
+          : vs[vi++];
       preferVocab = !preferVocab;
       if (!cand || seen.has(cand.id)) continue;
       seen.add(cand.id);
@@ -318,23 +391,12 @@ export function buildDailyLesson(
     }
   };
 
-  const coreCount = Math.min(6, core.length);
-  const stretchCount = Math.min(4, stretch.length);
-  const startCore = taken.length;
-  takeBalanced(
-    core.filter((i) => i.skill === "vocab"),
-    core.filter((i) => i.skill === "grammar"),
-    startCore + coreCount,
-  );
-  const startStretch = taken.length;
-  takeBalanced(
-    stretch.filter((i) => i.skill === "vocab"),
-    stretch.filter((i) => i.skill === "grammar"),
-    startStretch + stretchCount,
-  );
+  takeBalanced(warm, 3);
+  takeBalanced(main, 5);
+  takeBalanced(reach, 2);
   // Top-up 1: unseen items from anywhere in range.
   if (taken.length < 10) {
-    for (const cand of shuffled([...core, ...stretch], rng)) {
+    for (const cand of shuffled([...warm, ...main, ...reach], rng)) {
       if (taken.length >= 10) break;
       if (seen.has(cand.id)) continue;
       seen.add(cand.id);
@@ -344,7 +406,7 @@ export function buildDailyLesson(
   // Top-up 2: bank exhausted (heavy exclusion) — allow repeats, keep unique.
   if (taken.length < 10) {
     const have = new Set(taken.map((i) => i.id));
-    for (const cand of shuffled([...core, ...stretch], rng)) {
+    for (const cand of shuffled([...warm, ...main, ...reach], rng)) {
       if (taken.length >= 10) break;
       if (have.has(cand.id)) continue;
       have.add(cand.id);

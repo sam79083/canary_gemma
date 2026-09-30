@@ -420,6 +420,26 @@ export default function Home() {
     } catch {
       // storage unavailable — skip the guide
     }
+    // Essay-coaching handoff from Learn Mode: drop the prepared review
+    // prompt into the composer so any provider (on-device first) can coach.
+    try {
+      const draft = localStorage.getItem("canary-essay-draft");
+      if (draft && draft.trim()) {
+        localStorage.removeItem("canary-essay-draft");
+        setTimeout(() => {
+          appendInput(draft.trim().slice(0, 4000));
+          try {
+            const msg = t("lnEssayDraft");
+            toast(msg === "lnEssayDraft" ? "Essay loaded — press Enter to get AI coaching ✍️" : msg);
+          } catch {
+            // toasts are best-effort
+          }
+        }, 600);
+      }
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const closeOnboard = useCallback(() => {

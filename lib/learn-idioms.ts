@@ -28,7 +28,7 @@ export interface Idiom {
 }
 
 function rank(l: CEFR): number {
-  return (["A1", "A2", "B1", "B2", "C1"] as CEFR[]).indexOf(l);
+  return (["A1", "A2", "B1", "B2", "C1", "C2"] as CEFR[]).indexOf(l);
 }
 
 function hashStr(s: string): number {

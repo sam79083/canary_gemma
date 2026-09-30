@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  ALL_ITEMS,
   buildDailyLesson,
   getPlacementTest,
   gradeChoice,
@@ -21,6 +22,13 @@ import {
 } from "../lib/learn-idioms.ts";
 import { clearSeen, loadSeen, markSeen } from "../lib/learn-seen.ts";
 import { chooseState, isEmptyState } from "../lib/learn-store.ts";
+import {
+  ESSAY_TOPICS,
+  buildEssayCoachPrompt,
+  gradeEssay,
+  loadEssayHistory,
+  saveEssayAttempt,
+} from "../lib/learn-essay.ts";
 import {
   dueWords,
   emptyState,
@@ -44,14 +52,25 @@ describe("learn-bank grading", () => {
     assert.ok(gradeChoice(1, 1));
     assert.ok(!gradeChoice(0, 1));
   });
-  it("placement is fixed 15qs and maps score to CEFR", () => {
-    assert.equal(getPlacementTest().length, 15);
-    assert.equal(scoreToCEFR(0, 15), "A1");
-    assert.equal(scoreToCEFR(3, 15), "A1");
-    assert.equal(scoreToCEFR(5, 15), "A2");
-    assert.equal(scoreToCEFR(8, 15), "B1");
-    assert.equal(scoreToCEFR(11, 15), "B2");
-    assert.equal(scoreToCEFR(14, 15), "C1");
+  it("placement is fixed 18qs and maps score to CEFR", () => {
+    assert.equal(getPlacementTest().length, 18);
+    assert.equal(scoreToCEFR(0, 18), "A1");
+    assert.equal(scoreToCEFR(4, 18), "A2");
+    assert.equal(scoreToCEFR(7, 18), "B1");
+    assert.equal(scoreToCEFR(11, 18), "B2");
+    assert.equal(scoreToCEFR(14, 18), "C1");
+    assert.equal(scoreToCEFR(17, 18), "C2");
+  });
+  it("exam arena: C2 passages with reading skill, incl. True/False/Not Given", () => {
+    const passages = ALL_ITEMS.filter((i) => i.passage);
+    assert.ok(passages.length >= 10);
+    assert.ok(passages.every((i) => i.skill === "reading" && i.level === "C2"));
+    const tfng = passages.filter((i) => (i.choices ?? []).length === 3);
+    assert.ok(tfng.length >= 3);
+    // Reading answers feed the reading stat, not vocab/grammar.
+    const s1 = recordAnswers(emptyState(), [{ item: passages[0], correct: true }], "2026-09-30");
+    assert.equal(s1.skills.reading.correct, 1);
+    assert.equal(s1.skills.vocab.asked, 0);
   });
   it("daily lesson is deterministic per seed and skips seen ids", () => {
     const a = buildDailyLesson("2026-09-30", "A1").map((i) => i.id);
@@ -70,26 +89,29 @@ describe("learn-bank grading", () => {
     assert.ok(seen.every((id) => !c.includes(id)));
   });
   it("self-check maps checked count to CEFR", () => {
-    assert.equal(SELF_CHECK.length, 10);
+    assert.equal(SELF_CHECK.length, 12);
     assert.equal(suggestLevelFromChecks(0), "A1");
     assert.equal(suggestLevelFromChecks(2), "A1");
     assert.equal(suggestLevelFromChecks(3), "A2");
     assert.equal(suggestLevelFromChecks(5), "B1");
     assert.equal(suggestLevelFromChecks(8), "B2");
     assert.equal(suggestLevelFromChecks(10), "C1");
-    assert.equal(suggestLevelFromChecks(99), "C1");
+    assert.equal(suggestLevelFromChecks(12), "C2");
+    assert.equal(suggestLevelFromChecks(99), "C2");
   });
-  it("lessons are leveled: nothing above level+1, core majority at/below", () => {
-    for (const lv of ["A1", "A2", "B1", "B2", "C1"] as const) {
+  it("lessons center on the level: 3 warm-up, 5 at-level, 2 reach", () => {
+    for (const lv of ["A1", "A2", "B1", "B2", "C1", "C2"] as const) {
       const lesson = buildDailyLesson("2026-09-30", lv);
       assert.equal(lesson.length, 10);
-      for (const item of lesson)
-        assert.ok(
-          levelRank(item.level) <= levelRank(lv) + 1,
-          `${lv} lesson leaked ${item.id}`,
-        );
-      const core = lesson.filter((i) => levelRank(i.level) <= levelRank(lv));
-      assert.ok(core.length >= 6, `${lv} lesson has only ${core.length} core items`);
+      const r = levelRank(lv);
+      const lo = Math.max(0, r - 1);
+      const hi = Math.min(5, r + 1);
+      for (const item of lesson) {
+        const ir = levelRank(item.level);
+        assert.ok(ir >= lo && ir <= hi, `${lv} lesson leaked ${item.id}`);
+      }
+      const at = lesson.filter((i) => levelRank(i.level) === r).length;
+      assert.ok(at >= 5, `${lv} lesson has only ${at} at-level items`);
     }
     // Unplaced learners get the A1-shaped lesson.
     assert.deepEqual(
@@ -179,6 +201,60 @@ describe("learn-sync merge", () => {
     // No remote, bad timestamp → local, never throws.
     assert.equal(chooseState(progressed, 0, null).from, "local");
     assert.equal(chooseState(progressed, 0, { ...remote, updated_at: "junk" }).from, "local");
+  });
+});
+
+describe("learn-essay", () => {
+  const topic = ESSAY_TOPICS.find((t) => t.id === "e-b2-1") ?? ESSAY_TOPICS[0];
+  const strong = [
+    "Remote work has changed modern life completely. Many people now work from home instead of commuting to an office every day. However, this new freedom comes with hidden costs that deserve attention.",
+    "Firstly, remote workers often feel isolated and lonely. Although video calls help teams communicate, they cannot replace genuine conversation. For example, a developer in Seoul told me she misses lunch with her colleagues. Moreover, the boundary between professional duties and personal relaxation gradually disappears.",
+    "Finally, companies must respond with practical solutions. Managers should organize regular in-person gatherings so distributed teams remain connected. In addition, workers themselves need discipline because the laptop is always within reach.",
+    "In conclusion, remote work offers remarkable flexibility, but it demands conscious effort. I believe a balanced approach allows people to enjoy freedom without sacrificing their social wellbeing.",
+  ].join("\n\n");
+  const weak = "i like summer. it is hot. i go swim. summer is good i like it very much.";
+
+  it("passes a strong essay at 80+, fails a weak one", () => {
+    const good = gradeEssay(strong, topic);
+    assert.ok(good.pass, `expected pass, got ${good.total}`);
+    assert.ok(good.total >= 80 && good.total <= 100);
+    assert.equal(good.axes.length, 5);
+    const bad = gradeEssay(weak, ESSAY_TOPICS[0]);
+    assert.ok(!bad.pass);
+    assert.ok(bad.total < 80);
+  });
+  it("is deterministic and catches article errors with fixes", () => {
+    const a = gradeEssay("I saw a elephant and an book.", ESSAY_TOPICS[0]);
+    const b = gradeEssay("I saw a elephant and an book.", ESSAY_TOPICS[0]);
+    assert.deepEqual(a, b);
+    assert.ok(a.feedback.some((f) => f.includes("an elephant")));
+    assert.ok(gradeEssay("", ESSAY_TOPICS[0]).total === 0);
+  });
+  it("builds a chat coaching prompt and keeps history", () => {
+    const score = gradeEssay(strong, topic);
+    const prompt = buildEssayCoachPrompt(topic, strong, score);
+    assert.ok(prompt.includes(topic.topic));
+    assert.ok(prompt.includes(`${score.total}/100`));
+    const mem = new Map<string, string>();
+    (globalThis as unknown as { localStorage: unknown }).localStorage = {
+      getItem: (k: string) => (mem.has(k) ? (mem.get(k) as string) : null),
+      setItem: (k: string, v: string) => { mem.set(k, String(v)); },
+      removeItem: (k: string) => { mem.delete(k); },
+      clear: () => mem.clear(),
+      key: () => null,
+      length: 0,
+    };
+    try {
+      assert.deepEqual(loadEssayHistory(), []);
+      const next = saveEssayAttempt({
+        id: "t1", topicId: topic.id, topic: topic.topic,
+        words: score.wordCount, total: score.total, pass: score.pass, at: "2026-09-30",
+      });
+      assert.equal(next.length, 1);
+      assert.equal(loadEssayHistory()[0].total, score.total);
+    } finally {
+      Reflect.deleteProperty(globalThis, "localStorage");
+    }
   });
 });
 

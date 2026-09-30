@@ -70,6 +70,18 @@ export default function QuizCard({
       <div style={{ fontSize: 12, opacity: 0.7 }}>
         Q{idx + 1}/{items.length} · {item.skill} · {item.level}
       </div>
+      {item.passage ? (
+        <div
+          style={{
+            fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap",
+            background: "var(--model-bar-bg, var(--border))",
+            border: "1px solid var(--border)", borderRadius: 8, padding: 10,
+            maxHeight: 220, overflowY: "auto",
+          }}
+        >
+          {item.passage}
+        </div>
+      ) : null}
       <div style={{ fontSize: 17, fontWeight: 700 }}>{item.prompt}</div>
       {item.kind === "choice" ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>

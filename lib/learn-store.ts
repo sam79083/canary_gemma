@@ -113,6 +113,8 @@ export function emptyState(): LearnState {
     skills: {
       vocab: { asked: 0, correct: 0 },
       grammar: { asked: 0, correct: 0 },
+      reading: { asked: 0, correct: 0 },
+      writing: { asked: 0, correct: 0 },
     },
     days: {},
     cards: {},
@@ -142,6 +144,8 @@ export function recordAnswers(
     skills: {
       vocab: { ...prev.skills.vocab },
       grammar: { ...prev.skills.grammar },
+      reading: { ...prev.skills.reading },
+      writing: { ...prev.skills.writing },
     },
     days: { ...prev.days },
     cards: { ...prev.cards },
@@ -252,7 +256,12 @@ export function sanitizeLearnState(p: Partial<LearnState>): LearnState {
   return {
     version: 1,
     level:
-      p.level === "A1" || p.level === "A2" || p.level === "B1" || p.level === "B2" || p.level === "C1"
+      p.level === "A1" ||
+      p.level === "A2" ||
+      p.level === "B1" ||
+      p.level === "B2" ||
+      p.level === "C1" ||
+      p.level === "C2"
         ? p.level
         : null,
     xp: num(p.xp),
@@ -265,6 +274,14 @@ export function sanitizeLearnState(p: Partial<LearnState>): LearnState {
       grammar: {
         asked: num(p.skills?.grammar?.asked),
         correct: num(p.skills?.grammar?.correct),
+      },
+      reading: {
+        asked: num(p.skills?.reading?.asked),
+        correct: num(p.skills?.reading?.correct),
+      },
+      writing: {
+        asked: num(p.skills?.writing?.asked),
+        correct: num(p.skills?.writing?.correct),
       },
     },
     days: cleanDays,

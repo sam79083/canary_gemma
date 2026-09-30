@@ -41,7 +41,7 @@ import { unlockAch } from "@/lib/achievements";
 type PTab = "quiz" | "idiom" | "me";
 
 function rank(l: CEFR): number {
-  return (["A1", "A2", "B1", "B2", "C1"] as CEFR[]).indexOf(l);
+  return (["A1", "A2", "B1", "B2", "C1", "C2"] as CEFR[]).indexOf(l);
 }
 
 const GREETS = [
@@ -67,7 +67,12 @@ function loadFun(): { tryWins: number; celebrated: CEFR | null } {
     return {
       tryWins: typeof p.tryWins === "number" ? p.tryWins : 0,
       celebrated:
-        p.celebrated === "A1" || p.celebrated === "A2" || p.celebrated === "B1" || p.celebrated === "B2"
+        p.celebrated === "A1" ||
+        p.celebrated === "A2" ||
+        p.celebrated === "B1" ||
+        p.celebrated === "B2" ||
+        p.celebrated === "C1" ||
+        p.celebrated === "C2"
           ? p.celebrated
           : null,
     };
@@ -163,7 +168,8 @@ export default function TutorPanel({ onClose }: { onClose: () => void }) {
   }, [auth.loading, member, hydrated]);
 
   const lesson = useMemo(
-    () => buildDailyLesson(today, state.level, loadSeen(), quizKey).slice(0, 5),
+    // Full set is [warm-up ×3, at-level ×5, reach ×2] — quick quiz takes the at-level core.
+    () => buildDailyLesson(today, state.level, loadSeen(), quizKey).slice(3, 8),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [today, state.level, quizKey],
   );
@@ -308,7 +314,7 @@ export default function TutorPanel({ onClose }: { onClose: () => void }) {
         <div style={{ margin: 12, padding: 12, borderRadius: 10, background: "var(--green)", color: "#fff", textAlign: "center" }}>
           <div style={{ fontSize: 20, fontWeight: 900 }}>🚀 {L("lnLevelUp", "LEVEL UP!")} {levelUp}</div>
           <div style={{ fontSize: 13 }}>
-            {levelUp === "C1" ? L("lnPerkC1", "Unlocked: advanced idioms 🐉") : levelUp === "B1" ? L("lnPerkB1", "Unlocked: 12 idioms & expressions 🎁") : levelUp === "B2" ? L("lnPerkB2", "Unlocked: real-world slang 😎") : L("lnPerkAny", "New lessons unlocked! Keep flying! 🦜")}
+            {levelUp === "C2" ? L("lnPerkC2", "Unlocked: exam arena 🏆 — TOEIC/TOEFL/IELTS passages") : levelUp === "C1" ? L("lnPerkC1", "Unlocked: advanced idioms 🐉") : levelUp === "B1" ? L("lnPerkB1", "Unlocked: 12 idioms & expressions 🎁") : levelUp === "B2" ? L("lnPerkB2", "Unlocked: real-world slang 😎") : L("lnPerkAny", "New lessons unlocked! Keep flying! 🦜")}
           </div>
           <button className="sidebar-btn small" onClick={() => setLevelUp(null)} style={{ marginTop: 8, width: "auto" }}>
             {L("lnKeepGoing", "Keep going! →")}
@@ -417,7 +423,7 @@ export default function TutorPanel({ onClose }: { onClose: () => void }) {
         {tab === "me" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 13 }}>
             <div style={{ textAlign: "center", padding: 8 }}>
-              <div style={{ fontSize: 44 }}>{state.level === "C1" ? "🐉" : state.level === "B2" ? "🦅" : state.level === "B1" ? "🦜" : state.level === "A2" ? "🐣" : "🥚"}</div>
+              <div style={{ fontSize: 44 }}>{state.level === "C2" ? "👑" : state.level === "C1" ? "🐉" : state.level === "B2" ? "🦅" : state.level === "B1" ? "🦜" : state.level === "A2" ? "🐣" : "🥚"}</div>
               <div style={{ fontWeight: 800, fontSize: 16 }}>
                 {state.level ? `${L("lnLevelIs", "Level")} ${state.level}` : L("lnUnplaced", "Unplaced egg 🥚 — assess to hatch!")}
               </div>
