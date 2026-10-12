@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { TFn } from "@/lib/i18n";
 
 interface Props {
@@ -11,10 +12,13 @@ interface Props {
   onPickFolder: () => void;
   onDone: () => void;
   onSkip: () => void;
+  /** Learner fork: close onboarding and open the tutor on the level check. */
+  onStudy: () => void;
 }
 
-/** First-visit popup: folder only. Language defaults to Korean and the
- * starter templates live in the chat itself — no setup wizard. */
+/** First-visit fork: chat/files people vs English learners.
+ * Learners skip the folder entirely and land on the 30-second level check
+ * (first win in ~60 seconds); chatters get the original folder flow. */
 export default function Onboarding({
   t,
   folderChosen,
@@ -24,7 +28,82 @@ export default function Onboarding({
   onPickFolder,
   onDone,
   onSkip,
+  onStudy,
 }: Props) {
+  const [fork, setFork] = useState<"ask" | "chat" | "study">("ask");
+
+  if (fork === "ask") {
+    return (
+      <div className="review-overlay" id="onboard-overlay">
+        <div className="review-card" style={{ textAlign: "center" }}>
+          <h3>👋 {t("obWelcome")}</h3>
+          <div style={{ fontWeight: 600, margin: "10px 0 12px" }}>
+            What brings you here? · 무엇을 하러 오셨어요?
+          </div>
+          <button
+            className="editor-btn primary"
+            onClick={() => setFork("study")}
+            style={{ width: "100%", justifyContent: "center", fontSize: 15, padding: "12px", marginBottom: 8 }}
+          >
+            🦜 Study English · 영어 공부
+          </button>
+          <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 12 }}>
+            30-sec level check → first quiz + AI feedback in ~1 minute
+          </div>
+          <button
+            className="editor-btn"
+            onClick={() => setFork("chat")}
+            style={{ width: "100%", justifyContent: "center", fontSize: 15, padding: "12px" }}
+          >
+            💬 Chat & files · 채팅과 파일
+          </button>
+          <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
+            Private AI chat with a file agent on your device
+          </div>
+          <div className="review-actions" style={{ marginTop: 16, justifyContent: "center" }}>
+            <button className="editor-btn" onClick={onSkip}>
+              {t("obSkip")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (fork === "study") {
+    return (
+      <div className="review-overlay" id="onboard-overlay">
+        <div className="review-card" style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 44 }}>🦜</div>
+          <div style={{ fontWeight: 800, fontSize: 17, margin: "6px 0" }}>
+            Start with a 30-second level check
+          </div>
+          <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 6 }}>
+            12 can-do questions → your level → first 5-question quiz with instant AI feedback. No account, no setup.
+          </div>
+          <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 14 }}>
+            12개 질문 → 레벨 측정 → 5문제 퀴즈와 AI 피드백까지, 약 1분이면 첫 성공!
+          </div>
+          <button
+            className="editor-btn primary"
+            onClick={onStudy}
+            style={{ width: "100%", justifyContent: "center", fontSize: 15, padding: "12px" }}
+          >
+            Check my level → · 레벨 측정하기 →
+          </button>
+          <div className="review-actions" style={{ marginTop: 12, justifyContent: "space-between" }}>
+            <button className="editor-btn" onClick={() => setFork("ask")}>
+              ← Back
+            </button>
+            <button className="editor-btn" onClick={onSkip}>
+              Just look around
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="review-overlay" id="onboard-overlay">
       <div className="review-card">

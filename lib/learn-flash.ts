@@ -81,12 +81,18 @@ export function loadCards(): FlashCard[] {
 }
 
 export function saveCards(cards: FlashCard[]): void {
-  try {
-    if (typeof localStorage === "undefined") return;
-    localStorage.setItem(FLASH_KEY, JSON.stringify(cards.slice(0, MAX_CARDS)));
-  } catch {
-    // best-effort
-  }
+  // Quota guard: shrink once (newest 100) and retry. Inline, no imports.
+  const put = (list: FlashCard[]): boolean => {
+    try {
+      if (typeof localStorage === "undefined") return false;
+      localStorage.setItem(FLASH_KEY, JSON.stringify(list));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const full = cards.slice(0, MAX_CARDS);
+  if (!put(full)) put(full.slice(0, 100));
 }
 
 // --- vocabulary builder: mine candidate words from pasted/file text --------

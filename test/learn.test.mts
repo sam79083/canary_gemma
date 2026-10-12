@@ -262,7 +262,7 @@ describe("learn-sync merge", () => {
 describe("learn-essay", () => {
   it("ships a real topic library across levels", () => {
     assert.ok(ESSAY_TOPICS.length >= 20);
-    for (const lv of ["B1", "B2", "C1", "C2"]) {
+    for (const lv of ["A1", "A2", "B1", "B2", "C1", "C2"]) {
       const n = ESSAY_TOPICS.filter((t) => t.level === lv).length;
       assert.ok(n >= 4, `${lv} has only ${n} topics`);
     }
@@ -273,6 +273,20 @@ describe("learn-essay", () => {
       assert.ok(t.keywords.length >= 3);
       assert.ok(t.topic.length > 10 && t.hint.length > 5);
     }
+  });
+  it("beginner pass marks are reachable (60/70/80 ladder)", () => {
+    const a1 = ESSAY_TOPICS.find((t) => t.id === "e-a1-1")!;
+    assert.equal(a1.passMark, 60);
+    const decent = [
+      "I wake up at seven in the morning. I eat rice and soup with my family.",
+      "In the afternoon I go to school and study English with my friends.",
+      "In the evening I like to read books. Today was a good day.",
+    ].join(" ");
+    const score = gradeEssay(decent, a1);
+    assert.ok(score.pass, `decent A1 essay should pass 60, got ${score.total}`);
+    const a2 = ESSAY_TOPICS.find((t) => t.id === "e-a2-1")!;
+    assert.equal(a2.passMark, 70);
+    assert.equal((ESSAY_TOPICS.find((t) => t.id === "e-b1-1")!.passMark ?? 80), 80);
   });
   const topic = ESSAY_TOPICS.find((t) => t.id === "e-b2-1") ?? ESSAY_TOPICS[0];
   const strong = [

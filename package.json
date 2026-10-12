@@ -11,7 +11,8 @@
     "i18n:check": "node --experimental-strip-types scripts/i18n-tool.mts --check",
     "i18n:fill": "node --experimental-strip-types scripts/i18n-tool.mts",
     "words:build": "node --experimental-strip-types scripts/build-wordlist.mts",
-    "bulk:build": "node --experimental-strip-types scripts/build-bulk.mts"
+    "bulk:build": "node --experimental-strip-types scripts/build-bulk.mts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.23",
@@ -28,6 +29,7 @@
     "sonner": "^2.0.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "@types/node": "^20.0.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",

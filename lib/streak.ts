@@ -49,13 +49,17 @@ export function freezeLeft(now = new Date()): number {
 /**
  * Forgiving visit recorder. Returns { count, froze }: froze is true only
  * when exactly one day was missed and the monthly freeze covered it.
- * Pure date math + guarded storage — safe under node --test with a stub.
+ * Clock-gaming guard: if the device clock moved BACKWARD past the stored
+ * timestamp (beyond 1 min slop), the row is left untouched — neither
+ * advancing nor resetting — instead of minting a fake streak.
+ * (Forward jumps remain gameable offline; only a server clock could stop
+ * that. Pure date math + guarded storage — safe under node --test.)
  */
 export function touchStreakWithFreeze(now = new Date()): { count: number; froze: boolean } {
   const today = dayStr(now);
   const finish = (count: number, froze: boolean): { count: number; froze: boolean } => {
     try {
-      localStorage.setItem(KEY, JSON.stringify({ last: today, count }));
+      localStorage.setItem(KEY, JSON.stringify({ last: today, count, ts: now.getTime() }));
     } catch {
       // ignore
     }
@@ -64,10 +68,15 @@ export function touchStreakWithFreeze(now = new Date()): { count: number; froze:
   try {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem(KEY) : null;
     if (raw) {
-      const obj = JSON.parse(raw) as { last?: string; count?: number };
+      const obj = JSON.parse(raw) as { last?: string; count?: number; ts?: number };
       const last = typeof obj.last === "string" ? parseDay(obj.last) : null;
       const count = typeof obj.count === "number" && obj.count > 0 ? Math.floor(obj.count) : 1;
       if (obj.last === today) return { count, froze: false };
+      // Device clock moved backward past the stored visit: leave the row
+      // alone (no fake streak, no unfair reset). 60s slop for DST shifts.
+      if (typeof obj.ts === "number" && now.getTime() < obj.ts - 60000) {
+        return { count, froze: false };
+      }
       if (last) {
         const diffDays = Math.round(
           (new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() -

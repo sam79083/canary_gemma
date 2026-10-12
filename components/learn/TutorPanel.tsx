@@ -90,9 +90,8 @@ import {
   savePortfolio,
   type PortfolioEntry,
 } from "@/lib/learn-portfolio";
-import { BULK_IDIOMS } from "@/lib/idioms-bulk";
-import { BULK_WORDS } from "@/lib/words-bulk";
 import { spellBatch } from "@/lib/learn-spell";
+import type { Idiom } from "@/lib/learn-idioms";
 import ShadowBox from "@/components/learn/ShadowBox";
 import UseItBox from "@/components/learn/UseItBox";
 import {
@@ -114,6 +113,7 @@ import {
   suggestShift,
 } from "@/lib/learn-adaptive";
 import { loadSeen, markSeen } from "@/lib/learn-seen";
+import { getSpeechRate } from "@/lib/speech";
 import { buildWeeklyReport } from "@/lib/learn-report";
 import { freezeLeft } from "@/lib/streak";
 import {
@@ -150,7 +150,7 @@ function speakText(text: string): void {
     synth.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "en-US";
-    u.rate = 0.95;
+    u.rate = getSpeechRate();
     try {
       const vs = synth.getVoices();
       const en = vs.find((v) => v.lang?.toLowerCase().startsWith("en") && /natural|online|neural|google/i.test(v.name)) ?? vs.find((v) => v.lang?.toLowerCase().startsWith("en"));
@@ -259,6 +259,26 @@ export default function TutorPanel({
   /** Fresh salt per panel open: reopening always deals a new set (the old
    * deterministic-daily slice showed the same 5 all day until finished). */
   const [openSalt] = useState(() => Math.floor(Math.random() * 1e9));
+  /**
+   * Bulk pools (914 idioms + 9,960 graded words, ~250 KB) load on demand —
+   * never in the main-page bundle. Until loaded, curated pools stand in.
+   */
+  const [bulkIdioms, setBulkIdioms] = useState<Idiom[]>([]);
+  const [bulkWords, setBulkWords] = useState<Record<CEFR, string[]> | null>(null);
+  useEffect(() => {
+    let dead = false;
+    void Promise.all([import("@/lib/idioms-bulk"), import("@/lib/words-bulk")])
+      .then(([idioms, words]) => {
+        if (dead) return;
+        setBulkIdioms(idioms.BULK_IDIOMS);
+        setBulkWords(words.BULK_WORDS);
+        setQuizKey((k) => k + 1); // re-deal with full pools
+      })
+      .catch(() => {});
+    return () => {
+      dead = true;
+    };
+  }, []);
   const [burstKey, setBurstKey] = useState(0);
   const [cloudState, setCloudState] = useState<"local" | "syncing" | "synced">("local");
   const pullingRef = useRef(false);
@@ -390,7 +410,7 @@ export default function TutorPanel({
     const seen = loadSeen();
     const batch = [
       ...genBatch(lv, 6, seen, `${today}|endless|${endlessRound}|${quizKey}|g`),
-      ...spellBatch(lv, BULK_WORDS[lv] ?? [], 4, seen, `${today}|endless|${endlessRound}|${quizKey}|s`),
+      ...spellBatch(lv, (bulkWords?.[lv] ?? []), 4, seen, `${today}|endless|${endlessRound}|${quizKey}|s`),
     ];
     const mixed = [...batch].sort(
       (a, b) => hashStr(`${today}|mix|${endlessRound}|${quizKey}|${a.id}`) - hashStr(`${today}|mix|${endlessRound}|${quizKey}|${b.id}`),
@@ -398,7 +418,7 @@ export default function TutorPanel({
     rememberGenItems(mixed);
     return mixed;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [today, state.level, endlessRound, quizKey]);
+  }, [today, state.level, endlessRound, quizKey, bulkWords]);
   const quizItems = quizMode === "full" ? fullLesson : quizMode === "exam" ? examItems : quizMode === "endless" ? endlessBatch : aiQuiz ?? lesson;
   const [reviewKey, setReviewKey] = useState(0);
   const reviewItems = useMemo(() => {
@@ -414,7 +434,7 @@ export default function TutorPanel({
       // (curated + bulk pools share the namespace; curated wins ties).
       if (w.startsWith("idiom:")) {
         const key = w.slice("idiom:".length);
-        const it = idiomById(key) ?? BULK_IDIOMS.find((b) => b.id === key) ?? null;
+        const it = idiomById(key) ?? bulkIdioms.find((b) => b.id === key) ?? null;
         if (it) out.push(idiomToBankItem(it) as unknown as BankItem);
         continue;
       }
@@ -441,8 +461,8 @@ export default function TutorPanel({
     setState((prev) => commitAnswers(prev, results, today));
     setReviewKey((k) => k + 1);
   };
-  const unlocked = useMemo(() => unlockedFor([...IDIOMS, ...BULK_IDIOMS], state.level), [state.level]);
-  const locked = useMemo(() => nextLocked([...IDIOMS, ...BULK_IDIOMS], state.level), [state.level]);
+  const unlocked = useMemo(() => unlockedFor([...IDIOMS, ...bulkIdioms], state.level), [state.level, bulkIdioms]);
+  const locked = useMemo(() => nextLocked([...IDIOMS, ...bulkIdioms], state.level), [state.level, bulkIdioms]);
   const idiom = useMemo(() => {
     if (shownId) {
       const found = unlocked.find((i) => i.id === shownId);
@@ -458,7 +478,7 @@ export default function TutorPanel({
       genPoolSize(lv) +
       ALL_ITEMS.filter((i) => i.level === lv).length +
       unlocked.length +
-      (BULK_WORDS[lv] ?? []).length
+      (bulkWords?.[lv] ?? []).length
     );
   }, [state.level, unlocked]);
   const weekXp = useMemo(() => {
@@ -506,7 +526,8 @@ export default function TutorPanel({
 
   const placement = useMemo(() => getPlacementTest(), []);
   const finishPlacement = (results: AnswerResult[]) => {
-    if (results.length > 0) markSeen(results.map((r) => r.item.id));
+    if (results.length === 0) return; // replay Done carries nothing
+    markSeen(results.map((r) => r.item.id));
     const correct = results.filter((r) => r.correct).length;
     const lv = scoreToCEFR(correct, results.length);
     setState((prev) => setLevel(commitAnswers(prev, results, today), lv));
@@ -813,7 +834,7 @@ export default function TutorPanel({
   const listenItems: ListenItem[] = useMemo(() => {
     const batch = listenBatch(
       state.level ?? "A1",
-      BULK_WORDS[state.level ?? "A1"] ?? [],
+      bulkWords?.[state.level ?? "A1"] ?? [],
       listenBatchMode,
       5,
       loadSeen(),
@@ -822,7 +843,7 @@ export default function TutorPanel({
     rememberGenItems(batch);
     return batch;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [today, state.level, listenBatchMode, listenRound, quizKey, openSalt]);
+  }, [today, state.level, listenBatchMode, listenRound, quizKey, openSalt, bulkWords]);
   const listenItem = listenItems[listenIdx % Math.max(1, listenItems.length)];
   useEffect(() => {
     setListenIdx(0);
@@ -1796,7 +1817,7 @@ export default function TutorPanel({
               <button className="sidebar-btn small" onClick={shuffleTopic} style={{ width: "auto" }} title="Random topic">🎲</button>
             </div>
             <div style={{ fontSize: 14, fontWeight: 800 }}>"{essayTopic.topic}"</div>
-            <div style={{ fontSize: 12, opacity: 0.7 }}>💡 {essayTopic.hint} · {essayTopic.minWords}–{essayTopic.maxWords} words · 80+ pass</div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>💡 {essayTopic.hint} · {essayTopic.minWords}–{essayTopic.maxWords} words · {essayTopic.passMark ?? 80}+ pass</div>
             <textarea
               value={essayText}
               onChange={(e) => { setEssayText(e.target.value); setEssayResult(null); }}
@@ -1841,7 +1862,7 @@ export default function TutorPanel({
                 <div style={{ textAlign: "center" }}>
                   <span style={{ fontSize: 30, fontWeight: 900 }}>{essayResult.total}<span style={{ fontSize: 14, opacity: 0.6 }}>/100</span></span>
                   <div style={{ fontSize: 13, fontWeight: 800, color: essayResult.pass ? "var(--green)" : "inherit" }}>
-                    {essayResult.pass ? "🎉 PASS!" : "💪 80 to pass — retry!"}
+                    {essayResult.pass ? "🎉 PASS!" : `💪 ${essayTopic.passMark ?? 80} to pass — retry!`}
                   </div>
                 </div>
                 {essayResult.axes.map((a) => (

@@ -10,7 +10,14 @@ import FileTree from "@/components/FileTree";
 import HelpDialog from "@/components/HelpDialog";
 import LoginDialog from "@/components/LoginDialog";
 import ReviewCard from "@/components/ReviewCard";
-import TutorPanel from "@/components/learn/TutorPanel";
+import dynamic from "next/dynamic";
+// Learn panel loads on demand (it owns ~250 KB of question banks) so first
+// paint stays light for visitors who never study. The /learn room imports
+// it statically — that route IS the study room.
+const TutorPanel = dynamic(() => import("@/components/learn/TutorPanel"), {
+  ssr: false,
+  loading: () => null,
+});
 import Onboarding from "@/components/Onboarding";
 import Tip from "@/components/Tip";
 import TrialOverDialog from "@/components/TrialOverDialog";
@@ -2004,6 +2011,11 @@ export default function Home() {
           onPickFolder={handleOnboardPickFolder}
           onDone={closeOnboard}
           onSkip={closeOnboard}
+          onStudy={() => {
+            closeOnboard();
+            setTutorTab("assess");
+            setTutorOpen(true);
+          }}
         />
       ) : null}
 

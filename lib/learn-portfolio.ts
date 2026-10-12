@@ -74,12 +74,20 @@ export function loadPortfolio(): PortfolioEntry[] {
 }
 
 export function savePortfolio(entries: PortfolioEntry[]): void {
-  try {
-    if (typeof localStorage !== "undefined")
-      localStorage.setItem(FOLIO_KEY, JSON.stringify(entries.slice(0, MAX_ENTRIES)));
-  } catch {
-    // best-effort
-  }
+  // Quota guard: full store shrinks once (newest 50) and retries instead of
+  // silently dropping the save. Inline (no cross-imports) so plain node
+  // --test resolves this file with zero setup.
+  const put = (list: PortfolioEntry[]): boolean => {
+    try {
+      if (typeof localStorage === "undefined") return false;
+      localStorage.setItem(FOLIO_KEY, JSON.stringify(list));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const full = entries.slice(0, MAX_ENTRIES);
+  if (!put(full)) put(full.slice(0, 50));
 }
 
 const KIND_LABEL: Record<PortfolioKind, string> = {

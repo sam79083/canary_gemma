@@ -112,22 +112,41 @@ export function saveRoleplay(id: string | null): void {
 }
 
 function norm(s: string): string {
-  return (s || "").toLowerCase().replace(/[^a-z0-9\s?]/g, " ").replace(/\s+/g, " ").trim();
+  return (s || "")
+    .toLowerCase()
+    .replace(/n't\b/g, " not") // don't → do not (negation guard needs the word)
+    .replace(/[^a-z0-9\s?]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
+
+const NEG = ["not", "n't", "never", "no", "don't", "doesn't", "didn't", "can't", "won't", "without", "hardly"];
 
 /**
  * Which goals does ONE learner message satisfy? A goal completes when ANY
- * of its keywords appears as a whole word, allowing common suffixes
- * (thank → thanks/thanked, order → ordered). "?" matches a literal question.
+ * of its keywords appears as a whole word (common suffixes allowed), unless
+ * negated within the 3 preceding words ("I don't want coffee" must NOT
+ * complete an order goal). "?" matches a literal question.
  */
 export function checkGoals(message: string, goals: RoleGoal[]): boolean[] {
-  const hay = ` ${norm(message)} `;
+  const clean = norm(message);
+  const hay = ` ${clean} `;
   if (!hay.trim()) return goals.map(() => false);
+  const toks = clean.split(" ").filter(Boolean);
   return goals.map((g) =>
     g.keywords.some((k) => {
       const key = k.toLowerCase();
       if (key === "?") return message.includes("?");
-      return new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(s|es|ed|ing)?\\b`).test(hay);
+      const esc = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`\\b${esc}(s|es|ed|ing)?\\b`, "g");
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(hay)) !== null) {
+        // token index of the match: count words before it
+        const before = hay.slice(0, m.index).trim().split(/\s+/).filter(Boolean);
+        const window = before.slice(-3);
+        if (!window.some((w) => NEG.includes(w) || w.endsWith("n't"))) return true;
+      }
+      return false;
     }),
   );
 }

@@ -33,7 +33,16 @@ export function markSeen(ids: string[]): void {
     // Most-recent first: fresh ids front, then previous order.
     const ordered = [...fresh, ...prev.filter((id) => seen.has(id))];
     const deduped = [...new Set(ordered)].slice(0, CAP);
-    localStorage.setItem(SEEN_KEY, JSON.stringify(deduped));
+    // Quota guard: shrink once (newest 500) and retry. Inline, no imports.
+    try {
+      localStorage.setItem(SEEN_KEY, JSON.stringify(deduped));
+    } catch {
+      try {
+        localStorage.setItem(SEEN_KEY, JSON.stringify(deduped.slice(0, 500)));
+      } catch {
+        // storage full/blocked — freshness degrades, learning still works
+      }
+    }
   } catch {
     // storage full/blocked — freshness degrades, learning still works
   }

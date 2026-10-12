@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { neighborLevel, pushRecent, recentStats, suggestShift } from "../lib/learn-adaptive.ts";
 import { buildWeeklyReport } from "../lib/learn-report.ts";
 import { freezeLeft, touchStreak, touchStreakWithFreeze } from "../lib/streak.ts";
+import { addEntry, loadPortfolio, savePortfolio } from "../lib/learn-portfolio.ts";
+import { getSpeechRate, setSpeechRate } from "../lib/speech.ts";
 
 function stubStore(): Map<string, string> {
   const mem = new Map<string, string>();
@@ -98,5 +100,64 @@ describe("streak freeze", () => {
     } finally {
       unstub();
     }
+  });
+  it("backward clock jumps neither advance nor reset the streak", () => {
+    stubStore();
+    try {
+      touchStreak(new Date(2026, 9, 12));
+      touchStreak(new Date(2026, 9, 13)); // count 2, ts stored
+      const r = touchStreakWithFreeze(new Date(2026, 9, 10)); // clock cheater
+      assert.deepEqual(r, { count: 2, froze: false });
+      // …and the row survived, so the next legit visit continues honestly
+      assert.equal(touchStreak(new Date(2026, 9, 14)), 3);
+    } finally {
+      unstub();
+    }
+  });
+});
+
+describe("storage integrity", () => {
+  it("quota overflow shrinks portfolio once and retries", () => {
+    const mem = stubStore();
+    try {
+      // Ceiling sits between the 60-entry and 50-entry sizes: the full save
+      // MUST fail and the shrink MUST fit, whatever the byte counts.
+      let cap = Infinity;
+      (globalThis as unknown as { localStorage: unknown }).localStorage = {
+        getItem: (k: string) => (mem.has(k) ? (mem.get(k) as string) : null),
+        setItem: (k: string, v: string) => {
+          if (String(v).length > cap) throw new Error("QuotaExceededError");
+          mem.set(k, String(v));
+        },
+        removeItem: (k: string) => { mem.delete(k); },
+        clear: () => mem.clear(),
+        key: () => null,
+        length: 0,
+      };
+      let folio = addEntry([], "essay", "t", "x".repeat(60), "m");
+      for (let i = 0; i < 59; i++) folio = addEntry(folio, "sentence", `t${i}`, "y".repeat(60));
+      cap = JSON.stringify(folio).length - 1;
+      savePortfolio(folio);
+      const back = loadPortfolio();
+      assert.equal(back.length, 50);
+      assert.equal(back[0].title, `t58`); // newest-first order kept
+    } finally {
+      unstub();
+    }
+  });
+  it("speech rate clamps 0.5–1.5, garbage falls back to 1", () => {
+    stubStore();
+    try {
+      assert.equal(getSpeechRate(), 1);
+      setSpeechRate(0.75);
+      assert.equal(getSpeechRate(), 0.75);
+      setSpeechRate(99);
+      assert.equal(getSpeechRate(), 1.5);
+      setSpeechRate(0);
+      assert.equal(getSpeechRate(), 0.5);
+    } finally {
+      unstub();
+    }
+    assert.equal(getSpeechRate(), 1); // no localStorage under node
   });
 });

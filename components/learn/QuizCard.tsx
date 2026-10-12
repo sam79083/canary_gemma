@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { gradeChoice, gradeFill, type BankItem } from "@/lib/learn-bank";
 import type { AnswerResult } from "@/lib/learn-store";
 import type { UseItBridge } from "./UseItBox";
@@ -50,6 +50,9 @@ export default function QuizCard({
   const [checked, setChecked] = useState<null | boolean>(null);
   const [hintOpen, setHintOpen] = useState(false);
   const [results, setResults] = useState<AnswerResult[]>([]);
+  // Anti-farm: ↻ Retry replays for learning, but Done records XP only for
+  // the first completion of this mounted set.
+  const countedRef = useRef(false);
   const item = items[idx];
   const done = idx >= items.length;
 
@@ -70,7 +73,15 @@ export default function QuizCard({
           {perfect ? "🌟 PERFECT! " : correct >= results.length / 2 ? "🎉 Well done! " : "💪 Good effort! "}✅ {correct} / {results.length} · +
           {results.reduce((a, r) => a + (r.correct ? 10 : 2), 0)} XP
         </p>
-        <button className="sidebar-btn primary" onClick={() => onDone(results)}>
+        <button data-testid="quiz-done" className="sidebar-btn primary" onClick={() => {
+          if (countedRef.current) {
+            // Replay after ↻ Retry: show the tally, record nothing twice.
+            onDone([]);
+            return;
+          }
+          countedRef.current = true;
+          onDone(results);
+        }}>
           {cta}
         </button>
         <button className="sidebar-btn small" onClick={() => { setIdx(0); setResults([]); }}>
@@ -111,7 +122,7 @@ export default function QuizCard({
           {item.passage}
         </div>
       ) : null}
-      <div style={{ fontSize: 17, fontWeight: 700 }}>{item.prompt}</div>
+      <div style={{ fontSize: 17, fontWeight: 700 }} data-testid="quiz-prompt">{item.prompt}</div>
       {item.hint ? (
         <div>
           <button
@@ -129,6 +140,7 @@ export default function QuizCard({
           {(item.choices ?? []).map((c, i) => (
             <button
               key={i}
+              data-testid="quiz-choice"
               className={`sidebar-btn small${picked === i ? " secondary" : ""}`}
               onClick={() => checkChoice(i)}
               disabled={checked !== null}
@@ -149,6 +161,7 @@ export default function QuizCard({
       ) : (
         <div style={{ display: "flex", gap: 6 }}>
           <input
+            data-testid="quiz-fill"
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") checkFill(); }}
@@ -157,7 +170,7 @@ export default function QuizCard({
             // 16px stops iOS auto-zoom on focus.
             style={{ flex: 1, minWidth: 0, padding: "10px 12px", fontSize: 16, borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
           />
-          <button className="sidebar-btn small" onClick={checkFill} disabled={checked !== null}>
+          <button data-testid="quiz-check" className="sidebar-btn small" onClick={checkFill} disabled={checked !== null}>
             Check
           </button>
         </div>
@@ -166,7 +179,7 @@ export default function QuizCard({
         <div style={{ fontSize: 13, background: "var(--border)", borderRadius: 6, padding: 8 }}>
           {checked ? PRAISE[idx % PRAISE.length] : NUDGE[idx % NUDGE.length]} — {item.explain}
           <div style={{ marginTop: 8 }}>
-            <button className="sidebar-btn small primary" onClick={() => setIdx((v) => v + 1)}>
+            <button data-testid="quiz-next" className="sidebar-btn small primary" onClick={() => setIdx((v) => v + 1)}>
               {idx + 1 === items.length ? "See result →" : "Next →"}
             </button>
           </div>

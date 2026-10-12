@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { useLanguage } from "@/hooks/useLanguage";
 import {
+  getSpeechRate,
   getStoredVoiceKey,
+  setSpeechRate,
   setStoredVoiceKey,
   voiceKey,
   type VoiceLike,
@@ -15,6 +17,7 @@ export default function VoiceSection() {
   const [supported, setSupported] = useState(false);
   const [voices, setVoices] = useState<VoiceLike[]>([]);
   const [choice, setChoice] = useState<string>("auto");
+  const [rate, setRate] = useState<number>(1);
 
   useEffect(() => {
     let ok = false;
@@ -44,6 +47,7 @@ export default function VoiceSection() {
     }
     try {
       setChoice(getStoredVoiceKey() ?? "auto");
+      setRate(getSpeechRate());
     } catch {
       // ignore
     }
@@ -87,6 +91,23 @@ export default function VoiceSection() {
               {v.name} ({v.lang || "?"})
             </option>
           ))}
+        </select>
+      </div>
+      <div className="settings-row">
+        <span className="settings-label">Speed · 속도</span>
+        <select
+          className="sidebar-btn small"
+          value={String(rate)}
+          onChange={(e) => {
+            const r = Number(e.target.value);
+            setRate(r);
+            setSpeechRate(r);
+          }}
+          style={{ cursor: "pointer", maxWidth: "100%" }}
+        >
+          <option value="0.75">0.75× slow · 천천히</option>
+          <option value="1">1× normal · 보통</option>
+          <option value="1.25">1.25× fast · 빠르게</option>
         </select>
       </div>
       <div className="note" style={{ fontSize: 12, opacity: 0.75 }}>

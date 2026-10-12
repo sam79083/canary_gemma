@@ -19,9 +19,19 @@ export interface EssayTopic {
   maxWords: number;
   /** Content words the essay should address (task-response check). */
   keywords: string[];
+  /** Pass mark (default 80). Beginners climb 60 → 70 → 80 with the levels. */
+  passMark?: number;
 }
 
 export const ESSAY_TOPICS: EssayTopic[] = [
+  { id: "e-a1-1", level: "A1", topic: "Write 3 sentences about your day. What did you do?", hint: "Morning, afternoon, evening — 1 sentence each.", minWords: 25, maxWords: 60, keywords: ["day", "morning", "like"], passMark: 60 },
+  { id: "e-a1-2", level: "A1", topic: "Describe your family in 3–4 sentences.", hint: "Who? How many? One thing you do together.", minWords: 25, maxWords: 60, keywords: ["family", "mother", "father"], passMark: 60 },
+  { id: "e-a1-3", level: "A1", topic: "What is your favorite food? Write 3 sentences.", hint: "What, when do you eat it, why yummy.", minWords: 25, maxWords: 60, keywords: ["food", "like", "eat"], passMark: 60 },
+  { id: "e-a1-4", level: "A1", topic: "Describe your room in 3–4 sentences.", hint: "Big or small? What is inside?", minWords: 25, maxWords: 60, keywords: ["room", "bed", "like"], passMark: 60 },
+  { id: "e-a2-1", level: "A2", topic: "What did you do last weekend? Write 5–6 sentences.", hint: "Use past tense: went, ate, watched…", minWords: 50, maxWords: 90, keywords: ["weekend", "went", "because"], passMark: 70 },
+  { id: "e-a2-2", level: "A2", topic: "Describe your best friend. What do you do together?", hint: "Looks, character, one memory.", minWords: 50, maxWords: 90, keywords: ["friend", "like", "together"], passMark: 70 },
+  { id: "e-a2-3", level: "A2", topic: "Write about a trip you want to take.", hint: "Where, who with, what to do there.", minWords: 50, maxWords: 90, keywords: ["trip", "want", "because"], passMark: 70 },
+  { id: "e-a2-4", level: "A2", topic: "What is your dream job? Why?", hint: "The job, why you want it, one first step.", minWords: 50, maxWords: 90, keywords: ["job", "want", "because"], passMark: 70 },
   { id: "e-b1-1", level: "B1", topic: "Describe your favorite season and explain why you like it.", hint: "Weather, activities, feelings — 3 paragraphs.", minWords: 80, maxWords: 130, keywords: ["season", "weather", "like", "because"] },
   { id: "e-b1-2", level: "B1", topic: "Should school uniforms be required? Give your opinion with reasons.", hint: "Your view + 2 reasons + conclusion.", minWords: 80, maxWords: 130, keywords: ["uniform", "school", "opinion", "because"] },
   { id: "e-b1-3", level: "B1", topic: "Describe the best gift you have ever received.", hint: "What it was, who gave it, why unforgettable.", minWords: 80, maxWords: 130, keywords: ["gift", "gave", "happy", "because"] },
@@ -219,7 +229,7 @@ export function gradeEssay(rawText: string, topic: EssayTopic): EssayScore {
 
   return {
     total,
-    pass: total >= 80,
+    pass: total >= (topic.passMark ?? 80),
     wordCount: wc,
     axes: [
       { key: "task", score: Math.min(20, task) },

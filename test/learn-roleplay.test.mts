@@ -37,6 +37,14 @@ describe("learn-roleplay scenarios", () => {
     const [, , askBack] = checkGoals("What time do we start?", interview.goals);
     assert.equal(askBack, true);
   });
+  it("negated keywords don't complete goals", () => {
+    const cafe = scenarioById("cafe")!;
+    assert.deepEqual(checkGoals("I don't want coffee, no please!", cafe.goals), [false, false, false]);
+    assert.deepEqual(checkGoals("No coffee for me, never!", cafe.goals), [false, false, false]);
+    // unnegated still counts, even next to a negated clause
+    const [order] = checkGoals("I don't want tea. One coffee please!", cafe.goals);
+    assert.equal(order, true);
+  });
   it("persona prompt names the scene, level, language", () => {
     const sc = scenarioById("airport")!;
     const p = roleplayLine(sc, "A2", "Korean");

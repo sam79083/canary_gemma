@@ -73,6 +73,31 @@ export interface VoiceLike {
 /** localStorage key for the user's chosen read-aloud voice. */
 export const TTS_VOICE_KEY = "canary-tts-voice";
 
+/** localStorage key for read-aloud speed (A1 ears want 0.75×). */
+export const TTS_RATE_KEY = "canary-tts-rate";
+
+/** Saved speech rate, clamped 0.5–1.5× (default 1×). Never throws. */
+export function getSpeechRate(): number {
+  try {
+    if (typeof localStorage === "undefined") return 1;
+    const raw = localStorage.getItem(TTS_RATE_KEY);
+    const n = raw ? Number(raw) : 1;
+    if (!Number.isFinite(n)) return 1;
+    return Math.min(1.5, Math.max(0.5, n));
+  } catch {
+    return 1;
+  }
+}
+
+export function setSpeechRate(r: number): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    if (!Number.isFinite(r)) return;
+    localStorage.setItem(TTS_RATE_KEY, String(Math.min(1.5, Math.max(0.5, r))));
+  } catch {
+    // best-effort
+  }
+}
 /** Stable identity for a voice across sessions. */
 export function voiceKey(v: VoiceLike): string {
   return `${v.lang || ""}|||${v.name || ""}`;

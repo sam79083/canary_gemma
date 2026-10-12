@@ -326,9 +326,26 @@ export function loadLearn(): LearnState {
 }
 
 export function saveLearn(state: LearnState): void {
+  // Quota guard: on failure, retry once slimmed (last 90 days, 2000 cards).
+  // Inline (no cross-imports) so plain node --test resolves this file.
+  const put = (s: LearnState): boolean => {
+    try {
+      if (typeof localStorage === "undefined") return false;
+      localStorage.setItem(LEARN_KEY, JSON.stringify(s));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (put(state)) return;
   try {
-    if (typeof localStorage === "undefined") return;
-    localStorage.setItem(LEARN_KEY, JSON.stringify(state));
+    const dayKeys = Object.keys(state.days).sort().slice(-90);
+    const slimDays: Record<string, DayEntry> = {};
+    for (const k of dayKeys) slimDays[k] = state.days[k];
+    const cardKeys = Object.keys(state.cards).slice(-2000);
+    const slimCards: Record<string, CardState> = {};
+    for (const k of cardKeys) slimCards[k] = state.cards[k];
+    put({ ...state, days: slimDays, cards: slimCards });
   } catch {
     // storage full/blocked — progress keeps working in memory this session
   }

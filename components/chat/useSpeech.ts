@@ -8,6 +8,7 @@ import type { Lang } from "@/lib/i18n";
 import { toSpokenText } from "@/lib/markdown";
 import {
   detectSpeechLang,
+  getSpeechRate,
   getStoredVoiceKey,
   pickSpeechVoice,
   speechLang,
@@ -145,7 +146,7 @@ export function useSpeech() {
               );
               if (real) u.voice = real;
             }
-            u.rate = 1;
+            u.rate = getSpeechRate();
             if (i === chunks.length - 1) {
               u.onend = done;
               u.onerror = done;
