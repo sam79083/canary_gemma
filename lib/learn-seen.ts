@@ -6,7 +6,9 @@
 // plain `node --test` (storage guarded).
 
 const SEEN_KEY = "canary-learn-seen";
-const CAP = 200;
+// 2000 ids ≈ 30 KB — room for the ~1,800-question generator pool so Endless
+// mode can run ~200 sessions before any repeat (was 200 for the static bank).
+const CAP = 2000;
 
 export function loadSeen(): string[] {
   try {
