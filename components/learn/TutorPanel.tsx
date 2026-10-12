@@ -241,6 +241,9 @@ export default function TutorPanel({
   const [hydrated, setHydrated] = useState(false);
   const [quizKey, setQuizKey] = useState(0);
   const [quizMode, setQuizMode] = useState<QuizMode>("quick");
+  /** Fresh salt per panel open: reopening always deals a new set (the old
+   * deterministic-daily slice showed the same 5 all day until finished). */
+  const [openSalt] = useState(() => Math.floor(Math.random() * 1e9));
   const [burstKey, setBurstKey] = useState(0);
   const [cloudState, setCloudState] = useState<"local" | "syncing" | "synced">("local");
   const pullingRef = useRef(false);
@@ -252,7 +255,7 @@ export default function TutorPanel({
   const [tryIssues, setTryIssues] = useState<string[]>([]);
   const [tryChips, setTryChips] = useState(false);
   const today = useMemo(() => dayStr(new Date()), []);
-  const greet = useMemo(() => GREETS[today.length % GREETS.length], [today]);
+  const greet = useMemo(() => GREETS[hashStr(today) % GREETS.length], [today]);
 
   useEffect(() => {
     const s = loadLearn();
@@ -305,22 +308,30 @@ export default function TutorPanel({
   }, [auth.loading, member, hydrated]);
 
   const fullLesson = useMemo(
-    // Full set is [warm-up ×3, at-level ×5, reach ×2] — quick quiz takes the at-level core.
-    () => buildDailyLesson(today, state.level, loadSeen(), quizKey),
+    // Full set is [warm-up ×3, at-level ×5, reach ×2] — stable all day.
+    () => buildDailyLesson(today, state.level, loadSeen(), `${quizKey}|${openSalt}`),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [today, state.level, quizKey],
+    [today, state.level, quizKey, openSalt],
   );
-  const lesson = useMemo(() => fullLesson.slice(3, 8), [fullLesson]);
+  const lesson = useMemo(() => {
+    // Quick 5: fresh sample from the big generated pool on every open —
+    // never the same five twice in a row.
+    const batch = genBatch(state.level ?? "A1", 5, loadSeen(), `quick|${today}|${quizKey}|${openSalt}`);
+    rememberGenItems(batch);
+    return batch;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [today, state.level, quizKey, openSalt]);
   const examItems = useMemo(() => {
     const reading = ALL_ITEMS.filter((i) => i.skill === "reading");
     if (reading.length === 0) return fullLesson.slice(0, 5);
-    // Deterministic per-day slice so refresh doesn't reshuffle mid-exam.
-    const start = today.length % Math.max(1, reading.length);
+    // Seeded rotation (not today.length — that string is always 10 chars, so
+    // the old slice showed the same 5 passages every day forever).
+    const start = hashStr(`exam|${today}|${quizKey}|${openSalt}`) % Math.max(1, reading.length);
     const out: BankItem[] = [];
     for (let k = 0; k < Math.min(5, reading.length); k++)
       out.push(reading[(start + k) % reading.length]);
     return out;
-  }, [today, fullLesson]);
+  }, [today, fullLesson, quizKey, openSalt]);
   const [endlessRound, setEndlessRound] = useState(0);
   const [aiQuiz, setAiQuiz] = useState<BankItem[] | null>(null);
   // English-first quiz: EN-definition choices at B1+ (auto), KO hint on tap.
@@ -603,14 +614,16 @@ export default function TutorPanel({
     }
   });
   const [flashMode, setFlashMode] = useState<FlashMode>("flip");
-  const [flipIdx, setFlipIdx] = useState(0);
+  // Random start per panel open (all usages already modulo deck length) —
+  // otherwise flip/write always open on the first card.
+  const [flipIdx, setFlipIdx] = useState(() => Math.floor(Math.random() * 1e9));
   const [flipped, setFlipped] = useState(false);
   const [newTerm, setNewTerm] = useState("");
   const [newMeaning, setNewMeaning] = useState("");
   const [pasteText, setPasteText] = useState("");
   const [matchSeed, setMatchSeed] = useState(1);
   const [matchPicked, setMatchPicked] = useState<Record<number, number>>({});
-  const [writeIdx, setWriteIdx] = useState(0);
+  const [writeIdx, setWriteIdx] = useState(() => Math.floor(Math.random() * 1e9));
   const [writeText, setWriteText] = useState("");
   const [writeResult, setWriteResult] = useState<null | boolean>(null);
   const persistFlash = (next: FlashCard[]) => {
@@ -1000,7 +1013,7 @@ export default function TutorPanel({
               </button>
             </div>
             <p style={{ fontSize: 12, opacity: 0.75, margin: 0 }}>
-              {aiQuiz ? `✨ AI-made set (${aiQuiz.length} questions) — same XP, zero repeats.` : quizMode === "quick" ? L("lnQuickQuiz", "5 quick ones from today's set — same XP as the full lesson.") : quizMode === "full" ? "Full lesson: 3 warm-up + 5 at-level + 2 stretch." : quizMode === "exam" ? "Exam arena: TOEIC / TOEFL / IELTS-style reading." : `🔁 Endless: fresh from ~${poolTotal.toLocaleString()} questions at ${state.level ?? "A1"} (bank + generated + spelling + phrases) — seen ones stay out.`}
+              {aiQuiz ? `✨ AI-made set (${aiQuiz.length} questions) — same XP, zero repeats.` : quizMode === "quick" ? "5 fresh ones every visit — same XP as the full lesson." : quizMode === "full" ? "Full lesson: 3 warm-up + 5 at-level + 2 stretch." : quizMode === "exam" ? "Exam arena: TOEIC / TOEFL / IELTS-style reading." : `🔁 Endless: fresh from ~${poolTotal.toLocaleString()} questions at ${state.level ?? "A1"} (bank + generated + spelling + phrases) — seen ones stay out.`}
             </p>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button
@@ -1041,7 +1054,7 @@ export default function TutorPanel({
             {aiFreshMsg ? (
               <div style={{ fontSize: 12, opacity: 0.8 }}>{aiFreshMsg}</div>
             ) : null}
-            <QuizCard key={`q-${quizKey}-${quizMode}-r${endlessRound}${aiQuiz ? "-ai" : ""}`} items={quizItems} cta={L("lnRecord", "Record →")} onDone={finishQuiz} useIt={{ onAskAI, modelReady, onSendToChat }} />
+            <QuizCard key={`q-${quizKey}-${quizMode}-r${endlessRound}-o${openSalt}${aiQuiz ? "-ai" : ""}`} items={quizItems} cta={L("lnRecord", "Record →")} onDone={finishQuiz} useIt={{ onAskAI, modelReady, onSendToChat }} />
           </>
         ) : null}
 
@@ -1466,8 +1479,8 @@ export default function TutorPanel({
                       <span style={{ flex: 1, fontSize: 12, opacity: 0.7 }}>Pick each meaning — +2 XP per correct.</span>
                       <button className="sidebar-btn small" style={{ width: "auto" }} onClick={() => { setMatchSeed((s) => s + 1); setMatchPicked({}); }}>🎲</button>
                     </div>
-                    {buildMatchRound(flash, `${today}|${matchSeed}`, 5).map((q, qi) => (
-                      <div key={`${matchSeed}-${qi}`} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
+                    {buildMatchRound(flash, `${today}|${matchSeed}|${openSalt}`, 5).map((q, qi) => (
+                      <div key={`${matchSeed}-${openSalt}-${qi}`} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
                         <div style={{ fontWeight: 800 }}>{q.term}</div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
                           {q.choices.map((c, ci) => {

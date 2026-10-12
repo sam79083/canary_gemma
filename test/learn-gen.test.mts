@@ -73,6 +73,11 @@ describe("learn-gen determinism + freshness", () => {
     const again = genBatch("A2", 30, [], "s1");
     assert.deepEqual(again.map((i) => i.id), batch.map((i) => i.id));
   });
+  it("a fresh salt deals a different set (no stale daily quiz)", () => {
+    const a = genBatch("C1", 5, [], "open-1").map((i) => i.id);
+    const b = genBatch("C1", 5, [], "open-2").map((i) => i.id);
+    assert.ok(a.some((id) => !b.includes(id)), "two opens must not repeat all five");
+  });
   it("pool exhaustion degrades to in-batch-unique repeats, never crashes", () => {
     const out = genBatch("C2", 500, [], "s9");
     assert.ok(out.length > 0);
