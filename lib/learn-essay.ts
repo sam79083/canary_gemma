@@ -24,12 +24,28 @@ export interface EssayTopic {
 export const ESSAY_TOPICS: EssayTopic[] = [
   { id: "e-b1-1", level: "B1", topic: "Describe your favorite season and explain why you like it.", hint: "Weather, activities, feelings — 3 paragraphs.", minWords: 80, maxWords: 130, keywords: ["season", "weather", "like", "because"] },
   { id: "e-b1-2", level: "B1", topic: "Should school uniforms be required? Give your opinion with reasons.", hint: "Your view + 2 reasons + conclusion.", minWords: 80, maxWords: 130, keywords: ["uniform", "school", "opinion", "because"] },
+  { id: "e-b1-3", level: "B1", topic: "Describe the best gift you have ever received.", hint: "What it was, who gave it, why unforgettable.", minWords: 80, maxWords: 130, keywords: ["gift", "gave", "happy", "because"] },
+  { id: "e-b1-4", level: "B1", topic: "Is it better to live in a city or in the countryside? Give your opinion.", hint: "Pick a side + 2 reasons.", minWords: 80, maxWords: 130, keywords: ["city", "countryside", "opinion", "because"] },
+  { id: "e-b1-5", level: "B1", topic: "Describe a skill you want to learn and explain why.", hint: "The skill, why it matters, how you'd learn it.", minWords: 80, maxWords: 130, keywords: ["skill", "learn", "want", "because"] },
+  { id: "e-b1-6", level: "B1", topic: "Do you prefer traveling alone or with friends? Explain.", hint: "Your pick + experiences.", minWords: 80, maxWords: 130, keywords: ["travel", "alone", "friends", "because"] },
   { id: "e-b2-1", level: "B2", topic: "Remote work: freedom or isolation? Discuss both sides and give your view.", hint: "Both sides, then YOUR verdict.", minWords: 150, maxWords: 200, keywords: ["remote", "work", "home", "however"] },
   { id: "e-b2-2", level: "B2", topic: "Is social media more helpful or more harmful for teenagers?", hint: "Examples + balanced judgment.", minWords: 150, maxWords: 200, keywords: ["social", "media", "teenagers", "example"] },
+  { id: "e-b2-3", level: "B2", topic: "Should university education be free for everyone?", hint: "Who pays? Who benefits?", minWords: 150, maxWords: 200, keywords: ["university", "education", "free", "however"] },
+  { id: "e-b2-4", level: "B2", topic: "Online shopping is killing local stores. Do you agree?", hint: "Take a position, defend it.", minWords: 150, maxWords: 200, keywords: ["online", "shopping", "stores", "however"] },
+  { id: "e-b2-5", level: "B2", topic: "Describe an important decision you made recently.", hint: "The choice, the process, the result.", minWords: 150, maxWords: 200, keywords: ["decision", "made", "important", "because"] },
+  { id: "e-b2-6", level: "B2", topic: "Will robots take most human jobs? Discuss.", hint: "Which jobs, when, what then?", minWords: 150, maxWords: 200, keywords: ["robots", "jobs", "humans", "however"] },
   { id: "e-c1-1", level: "C1", topic: "Should AI be allowed to grade student exams? Argue for or against.", hint: "Thesis, counterargument, rebuttal.", minWords: 220, maxWords: 280, keywords: ["exam", "students", "fair", "however"] },
   { id: "e-c1-2", level: "C1", topic: "Economic growth vs. environmental protection: can a country have both?", hint: "Nuance wins — avoid one-sidedness.", minWords: 220, maxWords: 280, keywords: ["environment", "growth", "however", "example"] },
+  { id: "e-c1-3", level: "C1", topic: "Is fame today earned or manufactured by social media?", hint: "Examples of both, then judge.", minWords: 220, maxWords: 280, keywords: ["fame", "media", "however", "example"] },
+  { id: "e-c1-4", level: "C1", topic: "Should voting be mandatory in democracies?", hint: "Rights vs. duties.", minWords: 220, maxWords: 280, keywords: ["voting", "democracy", "however", "example"] },
+  { id: "e-c1-5", level: "C1", topic: "Does tourism do more harm than good to historic cities?", hint: "Money in, soul out?", minWords: 220, maxWords: 280, keywords: ["tourism", "cities", "however", "example"] },
+  { id: "e-c1-6", level: "C1", topic: "Describe a book or film that changed how you think.", hint: "Before, the work, after.", minWords: 220, maxWords: 280, keywords: ["book", "film", "changed", "because"] },
   { id: "e-c2-1", level: "C2", topic: "Does universal basic income strengthen or weaken a society? Evaluate critically.", hint: "Define terms, weigh evidence, conclude.", minWords: 250, maxWords: 320, keywords: ["income", "society", "evidence", "however"] },
   { id: "e-c2-2", level: "C2", topic: "'Privacy is dead; convenience killed it.' To what extent do you agree?", hint: "Quote response: agree, qualify, conclude.", minWords: 250, maxWords: 320, keywords: ["privacy", "data", "convenience", "however"] },
+  { id: "e-c2-3", level: "C2", topic: "Should governments ban targeted political advertising?", hint: "Free speech vs. manipulation.", minWords: 250, maxWords: 320, keywords: ["political", "advertising", "democracy", "however"] },
+  { id: "e-c2-4", level: "C2", topic: "Is a four-day work week realistic for every industry?", hint: "Which industries break the model?", minWords: 250, maxWords: 320, keywords: ["work", "week", "industry", "however"] },
+  { id: "e-c2-5", level: "C2", topic: "Do stricter punishments actually reduce crime?", hint: "Evidence over gut feeling.", minWords: 250, maxWords: 320, keywords: ["crime", "punishment", "evidence", "however"] },
+  { id: "e-c2-6", level: "C2", topic: "Has globalization made cultures richer or flatter?", hint: "Both can be true — show it.", minWords: 250, maxWords: 320, keywords: ["culture", "global", "however", "example"] },
 ];
 
 export interface EssayAxis {
@@ -227,6 +243,19 @@ export function buildEssayCoachPrompt(topic: EssayTopic, essay: string, score: E
     "--- my essay ---",
     essay.trim(),
   ].join("\n");
+}
+
+/** Model-answer shape: intro / body / conclusion skeleton tailored to the
+ * topic keywords. Shown after grading so learners can compare + rewrite —
+ * the rule engine owns the score, this owns the "what would 90+ look like". */
+export function essayModelShape(topic: EssayTopic): string[] {
+  const kws = topic.keywords.slice(0, 4).join(", ");
+  return [
+    `Intro (2–3 sentences): paraphrase the topic in your own words, then state your position clearly. Touch on: ${kws}.`,
+    `Body (2 paragraphs): one reason per paragraph — claim → example → link back. Use connectors: however, for example, moreover, in addition.`,
+    `Conclusion (1–2 sentences): restate your view + one forward-looking line. No new arguments here.`,
+    `Target: ${topic.minWords}–${topic.maxWords} words, 3+ paragraphs (blank line = new paragraph).`,
+  ];
 }
 
 // --- essay history (this device; last 20 attempts) ----------------------------

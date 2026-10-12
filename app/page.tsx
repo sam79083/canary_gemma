@@ -269,15 +269,59 @@ export default function Home() {
   // Command palette (Ctrl+K quick switcher).
   const [paletteOpen, setPaletteOpen] = useState(false);
   // 🦜 English tutor slide-over (same screen as chat, shared learn progress).
-  const [tutorOpen, setTutorOpen] = useState(false);  useEffect(() => {
+  const [tutorOpen, setTutorOpen] = useState(false);
+  const [tutorTab, setTutorTab] = useState<string | null>(null);
+  /** Direct in-panel AI: same provider/session as chat, silent (no bubbles). */
+  const askLearnAI = useCallback(
+    async (prompt: string): Promise<string | null> => {
+      const session = model.sessionRef.current;
+      if (!session || !model.ready) return null;
+      try {
+        if (typeof session.promptStreaming === "function") {
+          let full = "";
+          const stream = session.promptStreaming(prompt);
+          for await (const chunk of stream) full += chunk;
+          return full.trim() ? full : null;
+        }
+        const out = await session.prompt(prompt);
+        return out && out.trim() ? out : null;
+      } catch {
+        return null;
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [model.ready],
+  );
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen((v) => !v);
       }
+      // Ctrl/⌘+J: toggle English Study (easy access for learners).
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        setTutorTab(null);
+        setTutorOpen((v) => !v);
+      }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
+  }, []);
+  // Deep-link: /?learn=idiom|book|quiz|essay|review|assess|me opens the panel.
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search).get("learn");
+      if (q) {
+        setTutorTab(q);
+        setTutorOpen(true);
+        const url = new URL(window.location.href);
+        url.searchParams.delete("learn");
+        window.history.replaceState(null, "", url.toString());
+      }
+    } catch {
+      // ignore
+    }
   }, []);
 
   // When the member session resolves/changes, refresh the cloud status line
@@ -420,12 +464,15 @@ export default function Home() {
     } catch {
       // storage unavailable — skip the guide
     }
-    // Essay-coaching handoff from Learn Mode: drop the prepared review
+    // Essay/idiom coaching handoff from Learn Mode: drop the prepared review
     // prompt into the composer so any provider (on-device first) can coach.
     try {
-      const draft = localStorage.getItem("canary-essay-draft");
+      const draft =
+        localStorage.getItem("canary-essay-draft") ??
+        localStorage.getItem("canary-idiom-draft");
       if (draft && draft.trim()) {
         localStorage.removeItem("canary-essay-draft");
+        localStorage.removeItem("canary-idiom-draft");
         setTimeout(() => {
           appendInput(draft.trim().slice(0, 4000));
           try {
@@ -1561,20 +1608,14 @@ export default function Home() {
         >
           {t("obGuide")}
         </button>
-        <Link
-          href="/learn"
-          className="sidebar-btn"
-          id="learn-btn"
-          title={t("lnTitle")}
-          style={{ marginTop: 8 }}
-        >
-          {t("lnLearn")}
-        </Link>
         <button
           className="sidebar-btn"
           id="tutor-btn"
           title={t("lnTutor")}
-          onClick={() => setTutorOpen(true)}
+          onClick={() => {
+            setTutorTab(null);
+            setTutorOpen(true);
+          }}
           style={{ marginTop: 8 }}
         >
           {t("lnTutor")}
@@ -1625,7 +1666,15 @@ export default function Home() {
       {sideOpen ? (
         <div className="sidebar-backdrop" onClick={() => setSideOpen(false)} />
       ) : null}
-      {tutorOpen ? <TutorPanel onClose={() => setTutorOpen(false)} /> : null}
+      {tutorOpen ? (
+        <TutorPanel
+          onClose={() => setTutorOpen(false)}
+          initialTab={(tutorTab as "quiz" | "idiom" | "book" | "review" | "essay" | "assess" | "me") ?? undefined}
+          modelReady={model.ready}
+          modelStatus={model.status}
+          onAskAI={askLearnAI}
+        />
+      ) : null}
 
       <div className="main">
         <div className="model-bar">
@@ -1652,6 +1701,17 @@ export default function Home() {
             </span>
           ) : null}
           <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <button
+              className="theme-toggle"
+              title={`${t("lnTutor")} (Ctrl+J)`}
+              onClick={() => {
+                setTutorTab(null);
+                setTutorOpen(true);
+              }}
+              style={{ cursor: "pointer", fontWeight: 800 }}
+            >
+              🦜
+            </button>
             {member ? (
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>

@@ -23,6 +23,9 @@ export interface Idiom {
   caution?: string;
   /** Fun teaching nugget shown after a successful try. */
   note?: string;
+  /** Two-line mini-dialogue (A/B) showing real use. Optional — falls back
+   * to dialogueFor() template when absent. */
+  dialogue?: [string, string];
   /** Normalized keywords the learner's try-it sentence must contain. */
   keywords: string[];
 }
@@ -49,6 +52,17 @@ function normalize(s: string): string {
 }
 
 export const IDIOMS: Idiom[] = [
+  // ---- A1/A2: day-one wins (super-easy survival expressions) ----
+  { id: "e-a1-01", kind: "expression", unlock: "A1", term: "How's it going?", meaning: "hello — how are you?", ko: "잘 지내?", example: "Hey! How's it going?", register: "neutral", dialogue: ["Hey! How's it going?", "Pretty good! You?"], keywords: ["how", "going"] },
+  { id: "e-a1-02", kind: "expression", unlock: "A1", term: "Sounds good!", meaning: "I agree / that works", ko: "좋아요!", example: "Lunch at noon? — Sounds good!", register: "neutral", dialogue: ["Let's meet at noon?", "Sounds good! See you then."], keywords: ["sounds", "good"] },
+  { id: "e-a1-03", kind: "expression", unlock: "A1", term: "See you soon!", meaning: "goodbye for now", ko: "곧 봐요!", example: "Bye! See you soon!", register: "neutral", dialogue: ["I have to go now.", "OK! See you soon!"], keywords: ["see", "soon"] },
+  { id: "e-a1-04", kind: "expression", unlock: "A1", term: "No problem!", meaning: "you're welcome / it's fine", ko: "천만에요!", example: "Thanks for helping! — No problem!", register: "neutral", dialogue: ["Thanks for the coffee!", "No problem!"], keywords: ["no", "problem"] },
+  { id: "e-a1-05", kind: "expression", unlock: "A1", term: "I got it!", meaning: "I understand / I'll handle it", ko: "알겠어요!", example: "Take this to room 3. — I got it!", register: "neutral", dialogue: ["Can you carry this?", "Sure, I got it!"], keywords: ["got"] },
+  { id: "e-a2-01", kind: "expression", unlock: "A2", term: "Take your time.", meaning: "no rush", ko: "천천히 하세요", example: "Take your time — no rush.", register: "neutral", dialogue: ["This form is long…", "Take your time, no rush."], keywords: ["take", "time"] },
+  { id: "e-a2-02", kind: "expression", unlock: "A2", term: "What a pity!", meaning: "that's a shame", ko: "안됐네요!", example: "It rained on our trip — what a pity!", register: "neutral", dialogue: ["We lost the game.", "Oh, what a pity!"], keywords: ["pity"] },
+  { id: "e-a2-03", kind: "expression", unlock: "A2", term: "Good luck!", meaning: "I hope it goes well", ko: "행운을 빌어요!", example: "Exam tomorrow? Good luck!", register: "neutral", dialogue: ["Interview at 2!", "Thanks! — Good luck!"], keywords: ["good", "luck"] },
+  { id: "e-a2-04", kind: "expression", unlock: "A2", term: "Never mind.", meaning: "forget it / don't worry", ko: "신경 쓰지 마세요", example: "Never mind, I'll do it later.", register: "neutral", dialogue: ["What did you say?", "Oh, never mind."], keywords: ["never", "mind"] },
+  { id: "e-a2-05", kind: "expression", unlock: "A2", term: "My bad!", meaning: "sorry, my mistake (casual)", ko: "내 실수야! (가볍게)", example: "Oops, my bad — wrong file!", register: "casual", caution: "Casual — say 'Sorry about that' at work.", dialogue: ["You took my pen!", "Oops, my bad!"], keywords: ["bad"] },
   // ---- B1: everyday idioms & expressions (prize for reaching Intermediate)
   { id: "i-b1-01", kind: "idiom", unlock: "B1", term: "break the ice", meaning: "to start a friendly conversation", ko: "어색함을 깨고 말을 트다", example: "He told a joke to break the ice.", register: "neutral", keywords: ["break", "ice"] },
   { id: "i-b1-02", kind: "idiom", unlock: "B1", term: "a piece of cake", meaning: "very easy", ko: "식은 죽 먹기", example: "The test was a piece of cake.", register: "neutral", keywords: ["piece", "cake"] },
@@ -114,4 +128,125 @@ export function tryCheck(input: string, keywords: string[]): boolean {
   const words = new Set(normalize(input).split(" ").filter(Boolean));
   if (words.size === 0) return false;
   return keywords.every((k) => words.has(normalize(k)));
+}
+
+export const IDIOM_DRAFT_KEY = "canary-idiom-draft";
+
+const CONJUNCTIONS = [
+  "because", "since", "as", "although", "though", "while",
+  "if", "unless", "until", "when", "before", "after", "but",
+];
+
+function startsWithVowelSound(word: string): boolean {
+  const w = word.toLowerCase();
+  if (["hour", "honest", "honor", "heir"].includes(w)) return true;
+  if (/^(uni(vers|form|que|on)|use|user|euro|one|once)/.test(w)) return false;
+  return /^[aeiou]/.test(w);
+}
+
+export interface SentenceScan {
+  hasKeywords: boolean;
+  /** Concrete, fixable problems (empty = clean). */
+  issues: string[];
+}
+
+/**
+ * Honest sentence scan: keyword presence PLUS the most common learner
+ * errors — stacked conjunctions ("because unless"), a/an slips, doubled
+ * words, missing end punctuation, lowercase "i". Deterministic; the AI
+ * (via chat handoff) handles everything subtler.
+ */
+export function scanSentence(input: string, keywords: string[]): SentenceScan {
+  const issues: string[] = [];
+  const hasKeywords = tryCheck(input, keywords);
+  const text = input.trim();
+  if (!text) return { hasKeywords: false, issues: [] };
+
+  const words = normalize(text).split(" ").filter(Boolean);
+  for (let i = 0; i + 1 < words.length; i++) {
+    if (CONJUNCTIONS.includes(words[i]) && CONJUNCTIONS.includes(words[i + 1])) {
+      issues.push(
+        `Two conjunctions stacked ("${words[i]} ${words[i + 1]}") — pick one: drop "${words[i]}" or rephrase.`,
+      );
+      break;
+    }
+  }
+  for (const m of text.matchAll(/\b(a|an)\s+([A-Za-z]+)/g)) {
+    const needAn = startsWithVowelSound(m[2]);
+    if ((m[1].toLowerCase() === "a") === needAn) {
+      issues.push(`Article slip: "${m[0]}" → "${needAn ? "an" : "a"} ${m[2]}".`);
+      break;
+    }
+  }
+  const doubled = text.match(/\b(\w+)\s+\1\b/i);
+  if (doubled) issues.push(`Doubled word: "${doubled[0]}" — delete one.`);
+  if (!/[.!?…]["'”’\s]*$/.test(text)) issues.push("End your sentence with . ! or ?");
+  const loneI = text.match(/(^|[\s("'])i([\s.,!?;:'")\]]|$)/g) ?? [];
+  if (loneI.length > 0) issues.push('The pronoun "I" is always capital.');
+
+  return { hasKeywords, issues: issues.slice(0, 3) };
+}
+
+/** Prompt dropped into chat for qualitative AI feedback on one sentence. */
+export function buildIdiomCoachPrompt(
+  term: string,
+  meaning: string,
+  example: string,
+  sentence: string,
+  issues: string[],
+): string {
+  return [
+    "You are a friendly English coach. I tried using an idiom in a sentence.",
+    `Idiom: "${term}" = ${meaning}. Native example: "${example}"`,
+    `My sentence: "${sentence.trim()}"`,
+    issues.length > 0
+      ? `A basic checker flagged: ${issues.join(" ")}`
+      : "A basic checker found no obvious errors.",
+    "Reply with: verdict (correct / almost / wrong), a corrected native-sounding version of MY sentence, and one tip for using this idiom. Under 120 words. Be encouraging!",
+  ].join("\n");
+}
+
+/** Two-line mini-dialogue for an idiom: explicit one wins, else a
+ * deterministic template from the native example. Gives learners a second
+ * usage context without bloating the bank. */
+export function dialogueFor(it: Idiom): [string, string] {
+  if (it.dialogue) return it.dialogue;
+  const short = it.example.length > 90 ? it.example.slice(0, 87) + "…" : it.example;
+  return [`A: I love the phrase "${it.term}".`, `B: Me too — e.g. ${short}`];
+}
+
+/** Lookup map for SRS review resolution (idiom cards live as `idiom:<id>`). */
+export function idiomById(id: string): Idiom | null {
+  const found = IDIOMS.find((i) => i.id === id);
+  return found ?? null;
+}
+
+/** Convert an idiom card into a quiz BankItem so due idioms can be reviewed
+ * with the same QuizCard + XP pipeline as vocab. Self-contained: type-only
+ * BankItem shape, no runtime import. */
+export function idiomToBankItem(it: Idiom): {
+  id: string; skill: "vocab"; level: typeof it.unlock; kind: "choice";
+  prompt: string; choices: string[]; answerIndex: number; explain: string; word: string;
+} {
+  return {
+    id: `idiom-${it.id}`,
+    skill: "vocab",
+    level: it.unlock,
+    kind: "choice",
+    prompt: `What does "${it.term}" mean?`,
+    choices: [it.meaning, "the opposite", "something unrelated", "a grammar rule"],
+    answerIndex: 0,
+    explain: `${it.term} = ${it.meaning}. E.g. "${it.example}"`,
+    word: `idiom:${it.id}`,
+  };
+}
+
+/** One-tap AI prompts for an idiom (direct in-panel call, same provider). */
+export function idiomAiPrompt(kind: "explain" | "examples" | "quiz", it: Idiom): string {
+  const base = `Idiom: "${it.term}" = ${it.meaning}. Example: "${it.example}"`;
+  if (kind === "examples")
+    return `${base}\nGive me 3 SHORT new example sentences with this idiom (everyday situations, one work-safe). Under 80 words.`;
+  if (kind === "quiz")
+    return `${base}\nQuiz me: ask ONE multiple-choice question testing this idiom, then wait for my answer.`;
+  return `${base}\nExplain this idiom like I'm A2: when to use it, when NOT to use it, and one common mistake. Under 100 words. Be encouraging!`;
 }

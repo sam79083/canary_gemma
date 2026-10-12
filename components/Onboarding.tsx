@@ -65,6 +65,7 @@ export default function Onboarding({
           <div>{t("obFeat1")}</div>
           <div>{t("obFeat2")}</div>
           <div>{t("obFeat3")}</div>
+          <div>🦜 {t("lnTutor")}: Ctrl+J — quiz, idioms, essay with AI coaching.</div>
         </div>
 
         <div className="review-actions" style={{ marginTop: 16, justifyContent: "space-between" }}>

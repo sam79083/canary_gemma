@@ -15,8 +15,14 @@ import {
 import { addDays, initCard, isDue, isLeech, reviewCard } from "../lib/learn-store.ts";
 import {
   IDIOMS,
+  buildIdiomCoachPrompt,
+  dialogueFor,
+  idiomAiPrompt,
+  idiomById,
+  idiomToBankItem,
   nextLocked,
   pickOfDay,
+  scanSentence,
   tryCheck,
   unlockedFor,
 } from "../lib/learn-idioms.ts";
@@ -25,6 +31,7 @@ import { chooseState, isEmptyState } from "../lib/learn-store.ts";
 import {
   ESSAY_TOPICS,
   buildEssayCoachPrompt,
+  essayModelShape,
   gradeEssay,
   loadEssayHistory,
   saveEssayAttempt,
@@ -122,15 +129,17 @@ describe("learn-bank grading", () => {
 });
 
 describe("learn-idioms", () => {
-  it("gates idioms at B1, slang at B2, advanced at C1, teasers for locked", () => {
-    assert.ok(unlockedFor(IDIOMS, null).length === 0);
-    assert.ok(unlockedFor(IDIOMS, "A2").length === 0);
+  it("gates starters at A1/A2, idioms at B1, slang at B2, advanced at C1", () => {
+    assert.equal(unlockedFor(IDIOMS, null).length, 5); // A1 day-one wins
+    assert.equal(unlockedFor(IDIOMS, "A1").length, 5);
+    assert.equal(unlockedFor(IDIOMS, "A2").length, 10);
     const b1 = unlockedFor(IDIOMS, "B1");
-    assert.ok(b1.length === 16 && b1.every((i) => i.kind !== "slang"));
-    assert.equal(unlockedFor(IDIOMS, "B2").length, 28);
-    assert.equal(unlockedFor(IDIOMS, "C1").length, 34);
+    assert.equal(b1.length, 26);
+    assert.ok(b1.filter((i) => i.kind === "slang").length === 0);
+    assert.equal(unlockedFor(IDIOMS, "B2").length, 38);
+    assert.equal(unlockedFor(IDIOMS, "C1").length, 44);
     const teaser = nextLocked(IDIOMS, "A1");
-    assert.ok(teaser.length > 0 && teaser.every((i) => i.unlock === "B1"));
+    assert.ok(teaser.length > 0 && teaser.every((i) => i.unlock === "A2"));
     const teaser2 = nextLocked(IDIOMS, "B2");
     assert.ok(teaser2.length > 0 && teaser2.every((i) => i.unlock === "C1"));
     assert.deepEqual(nextLocked(IDIOMS, "C1"), []);
@@ -146,6 +155,39 @@ describe("learn-idioms", () => {
     assert.ok(!tryCheck("he broke something", ["break", "ice"]));
     assert.ok(!tryCheck("", ["cap"]));
     assert.ok(tryCheck("no cap, that was great", ["cap"]));
+  });
+  it("sentence scan flags stacked conjunctions and article slips", () => {
+    // The exact failure from the wild: keywords present, grammar broken.
+    const bad = scanSentence(
+      "I sincerely hope we are on the same page here because unless, there is no point in this discussion.",
+      ["same", "page"],
+    );
+    assert.ok(bad.hasKeywords);
+    assert.ok(bad.issues.some((i) => i.includes("because unless")));
+    const art = scanSentence("I saw a elephant.", ["elephant"]);
+    assert.ok(art.hasKeywords);
+    assert.ok(art.issues.some((i) => i.includes("an elephant")));
+    const clean = scanSentence("Let's meet so we're on the same page.", ["same", "page"]);
+    assert.ok(clean.hasKeywords);
+    assert.deepEqual(clean.issues, []);
+    assert.deepEqual(scanSentence("", ["x"]).issues, []);
+    const prompt = buildIdiomCoachPrompt("no cap", "for real", "It was great, no cap.", "It was great no cap", []);
+    assert.ok(prompt.includes("no cap") && prompt.includes("It was great no cap"));
+  });
+  it("dialogues, bank-item conversion, and AI prompts", () => {
+    const it1 = IDIOMS.find((i) => i.id === "e-a1-01")!;
+    assert.deepEqual(dialogueFor(it1), ["Hey! How's it going?", "Pretty good! You?"]);
+    const b1 = IDIOMS.find((i) => i.id === "i-b1-01")!;
+    const [a, b] = dialogueFor(b1);
+    assert.ok(a.length > 3 && b.includes(b1.term));
+    const bank = idiomToBankItem(b1);
+    assert.equal(bank.word, `idiom:${b1.id}`);
+    assert.equal(bank.answerIndex, 0);
+    assert.ok(idiomById(b1.id)?.term === b1.term);
+    assert.equal(idiomById("nope"), null);
+    assert.ok(idiomAiPrompt("explain", b1).includes(b1.term));
+    assert.ok(idiomAiPrompt("examples", b1).includes("3 SHORT"));
+    assert.ok(idiomAiPrompt("quiz", b1).includes("Quiz me"));
   });
 });
 
@@ -205,6 +247,20 @@ describe("learn-sync merge", () => {
 });
 
 describe("learn-essay", () => {
+  it("ships a real topic library across levels", () => {
+    assert.ok(ESSAY_TOPICS.length >= 20);
+    for (const lv of ["B1", "B2", "C1", "C2"]) {
+      const n = ESSAY_TOPICS.filter((t) => t.level === lv).length;
+      assert.ok(n >= 4, `${lv} has only ${n} topics`);
+    }
+    const ids = new Set(ESSAY_TOPICS.map((t) => t.id));
+    assert.equal(ids.size, ESSAY_TOPICS.length);
+    for (const t of ESSAY_TOPICS) {
+      assert.ok(t.minWords < t.maxWords);
+      assert.ok(t.keywords.length >= 3);
+      assert.ok(t.topic.length > 10 && t.hint.length > 5);
+    }
+  });
   const topic = ESSAY_TOPICS.find((t) => t.id === "e-b2-1") ?? ESSAY_TOPICS[0];
   const strong = [
     "Remote work has changed modern life completely. Many people now work from home instead of commuting to an office every day. However, this new freedom comes with hidden costs that deserve attention.",
@@ -229,6 +285,12 @@ describe("learn-essay", () => {
     assert.deepEqual(a, b);
     assert.ok(a.feedback.some((f) => f.includes("an elephant")));
     assert.ok(gradeEssay("", ESSAY_TOPICS[0]).total === 0);
+  });
+  it("model shape guides a rewrite", () => {
+    const shape = essayModelShape(ESSAY_TOPICS[0]);
+    assert.equal(shape.length, 4);
+    assert.ok(shape[0].includes("Intro"));
+    assert.ok(shape[3].includes("words"));
   });
   it("builds a chat coaching prompt and keeps history", () => {
     const score = gradeEssay(strong, topic);
@@ -311,5 +373,16 @@ describe("learn-store", () => {
     assert.ok(leechWords(cur).length >= 0);
     assert.ok(dueWords(cur, "2026-10-10").length >= 0);
     assert.equal(weekSeries(cur, "2026-09-30").length, 7);
+  });
+  it("tracks idiom try-it cards for review", () => {
+    const idiom = IDIOMS[0];
+    const bank = idiomToBankItem(idiom);
+    const s1 = recordAnswers(
+      emptyState(),
+      [{ item: bank, correct: false }],
+      "2026-09-30",
+    );
+    assert.ok(dueWords(s1, "2026-10-10").includes(`idiom:${idiom.id}`));
+    assert.ok(idiomById(idiom.id)?.id === idiom.id);
   });
 });
