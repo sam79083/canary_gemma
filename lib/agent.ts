@@ -181,6 +181,7 @@ export function buildAgentPreamble(
     `- When acting, output ONLY the toolcall block — no explanation text around it.\n` +
     `- After the TOOL RESULT arrives, either call the next tool or reply in plain text saying what you did.\n` +
     `- For "create file X with ...": writeFile X with the requested content, then confirm.\n` +
+    `- IMPORTANT: Only use writeFile when the user EXPLICITLY asks for a file (e.g. "save this as a file", "create a txt", "make me a document"). For normal conversation, questions, practice, or feedback — just reply in plain text. Never create files for conversational responses.\n` +
     `- You cannot generate images.\n` +
     (rootListing !== null
       ? `\nWorkspace root contains:\n${rootListing}\n`

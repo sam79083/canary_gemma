@@ -1078,8 +1078,8 @@ export default function Chat({
         return raw || "chat";
       })();
       const deliverHint = useWorkspaceFiles
-        ? `When the user asks for a file deliverable (e.g. "make me an md file"), save it under "downloads/${chatSlug}/" (e.g. "downloads/${chatSlug}/report.md") — one folder per conversation, parent folders are created automatically.`
-        : `No workspace folder is connected: temp mode. When the user asks for a file deliverable (e.g. "make me an md file"), save it under uploads/ (e.g. "uploads/report.md") — it appears in their ⬇️ Downloads panel for browser download. Never write outside uploads/.`;
+        ? `Only create files when the user EXPLICITLY asks for a file deliverable (e.g. "save this as a file", "create a txt", "make me a document"). Save under "downloads/${chatSlug}/". For normal conversation, questions, practice, or feedback — reply in plain text only, never create files.`
+        : `No workspace folder is connected: temp mode. Only create files when the user EXPLICITLY asks for a file deliverable (e.g. "save this as a file", "create a txt", "make me a document"). Save under uploads/ — it appears in their ⬇️ Downloads panel for browser download. For normal conversation, questions, practice, or feedback — reply in plain text only, never create files. Never write outside uploads/.`;
       // One-shot extras for the first agent turn only: an approved plan
       // (consumed here so a retry starts clean) and the user's standing
       // guidelines. Style lines stay out — they'd corrupt toolcall format.
