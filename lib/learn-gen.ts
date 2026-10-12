@@ -693,18 +693,18 @@ const TEMPLATES: Template[] = [
     prefix: "gg-inv", level: "C1", size: 12,
     at(i, rng) {
       const frames: { head: string; ans: string; wrong: string[]; why: string }[] = [
-        { head: "___ I arrived home, the phone rang. (Hardly … when)", ans: "Hardly had", wrong: ["Hardly I had", "Hardly have", "Hardly did"], why: "Hardly + inversion: Hardly had I arrived…" },
-        { head: "___ I known, I would have acted. (If …)", ans: "Had", wrong: ["If", "Have", "Would"], why: "If-dropped inversion: Had I known…" },
-        { head: "___ did I know the truth. (Little …)", ans: "Little", wrong: ["Few", "A little", "Small"], why: "Little + inversion + past: Little did I know." },
-        { head: "___ only was he late, he forgot the files. (Not …)", ans: "Not", wrong: ["No", "Never", "But"], why: "Not only + inversion: Not only was he…" },
-        { head: "___ sooner had she spoken than she regretted it. (No …)", ans: "No", wrong: ["Not", "Never", "Soon"], why: "No sooner + inversion: No sooner had she…" },
-        { head: "___ have I seen such beauty. (Never …)", ans: "Never", wrong: ["Ever", "Still", "Already"], why: "Fronted negative + inversion: Never have I seen…" },
-        { head: "___ had they left when the storm hit. (Barely …)", ans: "Barely", wrong: ["Just", "Only", "Merely"], why: "Barely + inversion: Barely had they left…" },
-        { head: "___ will I trust him again. (Seldom …)", ans: "Seldom", wrong: ["Often", "Always", "Usually"], why: "Seldom + inversion: Seldom will I trust…" },
-        { head: "___ a sound did she make. (Not …)", ans: "Not", wrong: ["No", "Any", "None"], why: "Not + inversion: Not a sound did she make." },
-        { head: "___ in history has a team come back like this. (Rarely …)", ans: "Rarely", wrong: ["Usually", "Often", "Sometimes"], why: "Rarely + inversion: Rarely in history has…" },
-        { head: "___ should you need help, call me. (If …)", ans: "Should", wrong: ["Would", "Could", "Will"], why: "If-dropped type-1: Should you need…" },
-        { head: "___ the teacher enter, the class stood up. (No sooner …)", ans: "No sooner did", wrong: ["No sooner does", "No sooner do", "Soon"], why: "No sooner + did-inversion for present-tense story." },
+        { head: "___ I arrived home, the phone rang.", ans: "Hardly had", wrong: ["Hardly I had", "Hardly have", "Hardly did"], why: "Hardly + inversion: Hardly had I arrived…" },
+        { head: "___ I known, I would have acted.", ans: "Had", wrong: ["If", "Have", "Would"], why: "If-dropped inversion: Had I known…" },
+        { head: "___ did I know the truth.", ans: "Little", wrong: ["Few", "A little", "Small"], why: "Little + inversion + past: Little did I know." },
+        { head: "___ only was he late, he forgot the files.", ans: "Not", wrong: ["No", "Never", "But"], why: "Not only + inversion: Not only was he…" },
+        { head: "___ sooner had she spoken than she regretted it.", ans: "No", wrong: ["Not", "Never", "Soon"], why: "No sooner + inversion: No sooner had she…" },
+        { head: "___ have I seen such beauty.", ans: "Never", wrong: ["Ever", "Still", "Already"], why: "Fronted negative + inversion: Never have I seen…" },
+        { head: "___ had they left when the storm hit.", ans: "Barely", wrong: ["Just", "Only", "Merely"], why: "Barely + inversion: Barely had they left…" },
+        { head: "___ will I trust him again.", ans: "Seldom", wrong: ["Often", "Always", "Usually"], why: "Seldom + inversion: Seldom will I trust…" },
+        { head: "___ a sound did she make.", ans: "Not", wrong: ["No", "Any", "None"], why: "Not + inversion: Not a sound did she make." },
+        { head: "___ in history has a team come back like this.", ans: "Rarely", wrong: ["Usually", "Often", "Sometimes"], why: "Rarely + inversion: Rarely in history has…" },
+        { head: "___ you need help, call me.", ans: "Should", wrong: ["Would", "Could", "Will"], why: "If-dropped type-1: Should you need…" },
+        { head: "___ the teacher enter, the class stood up.", ans: "No sooner did", wrong: ["No sooner does", "No sooner do", "Soon"], why: "No sooner + did-inversion for present-tense story." },
       ];
       const f = frames[i % frames.length];
       const { choices, answerIndex } = order4(f.ans, f.wrong, rng);
@@ -754,10 +754,10 @@ const TEMPLATES: Template[] = [
         { q: "___ it not been for the storm, we would have left.", ans: "Had", wrong: ["Was", "If", "Has"], why: "Inverted if: Had it not been for…" },
         { q: "He speaks as though he ___ everything.", ans: "knew", wrong: ["knows", "had known", "will know"], why: "as though + past for present unreality." },
         { q: "Were she ___ earlier, she would have come. (inform)", ans: "informed", wrong: ["inform", "informing", "informs"], why: "Were + subject + p.p. (past-perfect inversion)." },
-        { q: "___ she told, nobody believed her. (Whatever …)", ans: "Whatever", wrong: ["Whenever", "Wherever", "However"], why: "Whatever = no matter what (concessive)." },
+        { q: "___ she told, nobody believed her.", ans: "Whatever", wrong: ["Whenever", "Wherever", "However"], why: "Whatever = no matter what (concessive)." },
         { q: "Had I ___ harder, I would have passed. (study)", ans: "studied", wrong: ["study", "studying", "studies"], why: "Had + subject + p.p. (past-perfect inversion)." },
-        { q: "___ you need help, just call me. (Should …)", ans: "Should", wrong: ["Would", "Could", "Will"], why: "If-dropped type-1: Should you need…" },
-        { q: "___ you like it or not, we leave now. (Whether …)", ans: "Whether", wrong: ["If", "Unless", "Though"], why: "Whether … or not (two-option condition)." },
+        { q: "___ you need help, just call me.", ans: "Should", wrong: ["Would", "Could", "Will"], why: "If-dropped type-1: Should you need…" },
+        { q: "___ you like it or not, we leave now.", ans: "Whether", wrong: ["If", "Unless", "Though"], why: "Whether … or not (two-option condition)." },
       ];
       const f = frames[i % frames.length];
       const { choices, answerIndex } = order4(f.ans, f.wrong, rng);
