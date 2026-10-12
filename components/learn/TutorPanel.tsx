@@ -90,12 +90,39 @@ import {
   savePortfolio,
   type PortfolioEntry,
 } from "@/lib/learn-portfolio";
+import { BULK_IDIOMS } from "@/lib/idioms-bulk";
+import { BULK_WORDS } from "@/lib/words-bulk";
+import { spellBatch } from "@/lib/learn-spell";
+import UseItBox from "@/components/learn/UseItBox";
+import {
+  STARTERS,
+  USEIT_DRAFT_KEY,
+  buildHandoffMessage,
+  type PracticeTarget,
+} from "@/lib/learn-useit";
 import { loadSeen, markSeen } from "@/lib/learn-seen";
+import {
+  buildFreshSetPrompt,
+  genBatch,
+  genPoolSize,
+  hashStr,
+  lookupGenWord,
+  parseAiItems,
+  rememberGenItems,
+  setChoiceMode,
+  setEnDefDict,
+} from "@/lib/learn-gen";
+import {
+  loadChoiceMode,
+  loadEnDef,
+  saveChoiceMode,
+  type ChoiceMode,
+} from "@/lib/learn-endef";
 import { unlockAch } from "@/lib/achievements";
 
 type PTab = "quiz" | "idiom" | "book" | "cards" | "review" | "essay" | "style" | "folio" | "assess" | "me";
 type GateMode = "menu" | "check" | "test";
-type QuizMode = "quick" | "full" | "exam";
+type QuizMode = "quick" | "full" | "exam" | "endless";
 type FlashMode = "flip" | "match" | "write";
 
 const VALID_TABS: PTab[] = ["quiz", "idiom", "book", "cards", "review", "essay", "style", "folio", "assess", "me"];
@@ -178,6 +205,7 @@ export default function TutorPanel({
   modelReady = false,
   modelStatus = "",
   onAskAI,
+  onSendToChat,
 }: {
   onClose?: () => void;
   initialTab?: PTab;
@@ -185,6 +213,9 @@ export default function TutorPanel({
   modelStatus?: string;
   /** Direct in-panel AI call (same provider). Null = fall back to chat draft. */
   onAskAI?: (prompt: string) => Promise<string | null>;
+  /** Post text into the main chat composer (+ register a practice target).
+   * Absent on /learn (UseItBox falls back to a chat draft). */
+  onSendToChat?: (text: string, target?: PracticeTarget) => void;
 }) {
   const { lang, t } = useLanguage();
   const auth = useAuth();
@@ -219,6 +250,7 @@ export default function TutorPanel({
   const [tryText, setTryText] = useState("");
   const [tryState, setTryState] = useState<null | "good" | "fix" | "miss">(null);
   const [tryIssues, setTryIssues] = useState<string[]>([]);
+  const [tryChips, setTryChips] = useState(false);
   const today = useMemo(() => dayStr(new Date()), []);
   const greet = useMemo(() => GREETS[today.length % GREETS.length], [today]);
 
@@ -289,7 +321,44 @@ export default function TutorPanel({
       out.push(reading[(start + k) % reading.length]);
     return out;
   }, [today, fullLesson]);
-  const quizItems = quizMode === "full" ? fullLesson : quizMode === "exam" ? examItems : lesson;
+  const [endlessRound, setEndlessRound] = useState(0);
+  const [aiQuiz, setAiQuiz] = useState<BankItem[] | null>(null);
+  // English-first quiz: EN-definition choices at B1+ (auto), KO hint on tap.
+  const [choiceMode, setChoiceModeState] = useState<ChoiceMode>(() => {
+    try {
+      return loadChoiceMode();
+    } catch {
+      return "auto";
+    }
+  });
+  useEffect(() => {
+    try {
+      setChoiceMode(loadChoiceMode());
+    } catch {
+      // default stands
+    }
+    void loadEnDef().then((d) => {
+      setEnDefDict(d);
+      setQuizKey((k) => k + 1); // regenerate with definitions in play
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const endlessBatch = useMemo(() => {
+    // 6 generated + 4 spelling, seeded-shuffled together, seen stay out.
+    const lv = state.level ?? "A1";
+    const seen = loadSeen();
+    const batch = [
+      ...genBatch(lv, 6, seen, `${today}|endless|${endlessRound}|${quizKey}|g`),
+      ...spellBatch(lv, BULK_WORDS[lv] ?? [], 4, seen, `${today}|endless|${endlessRound}|${quizKey}|s`),
+    ];
+    const mixed = [...batch].sort(
+      (a, b) => hashStr(`${today}|mix|${endlessRound}|${quizKey}|${a.id}`) - hashStr(`${today}|mix|${endlessRound}|${quizKey}|${b.id}`),
+    );
+    rememberGenItems(mixed);
+    return mixed;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [today, state.level, endlessRound, quizKey]);
+  const quizItems = quizMode === "full" ? fullLesson : quizMode === "exam" ? examItems : quizMode === "endless" ? endlessBatch : aiQuiz ?? lesson;
   const [reviewKey, setReviewKey] = useState(0);
   const reviewItems = useMemo(() => {
     const byWord = new Map(ALL_ITEMS.filter((i) => i.word).map((i) => [i.word as string, i]));
@@ -300,10 +369,19 @@ export default function TutorPanel({
         out.push(v);
         continue;
       }
-      // Idiom SRS cards live as `idiom:<id>` — convert back to quiz items.
+      // Idiom SRS cards live as `idiom:<id>` — convert back to quiz items
+      // (curated + bulk pools share the namespace; curated wins ties).
       if (w.startsWith("idiom:")) {
-        const it = idiomById(w.slice("idiom:".length));
+        const key = w.slice("idiom:".length);
+        const it = idiomById(key) ?? BULK_IDIOMS.find((b) => b.id === key) ?? null;
         if (it) out.push(idiomToBankItem(it) as unknown as BankItem);
+        continue;
+      }
+      // Generated + AI + spelling cards (`gen:` / `ai:` / `spell:`) resolve
+      // via the session cache.
+      if (w.startsWith("gen:") || w.startsWith("ai:") || w.startsWith("spell:")) {
+        const it = lookupGenWord(w);
+        if (it) out.push(it);
       }
     }
     return out.slice(0, 10);
@@ -314,8 +392,8 @@ export default function TutorPanel({
     setState((prev) => recordAnswers(prev, results, today));
     setReviewKey((k) => k + 1);
   };
-  const unlocked = useMemo(() => unlockedFor(IDIOMS, state.level), [state.level]);
-  const locked = useMemo(() => nextLocked(IDIOMS, state.level), [state.level]);
+  const unlocked = useMemo(() => unlockedFor([...IDIOMS, ...BULK_IDIOMS], state.level), [state.level]);
+  const locked = useMemo(() => nextLocked([...IDIOMS, ...BULK_IDIOMS], state.level), [state.level]);
   const idiom = useMemo(() => {
     if (shownId) {
       const found = unlocked.find((i) => i.id === shownId);
@@ -325,6 +403,15 @@ export default function TutorPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [today, state.level, shownId]);
   const leeches = useMemo(() => leechWords(state).slice(0, 6), [state]);
+  const poolTotal = useMemo(() => {
+    const lv = state.level ?? "A1";
+    return (
+      genPoolSize(lv) +
+      ALL_ITEMS.filter((i) => i.level === lv).length +
+      unlocked.length +
+      (BULK_WORDS[lv] ?? []).length
+    );
+  }, [state.level, unlocked]);
   const weekXp = useMemo(() => {
     let sum = 0;
     for (let i = 0; i < 7; i++) {
@@ -342,7 +429,9 @@ export default function TutorPanel({
     setTryText("");
     setTryState(null);
     setTryIssues([]);
+    setTryChips(false);
     setAiAnswer(null);
+    setAiLabel("");
   }, [today, state.level]);
 
   const celebrate = (lv: CEFR) => {
@@ -462,7 +551,9 @@ export default function TutorPanel({
       return next;
     });
     setQuizKey((k) => k + 1);
-    setTab("me");
+    // Endless mode chains rounds instead of leaving for the Me tab.
+    if (quizMode === "endless") setEndlessRound((r) => r + 1);
+    else setTab("me");
   };
 
   const shuffleIdiom = () => {
@@ -473,6 +564,8 @@ export default function TutorPanel({
     setRevealed(false);
     setTryText("");
     setTryState(null);
+    setAiAnswer(null); // verdicts belong to the previous idiom
+    setAiLabel("");
   };
 
   // ---- phrasebook + direct-AI state ----
@@ -620,8 +713,37 @@ export default function TutorPanel({
     }
   };
 
+  // ---- AI Fresh Set: model-written questions (parsed + validated JSON) ----
+  const [aiFreshMsg, setAiFreshMsg] = useState<string | null>(null);
+  const makeAiFreshSet = () => {
+    if (aiBusy) return;
+    setAiQuiz(null);
+    if (!modelReady || !onAskAI) {
+      setAiFreshMsg("AI isn't ready — start the model, then try ✨");
+      return;
+    }
+    const lv = state.level ?? "A1";
+    setAiBusy(true);
+    setAiFreshMsg("Asking AI for 5 fresh questions…");
+    void onAskAI(buildFreshSetPrompt(lv, path, loadSeen().slice(0, 12)))
+      .then((out) => {
+        const items = out ? parseAiItems(out, lv) : [];
+        if (items.length > 0) {
+          rememberGenItems(items);
+          setAiQuiz(items);
+          setAiFreshMsg(null);
+        } else {
+          setAiFreshMsg("AI rambled instead of JSON — try again ✨");
+        }
+      })
+      .catch(() => setAiFreshMsg("AI hiccup — try again ✨"))
+      .finally(() => setAiBusy(false));
+  };
+
   const submitTry = () => {
     if (!idiom || tryState !== null || !tryText.trim()) return;
+    setAiAnswer(null); // a new attempt invalidates any previous verdict
+    setAiLabel("");
     const scan = scanSentence(tryText, idiom.keywords);
     if (!scan.hasKeywords) {
       setTryState("miss");
@@ -690,6 +812,22 @@ export default function TutorPanel({
         IDIOM_DRAFT_KEY,
         buildIdiomCoachPrompt(idiom.term, idiom.meaning, idiom.example, tryText, tryIssues),
       );
+    } catch {
+      // best-effort
+    }
+  };
+
+  /** B: throw the fresh expression + MY sentence into main chat. */
+  const sendIdiomToChat = () => {
+    if (!idiom) return;
+    const msg = buildHandoffMessage(idiom.term, idiom.meaning, tryText);
+    if (onSendToChat) {
+      onSendToChat(msg, { term: idiom.term, meaning: idiom.meaning });
+      return;
+    }
+    try {
+      localStorage.setItem(USEIT_DRAFT_KEY, msg);
+      toast("Saved — open Chat and it lands in your composer 💬");
     } catch {
       // best-effort
     }
@@ -845,26 +983,65 @@ export default function TutorPanel({
         {tab === "quiz" ? (
           <>
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              {(["quick", "full", "exam"] as QuizMode[]).map((m) => (
+              {(["quick", "full", "exam", "endless"] as QuizMode[]).map((m) => (
                 <button
                   key={m}
-                  className={`sidebar-btn small${quizMode === m ? " secondary" : ""}`}
-                  onClick={() => setQuizMode(m)}
+                  className={`sidebar-btn small${quizMode === m && !aiQuiz ? " secondary" : ""}`}
+                  onClick={() => { setQuizMode(m); setAiQuiz(null); setAiFreshMsg(null); }}
                   style={{ width: "auto", fontSize: 12 }}
-                  title={m === "quick" ? "5 at-level" : m === "full" ? "Full 10 (warm-up + reach)" : "Exam reading passages"}
+                  title={m === "quick" ? "5 at-level" : m === "full" ? "Full 10 (warm-up + reach)" : m === "exam" ? "Exam reading passages" : "Never-ending fresh questions"}
                 >
-                  {m === "quick" ? "⚡ Quick 5" : m === "full" ? "📚 Full 10" : "🏆 Exam"}
+                  {m === "quick" ? "⚡ Quick 5" : m === "full" ? "📚 Full 10" : m === "exam" ? "🏆 Exam" : "🔁 Endless"}
                 </button>
               ))}
               <span style={{ flex: 1 }} />
-              <button className="sidebar-btn small" onClick={() => setQuizKey((k) => k + 1)} style={{ width: "auto" }} title="Deal a fresh set">
+              <button className="sidebar-btn small" onClick={() => { setQuizKey((k) => k + 1); setAiQuiz(null); }} style={{ width: "auto" }} title="Deal a fresh set">
                 🎲
               </button>
             </div>
             <p style={{ fontSize: 12, opacity: 0.75, margin: 0 }}>
-              {quizMode === "quick" ? L("lnQuickQuiz", "5 quick ones from today's set — same XP as the full lesson.") : quizMode === "full" ? "Full lesson: 3 warm-up + 5 at-level + 2 stretch." : "Exam arena: TOEIC / TOEFL / IELTS-style reading."}
+              {aiQuiz ? `✨ AI-made set (${aiQuiz.length} questions) — same XP, zero repeats.` : quizMode === "quick" ? L("lnQuickQuiz", "5 quick ones from today's set — same XP as the full lesson.") : quizMode === "full" ? "Full lesson: 3 warm-up + 5 at-level + 2 stretch." : quizMode === "exam" ? "Exam arena: TOEIC / TOEFL / IELTS-style reading." : `🔁 Endless: fresh from ~${poolTotal.toLocaleString()} questions at ${state.level ?? "A1"} (bank + generated + spelling + phrases) — seen ones stay out.`}
             </p>
-            <QuizCard key={`q-${quizKey}-${quizMode}`} items={quizItems} cta={L("lnRecord", "Record →")} onDone={finishQuiz} />
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button
+                className="sidebar-btn small"
+                style={{ width: "auto", fontSize: 12 }}
+                disabled={aiBusy}
+                title={modelReady ? "Ask the AI for 5 brand-new questions" : "Start the AI model first"}
+                onClick={makeAiFreshSet}
+              >
+                {aiBusy ? "…" : "✨ AI Fresh 5"}
+              </button>
+              {(["auto", "en", "ko"] as ChoiceMode[]).map((m) => (
+                <button
+                  key={m}
+                  className={`sidebar-btn small${choiceMode === m ? " secondary" : ""}`}
+                  style={{ width: "auto", fontSize: 12 }}
+                  title={m === "auto" ? "KO choices at A1/A2, English definitions at B1+" : m === "en" ? "Always English-definition choices" : "Always Korean choices"}
+                  onClick={() => {
+                    setChoiceModeState(m);
+                    try {
+                      saveChoiceMode(m);
+                    } catch {
+                      // best-effort
+                    }
+                    setChoiceMode(m);
+                    setQuizKey((k) => k + 1);
+                  }}
+                >
+                  {m === "auto" ? "🌐 Auto" : m === "en" ? "🇬🇧 EN" : "🇰🇷 KO"}
+                </button>
+              ))}
+              {aiQuiz ? (
+                <button className="sidebar-btn small" style={{ width: "auto", fontSize: 12 }} onClick={() => setAiQuiz(null)}>
+                  ← Back to bank sets
+                </button>
+              ) : null}
+            </div>
+            {aiFreshMsg ? (
+              <div style={{ fontSize: 12, opacity: 0.8 }}>{aiFreshMsg}</div>
+            ) : null}
+            <QuizCard key={`q-${quizKey}-${quizMode}-r${endlessRound}${aiQuiz ? "-ai" : ""}`} items={quizItems} cta={L("lnRecord", "Record →")} onDone={finishQuiz} useIt={{ onAskAI, modelReady, onSendToChat }} />
           </>
         ) : null}
 
@@ -911,7 +1088,11 @@ export default function TutorPanel({
               </button>
               {revealed ? (
                 <div style={{ fontSize: 13, background: "var(--border)", borderRadius: 6, padding: 8 }}>
-                  ✍️ <i>"{idiom.example}"</i>
+                  {idiom.example ? (
+                    <>✍️ <i>"{idiom.example}"</i></>
+                  ) : (
+                    <>✍️ <i>{idiom.meaning}</i></>
+                  )}
                   {(() => {
                     const [a, b] = dialogueFor(idiom);
                     return (
@@ -959,7 +1140,37 @@ export default function TutorPanel({
                 <button className="sidebar-btn small" onClick={submitTry} disabled={tryState !== null || !tryText.trim()}>
                   Go!
                 </button>
+                <button
+                  className="sidebar-btn small"
+                  onClick={() => setTryChips((v) => !v)}
+                  disabled={tryState !== null}
+                  style={{ width: "auto" }}
+                  title="Sentence starters"
+                >
+                  🧩
+                </button>
               </div>
+              {tryChips && tryState === null ? (
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  <button
+                    className="sidebar-btn small"
+                    style={{ width: "auto", fontSize: 12 }}
+                    onClick={() => setTryText((prev) => (prev.trim() ? `${prev.trimEnd()} "${idiom.term}"` : `"${idiom.term}"`))}
+                  >
+                    ＋"{idiom.term.length > 18 ? idiom.term.slice(0, 18) + "…" : idiom.term}"
+                  </button>
+                  {STARTERS.map((s) => (
+                    <button
+                      key={s}
+                      className="sidebar-btn small"
+                      style={{ width: "auto", fontSize: 12 }}
+                      onClick={() => setTryText((prev) => (prev.trim() ? `${prev.trimEnd()} ${s}` : s))}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               {tryState !== null ? (
                 <div style={{ fontSize: 13, background: "var(--border)", borderRadius: 6, padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
                   {tryState === "good" ? (
@@ -979,6 +1190,14 @@ export default function TutorPanel({
                     {tryState !== "good" ? (
                       <button className="sidebar-btn small" onClick={() => { setTryState(null); setTryIssues([]); }} style={{ width: "auto" }}>↻ Try again</button>
                     ) : null}
+                    <button
+                      className="sidebar-btn small primary"
+                      style={{ width: "auto", textAlign: "center" }}
+                      onClick={sendIdiomToChat}
+                      title={onSendToChat ? "Continue with this sentence in main chat" : "Save for main chat"}
+                    >
+                      💬 Use in chat →
+                    </button>
                     <button
                       className="sidebar-btn small"
                       style={{ width: "auto", textAlign: "center" }}
@@ -1066,19 +1285,19 @@ export default function TutorPanel({
                         <span style={{ fontSize: 13 }}>{i.meaning} ({i.ko})</span>
                       </button>
                       {bookOpen === i.id ? (
-                        <div style={{ fontSize: 13, marginTop: 6, display: "flex", flexDirection: "column", gap: 4 }}>
-                          <i>"{i.example}"</i>
+                        <div style={{ fontSize: 13, marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+                          {i.example ? <i>"{i.example}"</i> : null}
                           {(() => {
                             const [a, b] = dialogueFor(i);
                             return <span style={{ opacity: 0.9 }}>💬 {a}<br />💬 {b}</span>;
                           })()}
                           {i.caution ? <span>⚠️ {i.caution}</span> : null}
                           <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                            <button className="sidebar-btn small" style={{ width: "auto", fontSize: 12 }} onClick={() => speakText(`${i.term}. ${i.example}`)}>🔊 Listen</button>
+                            <button className="sidebar-btn small" style={{ width: "auto", fontSize: 12 }} onClick={() => speakText(i.example ? `${i.term}. ${i.example}` : `${i.term} means ${i.meaning}`)}>🔊 Listen</button>
                             <button
                               className="sidebar-btn small"
                               style={{ width: "auto", fontSize: 12 }}
-                              onClick={() => { setShownId(i.id); setTab("idiom"); setRevealed(true); }}
+                              onClick={() => { setShownId(i.id); setTab("idiom"); setRevealed(true); setAiAnswer(null); setAiLabel(""); }}
                             >
                               ✍️ Practice →
                             </button>
@@ -1086,7 +1305,7 @@ export default function TutorPanel({
                               className="sidebar-btn small"
                               style={{ width: "auto", fontSize: 12 }}
                               onClick={() => {
-                                persistFlash(addCard(flash, i.term, `${i.meaning} (${i.ko})`, `phrase:${i.id}`));
+                                persistFlash(addCard(flash, i.term, `${i.meaning}${i.ko ? ` (${i.ko})` : ""}`, `phrase:${i.id}`));
                                 try {
                                   toast("Card saved 🗂️");
                                 } catch {
@@ -1097,6 +1316,14 @@ export default function TutorPanel({
                               🗂️ +Card
                             </button>
                           </span>
+                          <UseItBox
+                            key={`book-${i.id}`}
+                            term={i.term}
+                            meaning={i.meaning}
+                            example={i.example || undefined}
+                            compact
+                            bridge={{ onAskAI, modelReady, onSendToChat }}
+                          />
                         </div>
                       ) : null}
                     </div>
@@ -1221,6 +1448,13 @@ export default function TutorPanel({
                     🗑️
                   </button>
                 </div>
+                <UseItBox
+                  key={`flip-${flash[flipIdx % flash.length].id}`}
+                  term={flash[flipIdx % flash.length].term}
+                  meaning={flash[flipIdx % flash.length].meaning}
+                  compact
+                  bridge={{ onAskAI, modelReady, onSendToChat }}
+                />
               </div>
             ) : flashMode === "match" ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1320,7 +1554,7 @@ export default function TutorPanel({
             {reviewItems.length === 0 ? (
               <p style={{ fontSize: 13 }}>✅ {L("lnReviewDone", "Nothing due — come back tomorrow!")}</p>
             ) : (
-              <QuizCard key={`rv-${reviewKey}`} items={reviewItems} cta={L("lnRecord", "Record →")} onDone={finishReview} />
+              <QuizCard key={`rv-${reviewKey}`} items={reviewItems} cta={L("lnRecord", "Record →")} onDone={finishReview} useIt={{ onAskAI, modelReady, onSendToChat }} />
             )}
           </div>
         ) : null}

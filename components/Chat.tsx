@@ -44,6 +44,18 @@ import { useVoiceInput } from "@/components/chat/useVoiceInput";
 import { useClipboard } from "@/components/chat/useClipboard";
 import { useQuota } from "@/components/chat/useQuota";
 import { useFocusInput } from "@/components/chat/useFocusInput";
+import { toast } from "sonner";
+import {
+  addTarget,
+  buildTeachPrompt,
+  detectUsage,
+  loadTargets,
+  practiceLine,
+  removeTarget,
+  saveTargets,
+  type PracticeTarget,
+} from "@/lib/learn-useit";
+import { awardXP, dayStr, loadLearn, saveLearn } from "@/lib/learn-store";
 import { useAttachments } from "@/components/chat/useAttachments";
 import { useImageDraw } from "@/components/chat/useImageDraw";
 import {
@@ -169,6 +181,74 @@ export default function Chat({
   const speech = useSpeech();
   /** Fullscreen big-text reader open on this message (null = closed). */
   const [readerIdx, setReaderIdx] = useState<number | null>(null);
+  // ---- Practice mode (C): chat as conversation partner for target words ----
+  const [practiceOn, setPracticeOn] = useState<boolean>(() => {
+    try {
+      return typeof localStorage !== "undefined" && localStorage.getItem("canary-practice-on") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [targets, setTargets] = useState<PracticeTarget[]>(() => {
+    try {
+      return loadTargets();
+    } catch {
+      return [];
+    }
+  });
+  /** Lowercase terms already used (and XP-awarded) this session. */
+  const [usedTerms, setUsedTerms] = useState<string[]>([]);
+  const practiceScoredRef = useRef<string | null>(null);
+  const setPractice = useCallback((on: boolean) => {
+    setPracticeOn(on);
+    try {
+      if (typeof localStorage !== "undefined")
+        localStorage.setItem("canary-practice-on", on ? "1" : "0");
+    } catch {
+      // best-effort
+    }
+    if (on) {
+      // Pick up words added from Learn while chat was mounted.
+      try {
+        setTargets((prev) => {
+          const fresh = loadTargets().filter(
+            (t) => !prev.some((p) => p.term.toLowerCase() === t.term.toLowerCase()),
+          );
+          return fresh.length > 0 ? [...prev, ...fresh].slice(0, 12) : prev;
+        });
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+  const dropTarget = useCallback((term: string) => {
+    setTargets((prev) => {
+      const next = removeTarget(prev, term);
+      try {
+        saveTargets(next);
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
+  // D: practice-the-selection bubble (text selected inside chat bubbles).
+  const [selText, setSelText] = useState<string | null>(null);
+  useEffect(() => {
+    const onSel = () => {
+      try {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed) {
+          setSelText(null);
+          return;
+        }
+      } catch {
+        setSelText(null);
+      }
+    };
+    document.addEventListener("selectionchange", onSel);
+    return () => document.removeEventListener("selectionchange", onSel);
+  }, []);
   // Stop read-aloud when the AI starts answering.
   useEffect(() => {
     if (streaming) speech.stop();
@@ -468,6 +548,23 @@ export default function Chat({
     if (!prompt) return;
     stopRef.current = false;
     clearError();
+    // Practice mode (C): score target-word usage once per distinct message.
+    // Plan re-entries resend the same prompt — the ref guard stops doubles.
+    if (practiceOn && targets.length > 0 && practiceScoredRef.current !== prompt) {
+      practiceScoredRef.current = prompt;
+      const fresh = detectUsage(prompt, targets).filter(
+        (hit) => !usedTerms.includes(hit.term.toLowerCase()),
+      );
+      if (fresh.length > 0) {
+        setUsedTerms((prev) => [...prev, ...fresh.map((f) => f.term.toLowerCase())]);
+        try {
+          saveLearn(awardXP(loadLearn(), 5 * fresh.length, dayStr(new Date())));
+          toast(`+${5 * fresh.length} XP — nice use of "${fresh.map((f) => f.term).join('", "')}"! 🦜`);
+        } catch {
+          // XP + toasts are best-effort
+        }
+      }
+    }
     // No AI session (e.g. phones without built-in AI): explain, don't die silently.
     if (!sessionRef.current) {
       setInput("");
@@ -648,7 +745,13 @@ export default function Chat({
       setStreamText("");
       let full = "";
       try {
-        full = await runModelTurn(pageCtx + prompt + personalityLine);
+        // Practice mode persona rides along exactly like personalityLine.
+        let practice = "";
+        if (practiceOn && targets.length > 0) {
+          const langName = LANGS.find((l) => l.code === lang)?.modelName ?? "Korean";
+          practice = practiceLine(targets, langName);
+        }
+        full = await runModelTurn(pageCtx + prompt + personalityLine + practice);
         const clean = sanitizeAnswer(stripToolCalls(full).trim());
         if (stopRef.current) {
           if (clean) pushMessage("assistant", clean);
@@ -1177,8 +1280,38 @@ export default function Chat({
     }
   }, [sessionRef, busyRef, input, setInput, pushMessage, persistChat, setModelStatus, loadQuota, t, lang]);
 
+  /** D: capture text selected inside chat bubbles (not the composer). */
+  const captureSelection = useCallback(() => {
+    try {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) return;
+      const node = sel.anchorNode;
+      const el = node instanceof Element ? node : node?.parentElement;
+      if (el && el.closest("textarea, input")) return;
+      const text = sel.toString().trim().replace(/\s+/g, " ");
+      setSelText(text.length >= 2 && text.length <= 120 ? text : null);
+    } catch {
+      setSelText(null);
+    }
+  }, []);
+
+  /** D: teach + quiz me on the selection, and track it as a target. */
+  const practiceSelection = useCallback(() => {
+    if (!selText) return;
+    const sel = selText;
+    setSelText(null);
+    try {
+      const next = addTarget(loadTargets(), sel);
+      saveTargets(next);
+      setTargets(next);
+    } catch {
+      // target memory is best-effort
+    }
+    void handleSend(buildTeachPrompt(sel));
+  }, [selText, handleSend]);
+
   return (
-    <>
+    <div style={{ display: "contents" }} onMouseUp={captureSelection} onKeyUp={captureSelection}>
       <MouseOrb active={messages.length === 0 && !streaming} />
       <MessageList
         messages={messages}
@@ -1321,7 +1454,25 @@ export default function Chat({
         onHelp={onHelp}
         planMode={planMode}
         setPlanMode={setPlanMode}
+        practiceOn={practiceOn}
+        setPracticeOn={setPractice}
+        practiceTargets={targets}
+        practiceUsed={usedTerms}
+        onRemoveTarget={dropTarget}
       />
-    </>
+      {selText && !streaming ? (
+        <button
+          className="sidebar-btn small primary"
+          onClick={practiceSelection}
+          style={{
+            position: "fixed", bottom: 150, right: 14, zIndex: 1600, width: "auto",
+            maxWidth: "70vw", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}
+          title="Ask AI to teach this + quiz you on it"
+        >
+          💬 Practice "{selText.length > 32 ? selText.slice(0, 32) + "…" : selText}"
+        </button>
+      ) : null}
+    </div>
   );
 }

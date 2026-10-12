@@ -47,6 +47,11 @@ export default function Composer({
   onHelp,
   planMode,
   setPlanMode,
+  practiceOn,
+  setPracticeOn,
+  practiceTargets,
+  practiceUsed,
+  onRemoveTarget,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -82,6 +87,11 @@ export default function Composer({
   onHelp: () => void;
   planMode: boolean;
   setPlanMode: (v: boolean) => void;
+  practiceOn: boolean;
+  setPracticeOn: (v: boolean) => void;
+  practiceTargets: { term: string; meaning?: string }[];
+  practiceUsed: string[];
+  onRemoveTarget: (term: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -183,6 +193,36 @@ export default function Composer({
               {s.label}
             </button>
           ))}
+        </div>
+      ) : null}
+      {practiceOn ? (
+        <div className="task-row" title="Words you are practicing — use one in chat for +5 XP">
+          {practiceTargets.length === 0 ? (
+            <span style={{ fontSize: 12, opacity: 0.7 }}>
+              🦜 Practice is on — add words from Learn 🦜 or select text in chat 💬
+            </span>
+          ) : (
+            practiceTargets.map((tg) => {
+              const used = practiceUsed.includes(tg.term.toLowerCase());
+              return (
+                <span
+                  key={tg.term}
+                  className="task-chip"
+                  title={tg.meaning ?? tg.term}
+                  style={used ? { opacity: 0.75, textDecoration: "line-through" } : undefined}
+                >
+                  {used ? "✓ " : ""}{tg.term}{" "}
+                  <button
+                    className="quota-refresh"
+                    title="Remove target"
+                    onClick={() => onRemoveTarget(tg.term)}
+                  >
+                    ✕
+                  </button>
+                </span>
+              );
+            })
+          )}
         </div>
       ) : null}
       {emptyChat && modelReady && !streaming ? (
@@ -364,6 +404,18 @@ export default function Composer({
               disabled={streaming}
             />
             {t("plMode")}
+          </label>
+          <label
+            title="Practice English: AI weaves your target words into replies and scores your usage (+5 XP each)"
+            style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center", cursor: "pointer" }}
+          >
+            <input
+              type="checkbox"
+              checked={practiceOn}
+              onChange={(e) => setPracticeOn(e.target.checked)}
+              disabled={streaming}
+            />
+            🦜 Practice
           </label>
         {!workspaceConnected && workspaceSupported ? (
           <span style={{ fontSize: 12, opacity: 0.7 }}>{t("chAgentHint")}</span>

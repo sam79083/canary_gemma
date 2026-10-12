@@ -207,10 +207,11 @@ export function buildIdiomCoachPrompt(
 }
 
 /** Two-line mini-dialogue for an idiom: explicit one wins, else a
- * deterministic template from the native example. Gives learners a second
- * usage context without bloating the bank. */
+ * deterministic template from the native example (or the bare meaning for
+ * bulk entries that ship without an example). */
 export function dialogueFor(it: Idiom): [string, string] {
   if (it.dialogue) return it.dialogue;
+  if (!it.example) return [`A: What does "${it.term}" mean?`, `B: ${it.meaning}.`];
   const short = it.example.length > 90 ? it.example.slice(0, 87) + "…" : it.example;
   return [`A: I love the phrase "${it.term}".`, `B: Me too — e.g. ${short}`];
 }

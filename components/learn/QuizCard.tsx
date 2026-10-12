@@ -3,24 +3,52 @@
 import { useEffect, useState } from "react";
 import { gradeChoice, gradeFill, type BankItem } from "@/lib/learn-bank";
 import type { AnswerResult } from "@/lib/learn-store";
+import type { UseItBridge } from "./UseItBox";
+import UseItBox from "./UseItBox";
 
 const PRAISE = ["Nice! 🔥", "Brilliant! ✨", "You got it! 🎉", "Smooth! 😎", "Exactly! 💯"];
 const NUDGE = ["So close! 💪", "Almost — next one! 🍀", "Good try — peek below 👇"];
+
+/** Use-it-now for answered vocab questions (no spoilers: only after check).
+ * Derives term/meaning from the item itself: word key + correct choice. */
+function QuizUseIt({ item, bridge }: { item: BankItem; bridge: UseItBridge }) {
+  if (item.skill !== "vocab" || item.kind !== "choice" || !item.word) return null;
+  const term = item.word.replace(/^(gen|spell|ai|idiom):/, "");
+  if (!/^[a-z][a-z '\-]{1,60}$/i.test(term)) return null;
+  if (item.word.startsWith("ai:") || item.word.startsWith("idiom:")) return null;
+  const choices = item.choices ?? [];
+  const meaning =
+    item.answerIndex !== undefined && choices[item.answerIndex] ? choices[item.answerIndex] : null;
+  if (!meaning) return null;
+  return (
+    <UseItBox
+      key={item.id}
+      term={term}
+      meaning={meaning}
+      compact
+      bridge={bridge}
+    />
+  );
+}
 
 /** Shared interactive quiz card: choice + fill, instant feedback, XP tally. */
 export default function QuizCard({
   items,
   onDone,
   cta,
+  useIt,
 }: {
   items: BankItem[];
   onDone: (results: AnswerResult[]) => void;
   cta: string;
+  /** When set, answered vocab questions offer inline use-it-now practice. */
+  useIt?: UseItBridge | null;
 }) {
   const [idx, setIdx] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
   const [typed, setTyped] = useState("");
   const [checked, setChecked] = useState<null | boolean>(null);
+  const [hintOpen, setHintOpen] = useState(false);
   const [results, setResults] = useState<AnswerResult[]>([]);
   const item = items[idx];
   const done = idx >= items.length;
@@ -29,6 +57,7 @@ export default function QuizCard({
     setPicked(null);
     setTyped("");
     setChecked(null);
+    setHintOpen(false);
   }, [idx]);
 
   if (items.length === 0) return <p>No questions.</p>;
@@ -83,6 +112,18 @@ export default function QuizCard({
         </div>
       ) : null}
       <div style={{ fontSize: 17, fontWeight: 700 }}>{item.prompt}</div>
+      {item.hint ? (
+        <div>
+          <button
+            className="sidebar-btn small"
+            style={{ width: "auto", fontSize: 12 }}
+            onClick={() => setHintOpen((v) => !v)}
+            title="Show a hint (no XP penalty)"
+          >
+            {hintOpen ? `💡 ${item.hint}` : "💡 Hint?"}
+          </button>
+        </div>
+      ) : null}
       {item.kind === "choice" ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {(item.choices ?? []).map((c, i) => (
@@ -126,6 +167,7 @@ export default function QuizCard({
           </div>
         </div>
       ) : null}
+      {checked !== null && useIt ? <QuizUseIt item={item} bridge={useIt} /> : null}
     </div>
   );
 }

@@ -24,6 +24,8 @@ export interface BankItem {
   passage?: string;
   /** Short teacher explanation shown after answering. */
   explain: string;
+  /** Optional hint (e.g. KO gloss in EN-choice mode) — revealed on tap. */
+  hint?: string;
   /** Vocab word id for SRS tracking (vocab items only). */
   word?: string;
 }

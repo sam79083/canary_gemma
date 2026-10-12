@@ -9,7 +9,9 @@
     "test": "node --experimental-strip-types --test test/*.test.mts",
     "typecheck": "tsc --noEmit",
     "i18n:check": "node --experimental-strip-types scripts/i18n-tool.mts --check",
-    "i18n:fill": "node --experimental-strip-types scripts/i18n-tool.mts"
+    "i18n:fill": "node --experimental-strip-types scripts/i18n-tool.mts",
+    "words:build": "node --experimental-strip-types scripts/build-wordlist.mts",
+    "bulk:build": "node --experimental-strip-types scripts/build-bulk.mts"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.23",

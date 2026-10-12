@@ -17,6 +17,7 @@ import TrialOverDialog from "@/components/TrialOverDialog";
 import Confetti from "@/components/Confetti";
 import { touchStreak } from "@/lib/streak";
 import { ACHIEVEMENTS, loadUnlocked, unlockAch } from "@/lib/achievements";
+import { addTarget, loadTargets, saveTargets } from "@/lib/learn-useit";
 import { awardXP, loadLearn, saveLearn, dayStr as learnDay } from "@/lib/learn-store";
 import { useAuth } from "@/hooks/useAuth";
 import { useConfirm } from "@/hooks/useConfirm";
@@ -473,15 +474,19 @@ export default function Home() {
     } catch {
       // storage unavailable — skip the guide
     }
-    // Essay/idiom coaching handoff from Learn Mode: drop the prepared review
-    // prompt into the composer so any provider (on-device first) can coach.
+    // Essay/idiom/use-it coaching handoff from Learn Mode: drop the prepared
+    // review prompt into the composer so any provider can coach. Mid-session
+    // handoffs use sendToChat (live bridge); this mount-time pickup covers
+    // full loads (e.g. from the /learn room's UseItBox fallback).
     try {
       const draft =
         localStorage.getItem("canary-essay-draft") ??
-        localStorage.getItem("canary-idiom-draft");
+        localStorage.getItem("canary-idiom-draft") ??
+        localStorage.getItem("canary-useit-draft");
       if (draft && draft.trim()) {
         localStorage.removeItem("canary-essay-draft");
         localStorage.removeItem("canary-idiom-draft");
+        localStorage.removeItem("canary-useit-draft");
         setTimeout(() => {
           appendInput(draft.trim().slice(0, 4000));
           try {
@@ -971,6 +976,28 @@ export default function Home() {
   const appendInput = useCallback((text: string) => {
     setInput((prev) => (prev.trim() ? prev.trimEnd() + "\n\n" + text : text));
   }, []);
+
+  /** Learn → Chat bridge (B): drop practice text in the composer mid-session
+   * (the mount-time draft pickup can't do this), register the target word,
+   * close the tutor, and focus the composer for one Enter away. */
+  const sendToChat = useCallback((text: string, target?: { term: string; meaning?: string }) => {
+    if (target && target.term.trim()) {
+      try {
+        saveTargets(addTarget(loadTargets(), target.term, target.meaning));
+      } catch {
+        // target memory is best-effort
+      }
+    }
+    appendInput(text);
+    setTutorOpen(false);
+    try {
+      const msg = t("lnChatLoaded");
+      toast(msg === "lnChatLoaded" ? "Loaded — press Enter to practice with AI 💬" : msg);
+    } catch {
+      // toasts are best-effort
+    }
+    setTimeout(() => document.getElementById("prompt-input")?.focus(), 60);
+  }, [appendInput, t]);
 
   /** Chat context menu: delete one message bubble. */
   const deleteMessage = useCallback(
@@ -1682,6 +1709,7 @@ export default function Home() {
           modelReady={model.ready}
           modelStatus={model.status}
           onAskAI={askLearnAI}
+          onSendToChat={sendToChat}
         />
       ) : null}
 
