@@ -1,0 +1,40 @@
+# Keep the Supabase free-tier project awake.
+#
+# Supabase pauses free projects after 7 consecutive days without Postgres
+# queries. This pings one tiny row (see supabase/migrations/006_keepalive.sql)
+# every Monday + Thursday — a genuine PostgREST SELECT, so the clock resets.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   SUPABASE_URL          e.g. https://xyzcompany.supabase.co
+#   SUPABASE_SERVICE_KEY  Supabase Dashboard → Settings → API → service_role
+# Never commit the service key to git; it bypasses RLS by design.
+
+name: supabase-keepalive
+
+on:
+  schedule:
+    # Mon + Thu 03:00 UTC (≈ twice a week, well inside the 7-day window).
+    - cron: "0 3 * * 1,4"
+  workflow_dispatch: {} # allow a manual run to verify secrets
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: SELECT keepalive row
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_SERVICE_KEY:-}" ]; then
+            echo "::error::Missing SUPABASE_URL or SUPABASE_SERVICE_KEY secrets."
+            exit 1
+          fi
+          code=$(curl -s -o /tmp/keepalive.json -w "%{http_code}" \
+            -H "apikey: $SUPABASE_SERVICE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
+            "$SUPABASE_URL/rest/v1/keepalive?select=id&limit=1")
+          echo "HTTP $code — $(cat /tmp/keepalive.json)"
+          [ "$code" = "200" ]

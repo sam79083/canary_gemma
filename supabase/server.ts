@@ -83,11 +83,23 @@ export async function getMember(): Promise<{ id: string; email: string } | null>
     if (!(await hasSessionCookie())) return null;
     const sb = await supabaseServer();
     if (!sb) return null;
-    const {
-      data: { user },
-    } = await withTimeout(sb.auth.getUser(), 10000);
-    if (!user) return null;
-    return { id: user.id, email: user.email ?? "" };
+    // Cold-start tolerance: a paused free-tier project needs ~30s to wake.
+    // First attempt is fast (warm project); on timeout, wait and retry once
+    // with a longer budget instead of failing the login/sync outright.
+    try {
+      const {
+        data: { user },
+      } = await withTimeout(sb.auth.getUser(), 15000);
+      if (!user) return null;
+      return { id: user.id, email: user.email ?? "" };
+    } catch {
+      await new Promise((r) => setTimeout(r, 2000));
+      const {
+        data: { user },
+      } = await withTimeout(sb.auth.getUser(), 25000);
+      if (!user) return null;
+      return { id: user.id, email: user.email ?? "" };
+    }
   } catch {
     return null;
   }

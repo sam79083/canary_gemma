@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { TFn } from "@/lib/i18n";
 import { supabaseBrowser, supabaseConfigured } from "@/supabase/client";
 
@@ -45,6 +45,17 @@ function GoogleMark() {
 export default function LoginDialog({ open, checking, error, onGoogleLogin, onClearError, onClose, t }: Props) {
   const googleRef = useRef<HTMLButtonElement>(null);
   const configured = supabaseConfigured();
+  // Cold-start hint: if the free-tier project was paused, waking takes
+  // ~30s. After 8s of checking, say so instead of a mute spinner.
+  const [slowHint, setSlowHint] = useState(false);
+  useEffect(() => {
+    if (!checking) {
+      setSlowHint(false);
+      return;
+    }
+    const tmr = setTimeout(() => setSlowHint(true), 8000);
+    return () => clearTimeout(tmr);
+  }, [checking]);
 
   useEffect(() => {
     if (open) {
@@ -121,6 +132,11 @@ export default function LoginDialog({ open, checking, error, onGoogleLogin, onCl
         {errText && configured ? (
           <div className="workspace-error" style={{ marginTop: 10 }}>
             {errText}
+          </div>
+        ) : null}
+        {checking && slowHint ? (
+          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
+            ⏳ Waking the server (paused projects need ~30s) — hang tight…
           </div>
         ) : null}
 
