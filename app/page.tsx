@@ -17,6 +17,7 @@ import TrialOverDialog from "@/components/TrialOverDialog";
 import Confetti from "@/components/Confetti";
 import { touchStreak } from "@/lib/streak";
 import { ACHIEVEMENTS, loadUnlocked, unlockAch } from "@/lib/achievements";
+import { awardXP, loadLearn, saveLearn, dayStr as learnDay } from "@/lib/learn-store";
 import { useAuth } from "@/hooks/useAuth";
 import { useConfirm } from "@/hooks/useConfirm";
 import { useLanguageModel, type Provider } from "@/hooks/useLanguageModel";
@@ -254,7 +255,15 @@ export default function Home() {
   const [burstKey, setBurstKey] = useState(0);
   const burstDone = useRef(false);
   const handleFilesCreated = useCallback(() => {
-    award("first-file");    if (burstDone.current) return;
+    award("first-file");
+    // Builder reward (Duolingo-style points for making things): +5 XP to the
+    // shared Learn store so file work visibly feeds English progress.
+    try {
+      saveLearn(awardXP(loadLearn(), 5, learnDay(new Date())));
+    } catch {
+      // XP is best-effort; the achievement above already toasted
+    }
+    if (burstDone.current) return;
     burstDone.current = true;
     try {
       if (localStorage.getItem("canary-first-file")) return;
@@ -1669,7 +1678,7 @@ export default function Home() {
       {tutorOpen ? (
         <TutorPanel
           onClose={() => setTutorOpen(false)}
-          initialTab={(tutorTab as "quiz" | "idiom" | "book" | "review" | "essay" | "assess" | "me") ?? undefined}
+          initialTab={(tutorTab as "quiz" | "idiom" | "book" | "cards" | "review" | "essay" | "style" | "folio" | "assess" | "me") ?? undefined}
           modelReady={model.ready}
           modelStatus={model.status}
           onAskAI={askLearnAI}

@@ -50,6 +50,7 @@ import {
 } from "@/lib/learn-idioms";
 import {
   dayStr,
+  awardXP,
   dueWords,
   emptyState,
   leechWords,
@@ -62,14 +63,42 @@ import {
   type AnswerResult,
   type LearnState,
 } from "@/lib/learn-store";
+import {
+  addCard,
+  buildMatchRound,
+  extractWordsFromText,
+  gradeWrite,
+  loadCards,
+  removeCard,
+  saveCards,
+  type FlashCard,
+} from "@/lib/learn-flash";
+import {
+  analyzeStyle,
+  buildStyleCoachPrompt,
+  styleFindings,
+  type Goal,
+} from "@/lib/learn-feedback";
+import { PATHS, loadPath, orderIdiomsForPath, pathById, savePath, weeklyTarget } from "@/lib/learn-path";
+import {
+  addEntry,
+  buildShareCard,
+  exportPortfolioMd,
+  leagueTable,
+  loadPortfolio,
+  removeEntry,
+  savePortfolio,
+  type PortfolioEntry,
+} from "@/lib/learn-portfolio";
 import { loadSeen, markSeen } from "@/lib/learn-seen";
 import { unlockAch } from "@/lib/achievements";
 
-type PTab = "quiz" | "idiom" | "book" | "review" | "essay" | "assess" | "me";
+type PTab = "quiz" | "idiom" | "book" | "cards" | "review" | "essay" | "style" | "folio" | "assess" | "me";
 type GateMode = "menu" | "check" | "test";
 type QuizMode = "quick" | "full" | "exam";
+type FlashMode = "flip" | "match" | "write";
 
-const VALID_TABS: PTab[] = ["quiz", "idiom", "book", "review", "essay", "assess", "me"];
+const VALID_TABS: PTab[] = ["quiz", "idiom", "book", "cards", "review", "essay", "style", "folio", "assess", "me"];
 
 /** Tiny browser TTS: EN-first, no deps. Chat's full hook stays untouched. */
 function speakText(text: string): void {
@@ -454,6 +483,115 @@ export default function TutorPanel({
   const [aiAnswer, setAiAnswer] = useState<string | null>(null);
   const [aiLabel, setAiLabel] = useState<string>("");
 
+  // ---- personalized path (goal shapes idioms, targets, coaching) ----
+  const [path, setPath] = useState<Goal>(() => {
+    try {
+      return loadPath();
+    } catch {
+      return "general";
+    }
+  });
+  const pickPath = (g: Goal) => {
+    setPath(g);
+    try {
+      savePath(g);
+    } catch {
+      // best-effort
+    }
+  };
+  const pathByIdSafe = pathById;
+
+  // ---- flashcards (Quizlet-style custom cards + modes) ----
+  const [flash, setFlash] = useState<FlashCard[]>(() => {
+    try {
+      return loadCards();
+    } catch {
+      return [];
+    }
+  });
+  const [flashMode, setFlashMode] = useState<FlashMode>("flip");
+  const [flipIdx, setFlipIdx] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const [newTerm, setNewTerm] = useState("");
+  const [newMeaning, setNewMeaning] = useState("");
+  const [pasteText, setPasteText] = useState("");
+  const [matchSeed, setMatchSeed] = useState(1);
+  const [matchPicked, setMatchPicked] = useState<Record<number, number>>({});
+  const [writeIdx, setWriteIdx] = useState(0);
+  const [writeText, setWriteText] = useState("");
+  const [writeResult, setWriteResult] = useState<null | boolean>(null);
+  const persistFlash = (next: FlashCard[]) => {
+    setFlash(next);
+    try {
+      saveCards(next);
+    } catch {
+      // best-effort
+    }
+  };
+  const bonus = (n: number) => {
+    if (n <= 0) return;
+    setState((prev) => awardXP(prev, n, today));
+  };
+
+  // ---- style lab (AI-powered tone/style feedback) ----
+  const [styleText, setStyleText] = useState("");
+  const [styleChecked, setStyleChecked] = useState(false);
+  const styleMetric = useMemo(() => analyzeStyle(styleText), [styleText]);
+  const styleTips = useMemo(
+    () => (styleChecked ? styleFindings(styleMetric, state.level, path) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [styleChecked, styleText, state.level, path],
+  );
+
+  // ---- portfolio (showcase + share) ----
+  const [folio, setFolio] = useState<PortfolioEntry[]>(() => {
+    try {
+      return loadPortfolio();
+    } catch {
+      return [];
+    }
+  });
+  const persistFolio = (next: PortfolioEntry[]) => {
+    setFolio(next);
+    try {
+      savePortfolio(next);
+    } catch {
+      // best-effort
+    }
+  };
+  // Auto-shelf passed essays into the portfolio (once per graded text).
+  const folioSavedKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!essayResult?.pass || !essayText.trim()) return;
+    const key = `${essayTopic.id}|${essayResult.total}|${essayText.length}`;
+    if (folioSavedKey.current === key) return;
+    folioSavedKey.current = key;
+    persistFolio(
+      addEntry(
+        loadPortfolio(),
+        "essay",
+        essayTopic.topic.slice(0, 60),
+        essayText.trim().slice(0, 2000),
+        `${essayResult.total}/100 · ${essayTopic.level}`,
+      ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [essayResult]);
+  const downloadMd = (name: string, md: string) => {
+    try {
+      const blob = new Blob([md], { type: "text/markdown" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    } catch {
+      // best-effort
+    }
+  };
+
   const askAiDirect = async (label: string, prompt: string, draftFallback?: () => void) => {
     setAiLabel(label);
     setAiAnswer(null);
@@ -691,14 +829,14 @@ export default function TutorPanel({
       )}
 
       <div style={{ display: "flex", gap: 6, padding: "10px 12px 0", overflowX: "auto", scrollbarWidth: "thin" }}>
-        {(["quiz", "idiom", "book", "review", "essay", "assess", "me"] as PTab[]).map((id) => (
+        {(["quiz", "idiom", "book", "cards", "review", "essay", "style", "folio", "assess", "me"] as PTab[]).map((id) => (
           <button
             key={id}
             className={`sidebar-btn small${tab === id ? " secondary" : ""}`}
             onClick={() => { setTab(id); setGateMode("menu"); setAiAnswer(null); }}
             style={{ flex: "0 0 auto", justifyContent: "center", padding: "8px 10px", fontSize: 13 }}
           >
-            {id === "quiz" ? `⚡ ${L("lnPractice", "Quiz")}` : id === "idiom" ? `😎 ${L("lnIdiomDay", "Idiom")}` : id === "book" ? `📖 Book` : id === "review" ? `🔁 ${L("lnReviewTab", "Review")} (${reviewItems.length})` : id === "essay" ? `✍️ ${L("lnEssay", "Essay")}` : id === "assess" ? `🎯 ${L("lnAssess", "Level")}` : `🏆 ${L("lnMe", "Me")}`}
+            {id === "quiz" ? `⚡ ${L("lnPractice", "Quiz")}` : id === "idiom" ? `😎 ${L("lnIdiomDay", "Idiom")}` : id === "book" ? `📖 Book` : id === "cards" ? `🗂️ Cards${flash.length > 0 ? ` (${flash.length})` : ""}` : id === "review" ? `🔁 ${L("lnReviewTab", "Review")} (${reviewItems.length})` : id === "essay" ? `✍️ ${L("lnEssay", "Essay")}` : id === "style" ? `✨ Style` : id === "folio" ? `💼 Folio` : id === "assess" ? `🎯 ${L("lnAssess", "Level")}` : `🏆 ${L("lnMe", "Me")}`}
           </button>
         ))}
       </div>
@@ -903,10 +1041,13 @@ export default function TutorPanel({
             </div>
             {(() => {
               const q = bookQuery.trim().toLowerCase();
-              const list = unlocked.filter(
-                (i) =>
-                  (bookFilter === "all" || i.register === bookFilter) &&
-                  (!q || `${i.term} ${i.meaning} ${i.ko}`.toLowerCase().includes(q)),
+              const list = orderIdiomsForPath(
+                unlocked.filter(
+                  (i) =>
+                    (bookFilter === "all" || i.register === bookFilter) &&
+                    (!q || `${i.term} ${i.meaning} ${i.ko}`.toLowerCase().includes(q)),
+                ),
+                path,
               );
               if (list.length === 0)
                 return <p style={{ fontSize: 13, opacity: 0.75 }}>No matches — try another word, or level up to unlock more 🎁</p>;
@@ -932,7 +1073,7 @@ export default function TutorPanel({
                             return <span style={{ opacity: 0.9 }}>💬 {a}<br />💬 {b}</span>;
                           })()}
                           {i.caution ? <span>⚠️ {i.caution}</span> : null}
-                          <span style={{ display: "flex", gap: 6 }}>
+                          <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                             <button className="sidebar-btn small" style={{ width: "auto", fontSize: 12 }} onClick={() => speakText(`${i.term}. ${i.example}`)}>🔊 Listen</button>
                             <button
                               className="sidebar-btn small"
@@ -940,6 +1081,20 @@ export default function TutorPanel({
                               onClick={() => { setShownId(i.id); setTab("idiom"); setRevealed(true); }}
                             >
                               ✍️ Practice →
+                            </button>
+                            <button
+                              className="sidebar-btn small"
+                              style={{ width: "auto", fontSize: 12 }}
+                              onClick={() => {
+                                persistFlash(addCard(flash, i.term, `${i.meaning} (${i.ko})`, `phrase:${i.id}`));
+                                try {
+                                  toast("Card saved 🗂️");
+                                } catch {
+                                  // best-effort
+                                }
+                              }}
+                            >
+                              🗂️ +Card
                             </button>
                           </span>
                         </div>
@@ -950,6 +1105,210 @@ export default function TutorPanel({
                 </div>
               );
             })()}
+          </div>
+        ) : null}
+
+        {tab === "cards" ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {(["flip", "match", "write"] as FlashMode[]).map((m) => (
+                <button
+                  key={m}
+                  className={`sidebar-btn small${flashMode === m ? " secondary" : ""}`}
+                  onClick={() => setFlashMode(m)}
+                  style={{ width: "auto", fontSize: 12 }}
+                >
+                  {m === "flip" ? "🔄 Flip" : m === "match" ? "🧩 Match" : "✍️ Write"}
+                </button>
+              ))}
+            </div>
+            {/* Vocabulary builder: mine words from your own files/text */}
+            <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>⛏️ Vocabulary builder — from YOUR files</div>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>Paste a paragraph or file excerpt. We mine the meaty words — tap + to make cards.</div>
+              <textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder="Paste article / essay / notes excerpt here…"
+                rows={3}
+                style={{ width: "100%", boxSizing: "border-box", padding: 8, borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", fontSize: 13, resize: "vertical" }}
+              />
+              {pasteText.trim() ? (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {extractWordsFromText(pasteText, 8).map((w) => (
+                    <button
+                      key={w.word}
+                      className="sidebar-btn small"
+                      style={{ width: "auto", fontSize: 12 }}
+                      title={`${w.count}× in your text — add as card (look the meaning up or ask AI)`}
+                      onClick={() => {
+                        persistFlash(addCard(flash, w.word, "— look up & edit —", "mined:text"));
+                        bonus(2);
+                      }}
+                    >
+                      + {w.word}{w.count > 1 ? ` ×${w.count}` : ""}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            {/* Add-your-own card */}
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                value={newTerm}
+                onChange={(e) => setNewTerm(e.target.value)}
+                placeholder="Term (e.g. meticulous)"
+                style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
+              />
+              <input
+                value={newMeaning}
+                onChange={(e) => setNewMeaning(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newTerm.trim() && newMeaning.trim()) {
+                    persistFlash(addCard(flash, newTerm, newMeaning, "custom"));
+                    setNewTerm("");
+                    setNewMeaning("");
+                    bonus(2);
+                  }
+                }}
+                placeholder="Meaning"
+                style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
+              />
+              <button
+                className="sidebar-btn small primary"
+                style={{ width: "auto" }}
+                disabled={!newTerm.trim() || !newMeaning.trim()}
+                onClick={() => {
+                  persistFlash(addCard(flash, newTerm, newMeaning, "custom"));
+                  setNewTerm("");
+                  setNewMeaning("");
+                  bonus(2);
+                }}
+              >
+                +
+              </button>
+            </div>
+            {flash.length === 0 ? (
+              <p style={{ fontSize: 13, opacity: 0.75 }}>No cards yet — mine words above, + from the Book 📖, or type your own. Each card earns +2 XP. 🗂️</p>
+            ) : flashMode === "flip" ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>{flipIdx + 1} / {flash.length}</div>
+                <button
+                  onClick={() => setFlipped((v) => !v)}
+                  style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 20, background: "var(--bg)", color: "var(--text)", cursor: "pointer", minHeight: 120 }}
+                >
+                  <div style={{ fontSize: 11, opacity: 0.6 }}>{flipped ? "meaning — tap to flip back" : "term — tap to reveal"}</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, marginTop: 4 }}>
+                    {flipped ? flash[flipIdx % flash.length].meaning : flash[flipIdx % flash.length].term}
+                  </div>
+                  {!flipped && flash[flipIdx % flash.length].source ? (
+                    <div style={{ fontSize: 11, opacity: 0.6, marginTop: 4 }}>from {flash[flipIdx % flash.length].source}</div>
+                  ) : null}
+                </button>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button className="sidebar-btn small" style={{ flex: 1 }} onClick={() => { setFlipIdx((i) => (i + 1) % flash.length); setFlipped(false); }}>Next →</button>
+                  <button className="sidebar-btn small" style={{ width: "auto" }} onClick={() => speakText(`${flash[flipIdx % flash.length].term}. ${flash[flipIdx % flash.length].meaning}`)}>🔊</button>
+                  <button
+                    className="sidebar-btn small"
+                    style={{ width: "auto" }}
+                    onClick={() => {
+                      const cur = flash[flipIdx % flash.length];
+                      persistFlash(removeCard(flash, cur.id));
+                      setFlipIdx(0);
+                      setFlipped(false);
+                    }}
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+            ) : flashMode === "match" ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {flash.length < 2 ? (
+                  <p style={{ fontSize: 13, opacity: 0.75 }}>Add 2+ cards to play Match 🧩</p>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ flex: 1, fontSize: 12, opacity: 0.7 }}>Pick each meaning — +2 XP per correct.</span>
+                      <button className="sidebar-btn small" style={{ width: "auto" }} onClick={() => { setMatchSeed((s) => s + 1); setMatchPicked({}); }}>🎲</button>
+                    </div>
+                    {buildMatchRound(flash, `${today}|${matchSeed}`, 5).map((q, qi) => (
+                      <div key={`${matchSeed}-${qi}`} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
+                        <div style={{ fontWeight: 800 }}>{q.term}</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+                          {q.choices.map((c, ci) => {
+                            const picked = matchPicked[qi];
+                            const done = picked !== undefined;
+                            const right = ci === q.answerIndex;
+                            return (
+                              <button
+                                key={ci}
+                                className="sidebar-btn small"
+                                disabled={done}
+                                onClick={() => {
+                                  setMatchPicked((p) => ({ ...p, [qi]: ci }));
+                                  if (ci === q.answerIndex) bonus(2);
+                                }}
+                                style={{
+                                  textAlign: "left",
+                                  borderColor: done && right ? "var(--green)" : undefined,
+                                  opacity: done && !right && picked === ci ? 0.6 : 1,
+                                }}
+                              >
+                                {c}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {flash.length === 0 ? null : (
+                  <>
+                    <div style={{ fontSize: 12, opacity: 0.7 }}>Card {writeIdx + 1} / {flash.length} — type the TERM for:</div>
+                    <div style={{ fontSize: 17, fontWeight: 800 }}>{flash[writeIdx % flash.length].meaning}</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        value={writeText}
+                        onChange={(e) => { setWriteText(e.target.value); setWriteResult(null); }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && writeText.trim()) {
+                            const ok = gradeWrite(writeText, flash[writeIdx % flash.length].term);
+                            setWriteResult(ok);
+                            if (ok) bonus(2);
+                          }
+                        }}
+                        placeholder="Type the term…"
+                        style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
+                      />
+                      <button
+                        className="sidebar-btn small"
+                        onClick={() => {
+                          if (!writeText.trim()) return;
+                          const ok = gradeWrite(writeText, flash[writeIdx % flash.length].term);
+                          setWriteResult(ok);
+                          if (ok) bonus(2);
+                        }}
+                      >
+                        Check
+                      </button>
+                    </div>
+                    {writeResult !== null ? (
+                      <div style={{ fontSize: 13, background: "var(--border)", borderRadius: 6, padding: 8 }}>
+                        {writeResult ? "✅ Exactly — +2 XP" : `💪 Answer: "${flash[writeIdx % flash.length].term}"`}
+                        <div style={{ marginTop: 6 }}>
+                          <button className="sidebar-btn small primary" onClick={() => { setWriteIdx((i) => (i + 1) % flash.length); setWriteText(""); setWriteResult(null); }}>Next →</button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         ) : null}
 
@@ -1060,6 +1419,163 @@ export default function TutorPanel({
           </div>
         ) : null}
 
+        {tab === "style" ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 800 }}>✨ Style lab — tone + vocabulary at YOUR level</div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>Rule scan is instant and free; AI polish rewrites it keeping your ideas. Goal: <b>{pathByIdSafe(path).name}</b> · Level: <b>{state.level ?? "—"}</b></div>
+            <textarea
+              value={styleText}
+              onChange={(e) => { setStyleText(e.target.value); setStyleChecked(false); }}
+              placeholder="Paste a paragraph — email, essay, chat message…"
+              rows={5}
+              style={{ width: "100%", boxSizing: "border-box", padding: 10, borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", fontSize: 14, lineHeight: 1.6, resize: "vertical" }}
+            />
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button className="sidebar-btn small primary" style={{ width: "auto" }} disabled={!styleText.trim()} onClick={() => setStyleChecked(true)}>
+                🔍 Analyze (free)
+              </button>
+              <button
+                className="sidebar-btn small"
+                style={{ width: "auto" }}
+                disabled={!styleText.trim() || aiBusy}
+                onClick={() => {
+                  const m = analyzeStyle(styleText);
+                  const tips = styleFindings(m, state.level, path);
+                  void askAiDirect("Style polish", buildStyleCoachPrompt(styleText, state.level, path, m, tips));
+                }}
+              >
+                {aiBusy && aiLabel === "Style polish" ? "…" : modelReady ? "🤖 AI polish" : "💬 Draft for chat"}
+              </button>
+              <button
+                className="sidebar-btn small"
+                style={{ width: "auto" }}
+                disabled={!styleText.trim()}
+                onClick={() => {
+                  persistFolio(addEntry(folio, "polish", styleText.slice(0, 40) + (styleText.length > 40 ? "…" : ""), styleText, `${state.level ?? "?"} · ${path}`));
+                  bonus(3);
+                  try {
+                    toast("Saved to portfolio 💼 +3 XP");
+                  } catch {
+                    // best-effort
+                  }
+                }}
+              >
+                💼 Save
+              </button>
+            </div>
+            {styleChecked ? (
+              <div style={{ fontSize: 12, background: "var(--border)", borderRadius: 8, padding: 8, display: "flex", flexDirection: "column", gap: 3 }}>
+                <div>📊 {styleMetric.words} words · {styleMetric.sentences} sentences · avg {styleMetric.avgSentenceLen} · tone {styleMetric.tone}</div>
+                {styleTips.map((f, i) => (
+                  <div key={i}>• {f.tip}</div>
+                ))}
+              </div>
+            ) : null}
+            {aiAnswer && aiLabel === "Style polish" ? (
+              <div style={{ fontSize: 13, whiteSpace: "pre-wrap", background: "var(--border)", borderRadius: 8, padding: 10 }}>
+                🤖 {aiAnswer}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {tab === "folio" ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 800 }}>🎯 My path</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {PATHS.map((p) => (
+                <button
+                  key={p.id}
+                  className={`sidebar-btn small${path === p.id ? " secondary" : ""}`}
+                  onClick={() => pickPath(p.id)}
+                  style={{ width: "auto", fontSize: 12 }}
+                  title={`${p.ko} — ${p.blurb}`}
+                >
+                  {path === p.id ? "✓ " : ""}{p.name}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>{pathByIdSafe(path).blurb} Weekly target: {weeklyTarget(path)} XP.</div>
+            <div style={{ fontSize: 13, fontWeight: 800 }}>🏁 This week's league</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              {leagueTable(weekXp, today.slice(0, 7)).map((r, i) => (
+                <div
+                  key={r.name}
+                  style={{
+                    display: "flex", gap: 6, fontSize: 13, padding: "6px 8px", borderRadius: 6,
+                    background: r.me ? "var(--green)" : "var(--border)", color: r.me ? "#fff" : "inherit",
+                    fontWeight: r.me ? 800 : 400,
+                  }}
+                >
+                  <span style={{ width: 22 }}>{i + 1}</span>
+                  <span style={{ flex: 1 }}>{r.name}</span>
+                  <span>{r.xp} XP</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 800 }}>💼 Portfolio ({folio.length})</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button
+                className="sidebar-btn small"
+                style={{ width: "auto", fontSize: 12 }}
+                disabled={folio.length === 0}
+                onClick={() => downloadMd(`english-portfolio-${today}.md`, exportPortfolioMd(folio, state.level, state.xp))}
+              >
+                ⬇️ Export .md
+              </button>
+              <button
+                className="sidebar-btn small"
+                style={{ width: "auto", fontSize: 12 }}
+                disabled={folio.length === 0}
+                onClick={() => {
+                  try {
+                    void navigator.clipboard?.writeText(exportPortfolioMd(folio, state.level, state.xp));
+                    toast("Portfolio copied 📋");
+                  } catch {
+                    // clipboard unavailable
+                  }
+                }}
+              >
+                📋 Copy all
+              </button>
+              <button
+                className="sidebar-btn small"
+                style={{ width: "auto", fontSize: 12 }}
+                onClick={() => {
+                  const card = buildShareCard("My English writing", styleText || essayText || "Hello! I am learning English.", state.level);
+                  try {
+                    void navigator.clipboard?.writeText(card);
+                    toast("Share card copied — send it anywhere 🤝");
+                  } catch {
+                    // clipboard unavailable
+                  }
+                  downloadMd(`feedback-request-${today}.md`, card);
+                }}
+              >
+                🤝 Peer review card
+              </button>
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>No accounts, no servers: copy the card or save the file and share it in any messenger for human feedback. 🤝</div>
+            {folio.length === 0 ? (
+              <p style={{ fontSize: 13, opacity: 0.75 }}>Empty shelf — grade an essay ✍️, polish a paragraph ✨, or save a sentence 💬 to start your story.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {folio.slice(0, 20).map((e) => (
+                  <div key={e.id} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ flex: 1, fontWeight: 800, fontSize: 13 }}>{e.title}</span>
+                      <span style={{ fontSize: 11, opacity: 0.6 }}>{e.at.slice(0, 10)}</span>
+                      <button className="sidebar-btn small" style={{ width: "auto", fontSize: 11 }} onClick={() => persistFolio(removeEntry(folio, e.id))}>🗑️</button>
+                    </div>
+                    <div style={{ fontSize: 12, opacity: 0.7 }}>{e.kind}{e.meta ? ` · ${e.meta}` : ""}</div>
+                    <div style={{ fontSize: 13, marginTop: 4, whiteSpace: "pre-wrap" }}>{e.body.length > 220 ? e.body.slice(0, 220) + "…" : e.body}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
+
         {tab === "assess" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {renderAssess()}
@@ -1094,9 +1610,9 @@ export default function TutorPanel({
               </div>
             </div>
             <div>
-              <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>🔥 {weekXp} / 200 XP {L("lnThisWeek", "this week")}</div>
+              <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>🔥 {weekXp} / {weeklyTarget(path)} XP {L("lnThisWeek", "this week")} · {pathByIdSafe(path).name}</div>
               <div style={{ height: 10, borderRadius: 6, background: "var(--border)", overflow: "hidden" }}>
-                <div style={{ width: `${Math.min(100, Math.round((weekXp / 200) * 100))}%`, height: "100%", background: "var(--green)", transition: "width .5s" }} />
+                <div style={{ width: `${Math.min(100, Math.round((weekXp / weeklyTarget(path)) * 100))}%`, height: "100%", background: "var(--green)", transition: "width .5s" }} />
               </div>
               <div style={{ display: "flex", gap: 4, marginTop: 6, alignItems: "flex-end", height: 44 }}>
                 {weekSeries(state, today).map((d) => (

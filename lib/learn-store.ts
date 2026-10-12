@@ -178,6 +178,20 @@ export function setLevel(prev: LearnState, level: CEFR): LearnState {
   return { ...prev, level };
 }
 
+/**
+ * Bonus XP outside quizzes (Duolingo-style builder rewards: creating a file,
+ * saving a flashcard set, exporting the portfolio). Pure — same day
+ * aggregation as recordAnswers, no lesson counted, no skill inflated.
+ */
+export function awardXP(prev: LearnState, n: number, day: string): LearnState {
+  const gain = Math.max(0, Math.min(50, Math.floor(n)));
+  if (gain === 0) return prev;
+  const days = { ...prev.days };
+  const d = days[day] ?? { day, xp: 0, lessons: 0, correct: 0, asked: 0 };
+  days[day] = { ...d, xp: d.xp + gain };
+  return { ...prev, xp: prev.xp + gain, days };
+}
+
 export function accuracy(stat: SkillStat): number {
   return stat.asked === 0 ? 0 : stat.correct / stat.asked;
 }
