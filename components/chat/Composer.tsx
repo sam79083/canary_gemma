@@ -6,6 +6,7 @@ import { HF_DRAW_LABEL } from "@/lib/cloud-model";
 import type { Provider } from "@/hooks/useLanguageModel";
 import type { TFn } from "@/lib/i18n";
 import type { AttachedPhoto } from "./useAttachments";
+import { SCENARIOS } from "@/lib/learn-roleplay";
 
 function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
@@ -52,6 +53,9 @@ export default function Composer({
   practiceTargets,
   practiceUsed,
   onRemoveTarget,
+  roleId,
+  onPickScenario,
+  roleGoals,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -92,6 +96,9 @@ export default function Composer({
   practiceTargets: { term: string; meaning?: string }[];
   practiceUsed: string[];
   onRemoveTarget: (term: string) => void;
+  roleId: string | null;
+  onPickScenario: (id: string | null) => void;
+  roleGoals: { label: string; done: boolean }[];
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -196,15 +203,42 @@ export default function Composer({
         </div>
       ) : null}
       {practiceOn ? (
-        <div className="task-row" title="Words you are practicing — use one in chat for +5 XP">
-          {practiceTargets.length === 0 ? (
-            <span style={{ fontSize: 12, opacity: 0.7 }}>
-              🦜 Practice is on — add words from Learn 🦜 or select text in chat 💬
-            </span>
-          ) : (
-            practiceTargets.map((tg) => {
-              const used = practiceUsed.includes(tg.term.toLowerCase());
-              return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div className="task-row" title="Roleplay a scene — the AI plays a character with goals">
+            <select
+              className="theme-toggle"
+              value={roleId ?? ""}
+              onChange={(e) => onPickScenario(e.target.value || null)}
+              disabled={streaming}
+              style={{ cursor: "pointer", fontSize: 12 }}
+              title="Roleplay scenario (empty = free practice chat)"
+            >
+              <option value="">🎭 Free chat</option>
+              {SCENARIOS.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.icon} {s.name}
+                </option>
+              ))}
+            </select>
+            {roleGoals.map((g) => (
+              <span
+                key={g.label}
+                className="task-chip"
+                style={g.done ? { opacity: 0.75, textDecoration: "line-through" } : undefined}
+              >
+                {g.done ? "✓ " : "○ "}{g.label}
+              </span>
+            ))}
+          </div>
+          <div className="task-row" title="Words you are practicing — use one in chat for +5 XP">
+            {practiceTargets.length === 0 ? (
+              <span style={{ fontSize: 12, opacity: 0.7 }}>
+                🦜 Add words from Learn 🦜 or select text in chat 💬
+              </span>
+            ) : (
+              practiceTargets.map((tg) => {
+                const used = practiceUsed.includes(tg.term.toLowerCase());
+                return (
                 <span
                   key={tg.term}
                   className="task-chip"
@@ -220,9 +254,10 @@ export default function Composer({
                     ✕
                   </button>
                 </span>
-              );
-            })
-          )}
+                );
+              })
+            )}
+          </div>
         </div>
       ) : null}
       {emptyChat && modelReady && !streaming ? (

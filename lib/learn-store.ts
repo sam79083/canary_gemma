@@ -115,6 +115,7 @@ export function emptyState(): LearnState {
       grammar: { asked: 0, correct: 0 },
       reading: { asked: 0, correct: 0 },
       writing: { asked: 0, correct: 0 },
+      listening: { asked: 0, correct: 0 },
     },
     days: {},
     cards: {},
@@ -146,6 +147,7 @@ export function recordAnswers(
       grammar: { ...prev.skills.grammar },
       reading: { ...prev.skills.reading },
       writing: { ...prev.skills.writing },
+      listening: { ...prev.skills.listening },
     },
     days: { ...prev.days },
     cards: { ...prev.cards },
@@ -296,6 +298,11 @@ export function sanitizeLearnState(p: Partial<LearnState>): LearnState {
       writing: {
         asked: num(p.skills?.writing?.asked),
         correct: num(p.skills?.writing?.correct),
+      },
+      // Added later than the other four: old saves simply start at 0.
+      listening: {
+        asked: num(p.skills?.listening?.asked),
+        correct: num(p.skills?.listening?.correct),
       },
     },
     days: cleanDays,

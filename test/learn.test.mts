@@ -71,13 +71,26 @@ describe("learn-bank grading", () => {
   it("exam arena: C2 passages with reading skill, incl. True/False/Not Given", () => {
     const passages = ALL_ITEMS.filter((i) => i.passage);
     assert.ok(passages.length >= 10);
-    assert.ok(passages.every((i) => i.skill === "reading" && i.level === "C2"));
-    const tfng = passages.filter((i) => (i.choices ?? []).length === 3);
+    const c2 = passages.filter((i) => i.level === "C2");
+    assert.ok(c2.length >= 10);
+    assert.ok(c2.every((i) => i.skill === "reading" && i.level === "C2"));
+    const tfng = c2.filter((i) => (i.choices ?? []).length === 3);
     assert.ok(tfng.length >= 3);
     // Reading answers feed the reading stat, not vocab/grammar.
     const s1 = recordAnswers(emptyState(), [{ item: passages[0], correct: true }], "2026-09-30");
     assert.equal(s1.skills.reading.correct, 1);
     assert.equal(s1.skills.vocab.asked, 0);
+  });
+  it("graded reading: 6 questions each at A1/A2/B1", () => {
+    for (const lv of ["A1", "A2", "B1"] as const) {
+      const items = ALL_ITEMS.filter((i) => i.passage && i.level === lv);
+      assert.equal(items.length, 6);
+      assert.ok(items.every((i) => i.skill === "reading" && i.kind === "choice"));
+      assert.ok(items.every((i) => (i.choices ?? []).length === 4));
+      assert.ok(items.every((i) => i.answerIndex! >= 0 && i.answerIndex! < 4));
+      const ids = new Set(items.map((i) => i.id));
+      assert.equal(ids.size, 6);
+    }
   });
   it("daily lesson is deterministic per seed and skips seen ids", () => {
     const a = buildDailyLesson("2026-09-30", "A1").map((i) => i.id);

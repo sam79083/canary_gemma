@@ -7,7 +7,7 @@
 // - Fill-in-the-blank grading is normalized string compare (case/space/punct blind).
 
 export type CEFR = "A1" | "A2" | "B1" | "B2" | "C1" | "C2";
-export type Skill = "vocab" | "grammar" | "reading" | "writing";
+export type Skill = "vocab" | "grammar" | "reading" | "writing" | "listening";
 
 export interface BankItem {
   id: string;
@@ -241,7 +241,51 @@ const EXAM_READING: BankItem[] = [
   { id: "r-c2-11", skill: "reading", level: "C2", kind: "choice", passage: P_IELTS, prompt: "Bees may travel several kilometers in a day for food. (True / False / Not Given)", choices: ["True", "False", "Not Given"], answerIndex: 0, explain: "Stated in the final sentence." },
 ];
 
-export const ALL_ITEMS: BankItem[] = [...VOCAB, ...GRAMMAR_CHOICE, ...GRAMMAR_FILL, ...EXAM_READING];
+// ---------------------------------------------------------------------------
+// Graded reading (A1–B1) — short controlled-English passages, 2 questions
+// each. The exam arena was C2-only; these give lower levels real reading.
+// ---------------------------------------------------------------------------
+
+const P_A1_CAT = `Mina has a small black cat. The cat's name is Nora. Every morning, Mina gives Nora milk and fish. At night, Nora sleeps on Mina's bed.`;
+
+const P_A1_PARK = `Tom and his sister go to the park on Sunday. They bring bread and apples. They eat under a big tree. They go home at five o'clock.`;
+
+const P_A1_RAIN = `It rains on Monday morning. Anna stays at home. She reads a book and drinks hot tea. In the evening, the rain stops and she walks to the store.`;
+
+const P_A2_LIB = `The city library opens at nine every morning. Jiwon borrows two books every Friday and returns them in one week. The quiet reading room on the second floor is her favorite place. She sometimes stays until closing time.`;
+
+const P_A2_SEA = `Last summer, my family went to the sea for three days. Father drove the car, and we sang songs on the way. We swam every afternoon and ate fish at a small restaurant. On the last day, it rained, so we came home early.`;
+
+const P_A2_NEIGHBOR = `A new family moved into the house next door last month. They have a daughter who plays the piano every evening. Yesterday, my mother invited them for tea. They brought a big cake, and we talked for two hours.`;
+
+const P_B1_REMOTE = `More students study online than ever before. Those who plan their day carefully usually do well, but many find it hard to focus with the camera off. Teachers say short breaks and a fixed study place help most. The key, they agree, is routine — not long hours.`;
+
+const P_B1_BIKES = `Our city started a bike-sharing program last spring. There are now two hundred stations, and the first thirty minutes are free. In one year, car trips in the center fell by ten percent. The mayor calls it "the cheapest road we ever built."`;
+
+const P_B1_BAKERY = `Mrs. Han has run her small bakery for twenty years. Every morning there is a line before opening time, and regulars order "the usual" without looking at the menu. Delivery apps brought new customers, but she still remembers every neighbor's birthday cake.`;
+
+const GRADED_READING: BankItem[] = [
+  { id: "r-a1-01", skill: "reading", level: "A1", kind: "choice", passage: P_A1_CAT, prompt: "What is Nora?", choices: ["Mina's cat", "Mina's dog", "Mina's sister", "Mina's friend"], answerIndex: 0, explain: "A small black cat named Nora." },
+  { id: "r-a1-02", skill: "reading", level: "A1", kind: "choice", passage: P_A1_CAT, prompt: "What does Nora drink?", choices: ["Milk", "Tea", "Water", "Juice"], answerIndex: 0, explain: "Mina gives Nora milk (and fish to eat)." },
+  { id: "r-a1-03", skill: "reading", level: "A1", kind: "choice", passage: P_A1_PARK, prompt: "When do they go to the park?", choices: ["On Sunday", "On Monday", "On Saturday", "Every day"], answerIndex: 0, explain: "Stated in the first sentence." },
+  { id: "r-a1-04", skill: "reading", level: "A1", kind: "choice", passage: P_A1_PARK, prompt: "What do they eat?", choices: ["Bread and apples", "Rice and fish", "Cake and tea", "Milk and eggs"], answerIndex: 0, explain: "They bring bread and apples." },
+  { id: "r-a1-05", skill: "reading", level: "A1", kind: "choice", passage: P_A1_RAIN, prompt: "Why does Anna stay at home?", choices: ["It rains", "She is sick", "She waits for Tom", "The store is closed"], answerIndex: 0, explain: "It rains on Monday morning." },
+  { id: "r-a1-06", skill: "reading", level: "A1", kind: "choice", passage: P_A1_RAIN, prompt: "What does Anna do in the evening?", choices: ["Walks to the store", "Reads a book", "Drinks tea", "Sleeps"], answerIndex: 0, explain: "After the rain stops, she walks to the store." },
+  { id: "r-a2-01", skill: "reading", level: "A2", kind: "choice", passage: P_A2_LIB, prompt: "How often does Jiwon borrow books?", choices: ["Every Friday", "Every day", "Once a month", "Twice a year"], answerIndex: 0, explain: "Two books every Friday." },
+  { id: "r-a2-02", skill: "reading", level: "A2", kind: "choice", passage: P_A2_LIB, prompt: "Where is her favorite place?", choices: ["The quiet reading room upstairs", "The front desk", "The children's corner", "The cafe next door"], answerIndex: 0, explain: "The second-floor reading room." },
+  { id: "r-a2-03", skill: "reading", level: "A2", kind: "choice", passage: P_A2_SEA, prompt: "Why did the family come home early?", choices: ["It rained on the last day", "The car broke", "Father was sick", "The hotel was full"], answerIndex: 0, explain: "Rain on the last day." },
+  { id: "r-a2-04", skill: "reading", level: "A2", kind: "choice", passage: P_A2_SEA, prompt: "How did they travel?", choices: ["By car", "By train", "By bus", "By plane"], answerIndex: 0, explain: "Father drove the car." },
+  { id: "r-a2-05", skill: "reading", level: "A2", kind: "choice", passage: P_A2_NEIGHBOR, prompt: "What did the new family bring?", choices: ["A big cake", "A piano", "Some flowers", "A black cat"], answerIndex: 0, explain: "They brought a big cake for tea." },
+  { id: "r-a2-06", skill: "reading", level: "A2", kind: "choice", passage: P_A2_NEIGHBOR, prompt: "What does the daughter play?", choices: ["The piano", "The guitar", "Football", "Chess"], answerIndex: 0, explain: "She plays the piano every evening." },
+  { id: "r-b1-01", skill: "reading", level: "B1", kind: "choice", passage: P_B1_REMOTE, prompt: "What is the main idea?", choices: ["Routine matters more than long hours online", "Online study never works", "Cameras should always be on", "Teachers dislike online classes"], answerIndex: 0, explain: "The key is routine — not long hours." },
+  { id: "r-b1-02", skill: "reading", level: "B1", kind: "choice", passage: P_B1_REMOTE, prompt: "What helps most, according to teachers?", choices: ["Short breaks and a fixed study place", "Studying all night", "Keeping the camera on", "Skipping breaks"], answerIndex: 0, explain: "Stated directly." },
+  { id: "r-b1-03", skill: "reading", level: "B1", kind: "choice", passage: P_B1_BIKES, prompt: "How much did center car trips fall?", choices: ["By ten percent", "By thirty percent", "By half", "They doubled"], answerIndex: 0, explain: "Fell by ten percent in one year." },
+  { id: "r-b1-04", skill: "reading", level: "B1", kind: "choice", passage: P_B1_BIKES, prompt: 'Why "the cheapest road"?', choices: ["Bikes cost the city less than new roads", "Bikes are free to make", "Roads were removed", "The program lost money"], answerIndex: 0, explain: "Bike-sharing beats building roads on cost." },
+  { id: "r-b1-05", skill: "reading", level: "B1", kind: "choice", passage: P_B1_BAKERY, prompt: 'What does "the usual" show?', choices: ["Regulars come so often staff know them", "The menu never changes", "Cake is always the same price", "Mornings are always busy"], answerIndex: 0, explain: "Twenty years of regulars." },
+  { id: "r-b1-06", skill: "reading", level: "B1", kind: "choice", passage: P_B1_BAKERY, prompt: "What did delivery apps change?", choices: ["They brought new customers", "They closed the bakery", "They raised all prices", "They ended birthday cakes"], answerIndex: 0, explain: "New customers via apps; the shop thrives." },
+];
+
+export const ALL_ITEMS: BankItem[] = [...VOCAB, ...GRAMMAR_CHOICE, ...GRAMMAR_FILL, ...EXAM_READING, ...GRADED_READING];
 
 /** Fixed placement test: 18 Qs, 3 per level, easiest first. */
 export const PLACEMENT_IDS = [

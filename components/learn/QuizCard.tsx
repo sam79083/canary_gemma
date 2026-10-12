@@ -134,6 +134,10 @@ export default function QuizCard({
               disabled={checked !== null}
               style={{
                 textAlign: "left",
+                // 44px+ touch target for phones (was ~32px).
+                padding: "12px",
+                minHeight: 44,
+                fontSize: 15,
                 borderColor:
                   checked !== null && i === item.answerIndex ? "var(--green)" : undefined,
               }}
@@ -150,7 +154,8 @@ export default function QuizCard({
             onKeyDown={(e) => { if (e.key === "Enter") checkFill(); }}
             placeholder="Type the missing word…"
             disabled={checked !== null}
-            style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
+            // 16px stops iOS auto-zoom on focus.
+            style={{ flex: 1, minWidth: 0, padding: "10px 12px", fontSize: 16, borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
           />
           <button className="sidebar-btn small" onClick={checkFill} disabled={checked !== null}>
             Check

@@ -20,6 +20,7 @@ import {
   type UndoInput,
 } from "@/lib/undo";
 import type { LanguageModelSession, PromptImage } from "@/lib/prompt-api.d";
+import type { CEFR } from "@/lib/learn-bank";
 import type { BusyKind, Provider } from "@/hooks/useLanguageModel";
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { ChatMessage, ReviewFn } from "@/lib/types";
@@ -55,6 +56,13 @@ import {
   saveTargets,
   type PracticeTarget,
 } from "@/lib/learn-useit";
+import {
+  checkGoals,
+  loadRoleplay,
+  roleplayLine,
+  saveRoleplay,
+  scenarioById,
+} from "@/lib/learn-roleplay";
 import { awardXP, dayStr, loadLearn, saveLearn } from "@/lib/learn-store";
 import { useAttachments } from "@/components/chat/useAttachments";
 import { useImageDraw } from "@/components/chat/useImageDraw";
@@ -199,6 +207,29 @@ export default function Chat({
   /** Lowercase terms already used (and XP-awarded) this session. */
   const [usedTerms, setUsedTerms] = useState<string[]>([]);
   const practiceScoredRef = useRef<string | null>(null);
+  // ---- Roleplay scenario (structured practice inside Practice mode) ----
+  const [roleId, setRoleId] = useState<string | null>(() => {
+    try {
+      return loadRoleplay();
+    } catch {
+      return null;
+    }
+  });
+  const [roleDone, setRoleDone] = useState<boolean[]>([false, false, false]);
+  const pickScenario = useCallback((id: string | null) => {
+    const sc = scenarioById(id);
+    setRoleId(sc ? sc.id : null);
+    setRoleDone([false, false, false]);
+    try {
+      saveRoleplay(sc ? sc.id : null);
+    } catch {
+      // best-effort
+    }
+    if (sc) {
+      pushMessage("assistant", `${sc.icon} ${sc.opener}`);
+      persistChat();
+    }
+  }, [pushMessage, persistChat]);
   const setPractice = useCallback((on: boolean) => {
     setPracticeOn(on);
     try {
@@ -550,16 +581,38 @@ export default function Chat({
     clearError();
     // Practice mode (C): score target-word usage once per distinct message.
     // Plan re-entries resend the same prompt — the ref guard stops doubles.
-    if (practiceOn && targets.length > 0 && practiceScoredRef.current !== prompt) {
+    // An active roleplay scenario scores its 3 goals in the same pass.
+    if (practiceOn && practiceScoredRef.current !== prompt) {
       practiceScoredRef.current = prompt;
-      const fresh = detectUsage(prompt, targets).filter(
-        (hit) => !usedTerms.includes(hit.term.toLowerCase()),
-      );
-      if (fresh.length > 0) {
-        setUsedTerms((prev) => [...prev, ...fresh.map((f) => f.term.toLowerCase())]);
+      let gained = 0;
+      const notes: string[] = [];
+      if (targets.length > 0) {
+        const fresh = detectUsage(prompt, targets).filter(
+          (hit) => !usedTerms.includes(hit.term.toLowerCase()),
+        );
+        if (fresh.length > 0) {
+          setUsedTerms((prev) => [...prev, ...fresh.map((f) => f.term.toLowerCase())]);
+          gained += 5 * fresh.length;
+          notes.push(`"${fresh.map((f) => f.term).join('", "')}"`);
+        }
+      }
+      const sc = scenarioById(roleId);
+      if (sc) {
+        const hits = checkGoals(prompt, sc.goals);
+        const freshIdx = hits
+          .map((h, i) => (h ? i : -1))
+          .filter((i) => i >= 0 && !roleDone[i]);
+        if (freshIdx.length > 0) {
+          setRoleDone((prev) => prev.map((d, i) => d || hits[i]));
+          gained += 3 * freshIdx.length;
+          notes.push(freshIdx.map((i) => sc.goals[i].label).join(", "));
+          if (hits.every(Boolean)) notes.push("🏆 Roleplay cleared!");
+        }
+      }
+      if (gained > 0) {
         try {
-          saveLearn(awardXP(loadLearn(), 5 * fresh.length, dayStr(new Date())));
-          toast(`+${5 * fresh.length} XP — nice use of "${fresh.map((f) => f.term).join('", "')}"! 🦜`);
+          saveLearn(awardXP(loadLearn(), gained, dayStr(new Date())));
+          toast(`+${gained} XP — ${notes.join(" · ")} 🦜`);
         } catch {
           // XP + toasts are best-effort
         }
@@ -745,11 +798,23 @@ export default function Chat({
       setStreamText("");
       let full = "";
       try {
-        // Practice mode persona rides along exactly like personalityLine.
+        // Practice persona rides along exactly like personalityLine.
+        // An active roleplay scenario replaces the generic partner brief.
         let practice = "";
-        if (practiceOn && targets.length > 0) {
+        if (practiceOn) {
           const langName = LANGS.find((l) => l.code === lang)?.modelName ?? "Korean";
-          practice = practiceLine(targets, langName);
+          const sc = scenarioById(roleId);
+          if (sc) {
+            let lv: CEFR | null = null;
+            try {
+              lv = loadLearn().level;
+            } catch {
+              // default stands
+            }
+            practice = roleplayLine(sc, lv, langName);
+          } else if (targets.length > 0) {
+            practice = practiceLine(targets, langName);
+          }
         }
         full = await runModelTurn(pageCtx + prompt + personalityLine + practice);
         const clean = sanitizeAnswer(stripToolCalls(full).trim());
@@ -1459,6 +1524,12 @@ export default function Chat({
         practiceTargets={targets}
         practiceUsed={usedTerms}
         onRemoveTarget={dropTarget}
+        roleId={roleId}
+        onPickScenario={pickScenario}
+        roleGoals={(() => {
+          const sc = scenarioById(roleId);
+          return sc ? sc.goals.map((g, i) => ({ label: g.label, done: roleDone[i] ?? false })) : [];
+        })()}
       />
       {selText && !streaming ? (
         <button

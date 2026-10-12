@@ -15,7 +15,7 @@ import Onboarding from "@/components/Onboarding";
 import Tip from "@/components/Tip";
 import TrialOverDialog from "@/components/TrialOverDialog";
 import Confetti from "@/components/Confetti";
-import { touchStreak } from "@/lib/streak";
+import { touchStreakWithFreeze } from "@/lib/streak";
 import { ACHIEVEMENTS, loadUnlocked, unlockAch } from "@/lib/achievements";
 import { addTarget, loadTargets, saveTargets } from "@/lib/learn-useit";
 import { awardXP, loadLearn, saveLearn, dayStr as learnDay } from "@/lib/learn-store";
@@ -198,7 +198,15 @@ export default function Home() {
   const [streak, setStreak] = useState(1);
   useEffect(() => {
     try {
-      setStreak(touchStreak());
+      const { count, froze } = touchStreakWithFreeze();
+      setStreak(count);
+      if (froze) {
+        try {
+          toast("❄️ Streak freeze saved your streak — see you tomorrow!");
+        } catch {
+          // toasts are best-effort
+        }
+      }
     } catch {
       // badge is best-effort
     }
