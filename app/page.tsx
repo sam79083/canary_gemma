@@ -2008,15 +2008,12 @@ export default function Home() {
           <div className="trial-hint">
             <span>
               You're running low on trial searches —{" "}
-              <a
-                href="/settings"
-                onClick={(e) => {
-                  e.preventDefault();
-                  setLoginOpen(true);
-                }}
+              <button
+                className="trial-hint-link"
+                onClick={() => setLoginOpen(true)}
               >
                 upgrade for unlimited access
-              </a>
+              </button>
             </span>
             <button
               className="trial-hint-close"

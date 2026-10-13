@@ -1961,15 +1961,25 @@ body[data-theme="midnight"] .file-tree::-webkit-scrollbar-thumb {
     text-align: left;
 }
 
-.trial-hint a {
+.trial-hint a,
+.trial-hint-link {
     color: #b45309;
     font-weight: 600;
     text-decoration: underline;
     white-space: nowrap;
 }
 
-.trial-hint a:hover {
+.trial-hint a:hover,
+.trial-hint-link:hover {
     color: #92400e;
+}
+
+.trial-hint-link {
+    border: none;
+    background: none;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
 }
 
 .trial-hint-close {
@@ -1997,12 +2007,16 @@ body[data-theme="midnight"] .trial-hint {
 }
 
 body[data-theme="dark"] .trial-hint a,
-body[data-theme="midnight"] .trial-hint a {
+body[data-theme="midnight"] .trial-hint a,
+body[data-theme="dark"] .trial-hint-link,
+body[data-theme="midnight"] .trial-hint-link {
     color: #fbbf24;
 }
 
 body[data-theme="dark"] .trial-hint a:hover,
-body[data-theme="midnight"] .trial-hint a:hover {
+body[data-theme="midnight"] .trial-hint a:hover,
+body[data-theme="dark"] .trial-hint-link:hover,
+body[data-theme="midnight"] .trial-hint-link:hover {
     color: #f59e0b;
 }
 

@@ -130,12 +130,6 @@ export default function Composer({
     return () => document.removeEventListener("mousedown", handler);
   }, [moreOpen]);
 
-  const STARTERS = [
-    { label: t("chSt1L"), prompt: t("chSt1P") },
-    { label: t("chSt2L"), prompt: t("chSt2P") },
-    { label: t("chSt3L"), prompt: t("chSt3P") },
-  ];
-
   const TASKS: { label: string; prompt: string; cursorBack?: number }[] = [
     { label: t("tk1L"), prompt: t("tk1P") },
     { label: t("tk2L"), prompt: t("tk2P") },
@@ -285,20 +279,6 @@ export default function Composer({
               {t("chDemoL")}
             </button>
           ) : null}
-          {STARTERS.map((s) => (
-            <button
-              key={s.label}
-              className="send-btn secondary"
-              style={{ width: "auto", borderRadius: 16, padding: "6px 12px", fontSize: 12, height: "auto" }}
-              onClick={() => {
-                setInput(s.prompt);
-                inputRef.current?.focus();
-              }}
-              title={s.prompt}
-            >
-              {s.label}
-            </button>
-          ))}
         </div>
       ) : null}
       <div className="input-container">

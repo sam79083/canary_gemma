@@ -331,7 +331,7 @@ export default function MessageList({
     >
       {showWelcome ? (
         <div className="welcome-banner" id="welcome-banner">
-          <span>👋 Welcome! Ask anything — chat, write files, draw, and more.</span>
+          <span>{t("chWelcome")}</span>
           <button className="welcome-close" onClick={dismissWelcome} aria-label="Dismiss">
             ✕
           </button>
@@ -445,9 +445,9 @@ export default function MessageList({
       ))}
       {emptyChat ? (
         <div className="empty-state">
-          <div className="empty-state-title">Start a conversation!</div>
+          <div className="empty-state-title">{t("chEmptyTitle")}</div>
           <div className="empty-state-hint">
-            Pick a suggestion below or type your own message.
+            {t("chEmptyHint")}
           </div>
           <div className="empty-state-starters">
             {STARTERS.map((s) => (
