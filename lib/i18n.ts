@@ -61,6 +61,7 @@ const ko: Dict = {
   pgTheme: "다크/라이트 모드 전환",
   pgLangTitle: "언어",
   pgModelTitle: "AI 모델",
+  pgMore: "더보기",
   pgGemma: "✨ Gemma (내장)",
   pgOllama: "🖥️ 로컬 (Ollama)",
   pgOllamaUrl: "Ollama 주소",
@@ -517,6 +518,7 @@ const en: Dict = {
   pgTheme: "Toggle dark/light mode",
   pgLangTitle: "Language",
   pgModelTitle: "AI model",
+  pgMore: "More",
   pgGemma: "✨ Gemma (built-in)",
   pgOllama: "🖥️ Local (Ollama)",
   pgOllamaUrl: "Ollama address",
@@ -1380,6 +1382,17 @@ const ja: Dict = {
   rdListen: "🔊 読み上げ",
   rdStop: "⏹ 停止",
   rdTextSize: "文字サイズ",
+  chEmptyHint: "下の提案を選ぶか、直接メッセージを入力してください。",
+  chEmptyTitle: "会話を始めましょう！",
+  chWelcome: "👋 ようこそ！何でも聞いてください — チャット、ファイルの作成、絵の描画など。",
+  pgCloudStart: "☁️ Cloudで今すぐ開始（キー不要）",
+  pgDownloadModel: "⬇ モデルをダウンロード",
+  pgMore: "もっと見る",
+  pgRecheck: "↻ 状態を再確認",
+  seVoice: "🔊 音声",
+  seVoiceAuto: "自動（推奨）",
+  seVoiceHint: "読み上げ音声。男性音声はPCにインストールされている場合のみリストに表示されます。",
+  trEmptyHint: "ここで右クリックしてファイルやフォルダを作成するか、チャットで依頼するとAIがファイルを作成してくれます。",
 };
 
 const zh: Dict = {
@@ -1824,6 +1837,17 @@ const zh: Dict = {
   rdListen: "🔊 朗读",
   rdStop: "⏹ 停止",
   rdTextSize: "字体大小",
+  chEmptyHint: "请选择下方建议或直接输入消息。",
+  chEmptyTitle: "开始对话吧！",
+  chWelcome: "👋 欢迎！随时向我提问 — 聊天、编写文件、绘制图像等。",
+  pgCloudStart: "☁️ 直接使用云端开始（无需密钥）",
+  pgDownloadModel: "⬇ 下载模型",
+  pgMore: "更多",
+  pgRecheck: "↻ 重新检查状态",
+  seVoice: "🔊 语音",
+  seVoiceAuto: "自动（推荐）",
+  seVoiceHint: "朗读语音。男性语音仅在电脑上已安装时才会显示在列表中。",
+  trEmptyHint: "在此处右键点击以创建文件或文件夹，或在聊天中要求 AI 为你创建文件。",
 };
 
 const es: Dict = {
@@ -2268,6 +2292,17 @@ const es: Dict = {
   rdListen: "🔊 Leer en voz alta",
   rdStop: "⏹ Detener",
   rdTextSize: "Tamaño de letra",
+  chEmptyHint: "Elige una sugerencia abajo o escribe un mensaje.",
+  chEmptyTitle: "¡Empieza una conversación!",
+  chWelcome: "👋 ¡Bienvenido! Pregúntame lo que sea: chatear, escribir archivos, dibujar y más.",
+  pgCloudStart: "☁️ Empezar con Cloud (sin clave)",
+  pgDownloadModel: "⬇ Descargar modelo",
+  pgMore: "Más",
+  pgRecheck: "↻ Recomprobar estado",
+  seVoice: "🔊 Voz",
+  seVoiceAuto: "Automático (recomendado)",
+  seVoiceHint: "Voz de lectura. Las voces masculinas solo aparecen si están instaladas en el PC.",
+  trEmptyHint: "Haz clic derecho aquí para crear archivos o carpetas, o pídeselo a la IA en el chat.",
 };
 
 const ALL: Record<Lang, Dict> = { ko, en, ja, zh, es };

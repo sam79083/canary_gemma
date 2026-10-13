@@ -2119,6 +2119,10 @@ body[data-theme="midnight"] .search-match {
     box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.35);
 }
 
+/* Lucide icon alignment in buttons/chips */
+button svg.lucide, .task-chip svg.lucide { flex-shrink: 0; vertical-align: -2px; }
+.send-btn svg.lucide { vertical-align: 0; }
+
 @media (max-width: 480px) {
     .search-bar {
         left: 10px;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FileText } from "lucide-react";
 import { summarizeDiff } from "@/lib/diff";
 import type { TFn } from "@/lib/i18n";
 import type { PendingReview } from "@/lib/types";
@@ -37,7 +38,7 @@ export default function ReviewCard({
     <div className="review-overlay" id="review-overlay">
       <div className="review-card">
         <h3>{t("rvTitle")}</h3>
-        <div className="review-path">📄 {review.path}</div>
+        <div className="review-path"><FileText size={14} aria-hidden="true" /> {review.path}</div>
         {review.kind === "delete" ? (
           <div className="review-note">{t("rvDeleteNote")}</div>
         ) : (

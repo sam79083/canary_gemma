@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import {
   deletePath as serverDeletePath,
-  downloadHref,
   fetchPage,
   listFiles as serverListFiles,
   makeDir as serverMakeDir,
@@ -1171,18 +1170,12 @@ export default function Chat({
         name: shortName(p),
         path: p,
       }));
-      // Temp mode: clickable download links right in the answer body
-      // (the route serves them as attachments).
-      let delivered = finalAnswer;
-      if (!useWorkspaceFiles && writtenFiles.length > 0) {
-        const safe = (s: string) => s.replace(/[\[\]()]/g, "_");
-        delivered +=
-          "\n\n" +
-          writtenFiles.map((f) => `- [⬇️ ${safe(f.name)}](${downloadHref(f.name)})`).join("\n");
-      }
+      // Single surface for deliverables: the file chips under the bubble
+      // (MessageList) carry download + open actions, so no duplicate
+      // markdown links are appended to the answer body.
       pushMessage(
         "assistant",
-        delivered,
+        finalAnswer,
         undefined,
         writtenFiles.length > 0 ? writtenFiles : undefined,
       );

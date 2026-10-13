@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Download, FileText, Pencil, Trash2 } from "lucide-react";
 import {
   deletePath as serverDeletePath,
   listDownloads,
@@ -89,7 +90,7 @@ export default function DownloadsPanel({
                 }}
                 title={f.name}
               >
-                📄 {f.name}
+                <FileText size={13} aria-hidden="true" /> {f.name}
               </span>
               <button
                 className="sidebar-btn small"
@@ -97,7 +98,7 @@ export default function DownloadsPanel({
                 title={t("trEdit")}
                 onClick={() => onOpenFile(`uploads/${f.name}`)}
               >
-                ✏️
+                <Pencil size={13} aria-hidden="true" />
               </button>
               <button
                 className="sidebar-btn small"
@@ -105,7 +106,7 @@ export default function DownloadsPanel({
                 title={f.name}
                 onClick={() => triggerDownload(f.name)}
               >
-                ⬇
+                <Download size={13} aria-hidden="true" />
               </button>
               <button
                 className="sidebar-btn small"
@@ -113,7 +114,7 @@ export default function DownloadsPanel({
                 title={t("trDelete")}
                 onClick={() => void handleDelete(f.name)}
               >
-                🗑️
+                <Trash2 size={13} aria-hidden="true" />
               </button>
               </div>
               <div style={{ fontSize: 11, opacity: 0.6, paddingLeft: 2 }}>

@@ -1,6 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import {
+  Dices,
+  Download,
+  FileText,
+  Pencil,
+  RotateCcw,
+  Share2,
+  Square,
+  Volume2,
+  X,
+} from "lucide-react";
 import { motion } from "motion/react";
 import { triggerDownload } from "@/lib/api";
 import { renderMarkdown, stripLeakedToolText } from "@/lib/markdown";
@@ -333,7 +344,7 @@ export default function MessageList({
         <div className="welcome-banner" id="welcome-banner">
           <span>{t("chWelcome")}</span>
           <button className="welcome-close" onClick={dismissWelcome} aria-label="Dismiss">
-            ✕
+            <X size={13} aria-hidden="true" />
           </button>
         </div>
       ) : null}
@@ -383,7 +394,7 @@ export default function MessageList({
                   disabled={streaming}
                   onClick={() => void handleReroll(m.image as NonNullable<ChatMessage["image"]>)}
                 >
-                  🎲 {t("cfReroll")}
+                  <Dices size={13} aria-hidden="true" /> {t("cfReroll")}
                 </button>
               ) : null}
             </>
@@ -392,14 +403,14 @@ export default function MessageList({
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
               {m.files.map((f) => (
                 <span key={f.path} className="task-chip" title={f.path}>
-                  📄 {f.name.length > 24 ? f.name.slice(0, 24) + "…" : f.name}{" "}
+                  <FileText size={13} aria-hidden="true" /> {f.name.length > 24 ? f.name.slice(0, 24) + "…" : f.name}{" "}
                   {!workspaceConnected ? (
                     <button
                       className="quota-refresh"
                       title={t("dlTitle")}
                       onClick={() => triggerDownload(f.name)}
                     >
-                      ⬇
+                      <Download size={13} aria-hidden="true" />
                     </button>
                   ) : null}{" "}
                   <button
@@ -407,7 +418,7 @@ export default function MessageList({
                     title={t("trEdit")}
                     onClick={() => onOpenFile(f.path)}
                   >
-                    ✏️
+                    <Pencil size={13} aria-hidden="true" />
                   </button>
                 </span>
               ))}
@@ -419,7 +430,7 @@ export default function MessageList({
               title={t("shShare")}
               onClick={() => void shareMsg(m.content, i)}
             >
-              {copiedIdx === i ? "✓" : "⤴"}
+              {copiedIdx === i ? "✓" : <Share2 size={14} aria-hidden="true" />}
             </button>
           ) : null}
           {m.role === "assistant" && onSpeak && speechSupported ? (
@@ -428,7 +439,7 @@ export default function MessageList({
               title={speakingIdx === i ? t("rdStop") : t("rdListen")}
               onClick={() => onSpeak(i)}
             >
-              {speakingIdx === i ? "⏹" : "🔊"}
+              {speakingIdx === i ? <Square size={14} aria-hidden="true" /> : <Volume2 size={14} aria-hidden="true" />}
             </button>
           ) : null}
           {m.role === "assistant" && i === messages.length - 1 ? (
@@ -438,7 +449,7 @@ export default function MessageList({
               disabled={streaming || !modelReady}
               onClick={() => handleRegen()}
             >
-              ↻
+              <RotateCcw size={14} aria-hidden="true" />
             </button>
           ) : null}
         </motion.div>

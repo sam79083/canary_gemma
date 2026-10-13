@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FileText, Folder, FolderOpen } from "lucide-react";
 import { toast } from "sonner";
 import {
   deletePath as serverDeletePath,
@@ -90,7 +91,7 @@ function FolderNode({ entry, fullPath, parentPath, onOpenFile, showMenu, loadEnt
         >
           ▸
         </span>
-        <span className="icon">{open ? "📂" : "📁"}</span>
+        <span className="icon">{open ? <FolderOpen size={14} aria-hidden="true" /> : <Folder size={14} aria-hidden="true" />}</span>
         <span className="name">{entry.name}</span>
       </div>
       {!open ? null : (
@@ -155,7 +156,7 @@ function FileNode({ entry, fullPath, parentPath, onOpenFile, showMenu }: NodePro
       }}
     >
       <span className="arrow-placeholder" />
-      <span className="icon">📄</span>
+      <span className="icon"><FileText size={14} aria-hidden="true" /></span>
       <span className="name">{entry.name}</span>
     </div>
   );

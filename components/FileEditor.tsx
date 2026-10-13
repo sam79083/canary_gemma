@@ -1,7 +1,9 @@
 "use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
+
 import type { RefObject } from "react";
+
+import { FileText } from "lucide-react";
 import { readFile as serverReadFile, writeFile as serverWriteFile } from "@/lib/api";
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import { stripCodeFences, summarizeDiff } from "@/lib/diff";
@@ -402,7 +404,7 @@ export default function FileEditor({
       <div className="editor-container">
         <div className="editor-header">
           <div className="editor-title">
-            <span>📄</span>
+            <FileText size={15} aria-hidden="true" />
             <span id="editor-path">{path}</span>
             {dirty ? (
               <span id="editor-dirty" className="editor-dirty">{t("edUnsaved")}</span>

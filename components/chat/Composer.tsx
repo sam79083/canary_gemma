@@ -1,6 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import {
+  ArrowUp,
+  CircleHelp,
+  Ellipsis,
+  ImagePlus,
+  Mic,
+  Paperclip,
+  RotateCcw,
+  Search,
+  Square,
+  X,
+} from "lucide-react";
 import Tip from "@/components/Tip";
 import { HF_DRAW_LABEL } from "@/lib/cloud-model";
 import type { Provider } from "@/hooks/useLanguageModel";
@@ -171,7 +183,7 @@ export default function Composer({
                 title="✕"
                 onClick={() => setPhotos((prev) => prev.filter((x) => x !== p))}
               >
-                ✕
+                <X size={12} aria-hidden="true" />
               </button>
             </span>
           ))}
@@ -258,7 +270,7 @@ export default function Composer({
                     title="Remove target"
                     onClick={() => onRemoveTarget(tg.term)}
                   >
-                    ✕
+                    <X size={12} aria-hidden="true" />
                   </button>
                 </span>
                 );
@@ -300,7 +312,7 @@ export default function Composer({
             disabled={streaming}
             title={t("upAttach")}
           >
-            📎
+            <Paperclip size={16} aria-hidden="true" />
           </button>
         </Tip>
         {speechOK ? (
@@ -312,7 +324,7 @@ export default function Composer({
               title={listening ? t("vcStop") : t("vcMic")}
               style={listening ? { background: "#c62828" } : undefined}
             >
-              {listening ? "⏺" : "🎤"}
+              {listening ? <Square size={16} aria-hidden="true" /> : <Mic size={16} aria-hidden="true" />}
             </button>
           </Tip>
         ) : null}
@@ -345,11 +357,11 @@ export default function Composer({
         />
           {streaming ? (
             <button className="send-btn" onClick={() => onStop()} title={t("chStopped")}>
-              ⏹
+              <Square size={18} aria-hidden="true" />
             </button>
           ) : (
             <button className="send-btn" onClick={() => void handleSend()} disabled={sendDisabled}>
-              ➤
+              <ArrowUp size={18} aria-hidden="true" />
             </button>
           )}
           <div className="composer-more-wrap" ref={moreRef}>
@@ -362,7 +374,7 @@ export default function Composer({
                 aria-expanded={moreOpen}
                 aria-label="More options"
               >
-                ⋯
+                <Ellipsis size={16} aria-hidden="true" />
               </button>
             </Tip>
             {moreOpen ? (
@@ -385,24 +397,7 @@ export default function Composer({
                     void handleSearch();
                   }}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      fill="#4285F4"
-                      d="M23.5 12.3c0-.9-.1-1.5-.3-2.3H12v4.3h6.5c-.1 1.1-.8 2.7-2.4 3.8l-.1.1 3.5 2.7.2.1c2.2-2 3.8-5 3.8-8.7z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.8-2.9c-1 .7-2.4 1.2-4.1 1.2-3.1 0-5.8-2.1-6.8-5l-.1.1-3.6 2.8v.1C3.5 21.3 7.5 24 12 24z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.2 14.4c-.2-.7-.4-1.5-.4-2.4s.1-1.7.4-2.4l-.1-.1-3.5-2.7-.1.1C.5 8.9 0 10.4 0 12s.5 3.1 1.5 4.5l3.7-2.1z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 4.7c1.8 0 3 .8 3.7 1.4l3.3-3.2C17.9 1.1 15.2 0 12 0 7.5 0 3.5 2.7 1.5 6.9l3.7 2.8c1-2.9 3.7-5 6.8-5z"
-                    />
-                  </svg>
+                  <Search size={14} aria-hidden="true" />
                   {t("chLooking")}
                 </button>
                 <button
@@ -414,7 +409,7 @@ export default function Composer({
                     void handleDraw();
                   }}
                 >
-                  🖼️ {t("cfHFDraw")}
+                  <ImagePlus size={14} aria-hidden="true" /> {t("cfHFDraw")}
                 </button>
                 <button
                   className="composer-more-item"
@@ -425,7 +420,7 @@ export default function Composer({
                     onHelp();
                   }}
                 >
-                  ? {t("hpTitle")}
+                  <CircleHelp size={14} aria-hidden="true" /> {t("hpTitle")}
                 </button>
               </div>
             ) : null}
@@ -494,7 +489,7 @@ export default function Composer({
         ) : null}
         <span className="token-meter">{t("usDrawEngine", { m: HF_DRAW_LABEL, n: draws })}</span>
         <button className="quota-refresh" onClick={() => void loadQuota()} title="Refresh quota">
-          ↻
+          <RotateCcw size={12} aria-hidden="true" />
         </button>
       </div>
     </div>

@@ -76,6 +76,17 @@ import { MotionConfig } from "motion/react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Toaster, toast } from "sonner";
+import {
+  ChevronDown,
+  ChevronUp,
+  Flag,
+  FolderOpen,
+  MessageCircle,
+  Pencil,
+  Trash2,
+  Trophy,
+  X,
+} from "lucide-react";
 
 const HISTORY_KEY = "gemma4-chat-history";
 const ONBOARD_KEY = "canary-onboard";
@@ -1286,25 +1297,29 @@ export default function Home() {
           {model.provider === "cloud" ? t("pgPrivacyCloud") : t("pgPrivacy")}
         </div>
 
-        {streak > 1 ? (
-          <div className="privacy-badge" title={t("streakDays", { n: streak })}>
-            {t("streakDays", { n: streak })}
-          </div>
-        ) : null}
-        {achCount > 0 ? (
-          <div
-            className="privacy-badge"
-            title={ACHIEVEMENTS.filter((a) => {
-              try {
-                return loadUnlocked().has(a.id);
-              } catch {
-                return false;
-              }
-            })
-              .map((a) => `${a.icon} ${t(a.nameKey)}`)
-              .join(" · ")}
-          >
-            🏆 {achCount}
+        {streak > 1 || achCount > 0 ? (
+          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+            {streak > 1 ? (
+              <div className="privacy-badge" title={t("streakDays", { n: streak })}>
+                {t("streakDays", { n: streak })}
+              </div>
+            ) : null}
+            {achCount > 0 ? (
+              <div
+                className="privacy-badge"
+                title={ACHIEVEMENTS.filter((a) => {
+                  try {
+                    return loadUnlocked().has(a.id);
+                  } catch {
+                    return false;
+                  }
+                })
+                  .map((a) => `${a.icon} ${t(a.nameKey)}`)
+                  .join(" · ")}
+              >
+                <Trophy size={13} aria-hidden="true" /> {achCount}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -1390,7 +1405,7 @@ export default function Home() {
         </select>
 
         {sessionList.length > 0 ? (
-          <details className="side-group" style={{ marginTop: 6 }} open>
+          <details className="side-group" style={{ marginTop: 6 }}>
             <summary style={{ fontSize: 11 }}>{t("ssManage")}</summary>
             <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4, maxHeight: 180, overflowY: "auto" }}>
           {sessionList
@@ -1464,7 +1479,7 @@ export default function Home() {
                         setRenaming(s.filename);
                       }}
                     >
-                      ✏️
+                      <Pencil size={13} aria-hidden="true" />
                     </button>
                     <button
                       className="sidebar-btn small"
@@ -1476,7 +1491,7 @@ export default function Home() {
                         void handleDeleteOneChat(s.filename);
                       }}
                     >
-                      🗑️
+                      <Trash2 size={13} aria-hidden="true" />
                     </button>
                   </div>
                 </div>
@@ -1518,7 +1533,7 @@ export default function Home() {
                 })()
               }
             >
-              💬{" "}
+              <MessageCircle size={13} aria-hidden="true" />{" "}
               {(() => {
                 const cur = sessionList.find((s) => s.filename === currentFile);
                 return cur ? displayTitle(cur) : currentFile;
@@ -1530,7 +1545,7 @@ export default function Home() {
               title={t("trDelete")}
               onClick={() => void handleDeleteChat()}
             >
-              🗑️
+              <Trash2 size={13} aria-hidden="true" />
             </button>
           </div>
         ) : null}
@@ -1568,7 +1583,7 @@ export default function Home() {
                       setTreeVersion((v) => v + 1);
                     }}
                   >
-                    ✕
+                    <X size={13} aria-hidden="true" />
                   </button>
                 </div>
               </>
@@ -1582,7 +1597,7 @@ export default function Home() {
                   });
                 }}
               >
-                📁 {t("pgChooseFolder")}
+                <FolderOpen size={15} aria-hidden="true" /> {t("pgChooseFolder")}
               </button>
             )
           ) : (
@@ -1624,6 +1639,11 @@ export default function Home() {
         ) : null}
         </details>
 
+        <div className="status" id="sidebar-status">
+          {model.status}
+        </div>
+        <details className="side-group" style={{ marginTop: 8 }}>
+          <summary>{t("pgMore")}</summary>
         {showFlags ? (
             <button
               className="sidebar-btn small secondary"
@@ -1631,7 +1651,7 @@ export default function Home() {
               onClick={() => setShowFlagHelp((v) => !v)}
               style={{ marginTop: 8 }}
             >
-              🚩 {showFlagHelp ? t("pgFlagHide") : t("pgFlagShow")}
+              <Flag size={13} aria-hidden="true" /> {showFlagHelp ? t("pgFlagHide") : t("pgFlagShow")}
             </button>
           ) : null}
         {showFlags && showFlagHelp ? (
@@ -1764,9 +1784,6 @@ export default function Home() {
         >
           {t("seSettings")}
         </Link>
-        <div className="status" id="sidebar-status">
-          {model.status}
-        </div>
         <div
           style={{
             marginTop: 8,
@@ -1796,6 +1813,7 @@ export default function Home() {
           </a>
           <div style={{ marginTop: 4 }}>© 2026 Sam Oh</div>
         </div>
+        </details>
       </div>
 
       {sideOpen ? (
@@ -1987,7 +2005,7 @@ export default function Home() {
                 disabled={searchHits.length === 0}
                 onClick={() => goMatch(-1)}
               >
-                ↑
+                <ChevronUp size={13} aria-hidden="true" />
               </button>
               <button
                 className="search-nav"
@@ -1995,10 +2013,10 @@ export default function Home() {
                 disabled={searchHits.length === 0}
                 onClick={() => goMatch(1)}
               >
-                ↓
+                <ChevronDown size={13} aria-hidden="true" />
               </button>
               <button className="search-nav" title="Close (Esc)" onClick={closeSearch}>
-                ✕
+                <X size={13} aria-hidden="true" />
               </button>
             </div>
           ) : null}
