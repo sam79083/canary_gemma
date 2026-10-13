@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Chat from "@/components/Chat";
 import CommandPalette from "@/components/CommandPalette";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -31,7 +31,7 @@ import { useConfirm } from "@/hooks/useConfirm";
 import { useLanguageModel, type Provider } from "@/hooks/useLanguageModel";
 import { useLanguage } from "@/hooks/useLanguage";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { LANGS, isLang } from "@/lib/i18n";
+import { LANGS, isLang, makeT } from "@/lib/i18n";
 import type { TFn } from "@/lib/i18n";
 import { readFileBinary } from "@/lib/api";
 import {
@@ -66,6 +66,7 @@ import {
   saveWorkspaceSession,
 } from "@/lib/sessions-workspace";
 import { getSessionStore } from "@/lib/session-store";
+import { computeSearchHits, type SearchHit } from "@/lib/search";
 import { useTheme } from "@/hooks/useTheme";
 import { usePersonality } from "@/hooks/usePersonality";
 import { useCustomInstructions } from "@/hooks/useCustomInstructions";
@@ -172,6 +173,29 @@ export default function Home() {
     trialLeft !== null &&
     trialLeft.gemini <= TRIAL_GEMINI_LIMIT &&
     trialLeft.hf <= TRIAL_HF_LIMIT;
+  // Show upgrade hint when trial usage reaches 80% (2 of 10 remaining)
+  const [trialHintDismissed, setTrialHintDismissed] = useState(false);
+  const showTrialHint =
+    trialLimited &&
+    !trialHintDismissed &&
+    trialLeft !== null &&
+    (trialLeft.gemini <= 2 || trialLeft.hf <= 2);
+  const dismissTrialHint = useCallback(() => {
+    setTrialHintDismissed(true);
+    try {
+      localStorage.setItem("canary-trial-hint-dismissed", "1");
+    } catch {
+      // ignore
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("canary-trial-hint-dismissed") === "1")
+        setTrialHintDismissed(true);
+    } catch {
+      // ignore
+    }
+  }, []);
   useEffect(() => {
     if (model.provider !== "cloud" || model.geminiKey || member) {
       setTrialLeft(null);
@@ -293,6 +317,10 @@ export default function Home() {
   const confirmCtl = useConfirm();
   // Command palette (Ctrl+K quick switcher).
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // In-conversation search (browser-find style: highlight + jump between matches).
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeHitIndex, setActiveHitIndex] = useState(-1);
   // 🦜 English tutor slide-over (same screen as chat, shared learn progress).
   const [tutorOpen, setTutorOpen] = useState(false);
   const [tutorTab, setTutorTab] = useState<string | null>(null);
@@ -329,6 +357,8 @@ export default function Home() {
         setTutorTab(null);
         setTutorOpen((v) => !v);
       }
+      // Escape closes the in-conversation search bar.
+      if (e.key === "Escape") setSearchOpen((v) => (v ? false : v));
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -732,6 +762,58 @@ export default function Home() {
     [useDb, workspace.connected],
   );
 
+  // Flat match list for the current query (empty while search is closed).
+  const searchHits = useMemo<SearchHit[]>(
+    () =>
+      searchOpen
+        ? computeSearchHits(messages, searchQuery, makeT(lang)("mdCopy"))
+        : [],
+    [messages, searchOpen, searchQuery, lang],
+  );
+  // Keep the active index inside bounds as matches come and go.
+  useEffect(() => {
+    if (activeHitIndex >= searchHits.length)
+      setActiveHitIndex(searchHits.length > 0 ? searchHits.length - 1 : -1);
+  }, [searchHits.length, activeHitIndex]);
+  // Focus the input whenever the bar opens.
+  useEffect(() => {
+    if (!searchOpen) return;
+    setTimeout(() => {
+      const el = document.getElementById("search-input");
+      el?.focus();
+      if (el instanceof HTMLInputElement) el.select();
+    }, 0);
+  }, [searchOpen]);
+
+  const goMatch = useCallback(
+    (dir: 1 | -1) => {
+      if (searchHits.length === 0) return;
+      setActiveHitIndex((prev) => {
+        const cur = prev < 0 ? 0 : prev;
+        const next = cur + dir;
+        if (next < 0) return searchHits.length - 1;
+        if (next >= searchHits.length) return 0;
+        return next;
+      });
+    },
+    [searchHits.length],
+  );
+
+  const toggleSearch = useCallback(() => {
+    if (searchOpen) {
+      setSearchOpen(false);
+      setActiveHitIndex(-1);
+    } else {
+      setSearchOpen(true);
+      setActiveHitIndex(searchHits.length > 0 ? 0 : -1);
+    }
+  }, [searchOpen, searchHits.length]);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setActiveHitIndex(-1);
+  }, []);
+
   const refreshSessions = useCallback(async () => {    try {
       setSessionList(await sessionStore.list());
     } catch (e) {
@@ -828,6 +910,8 @@ export default function Home() {
   const handleNewChat = useCallback(() => {
     cancelPendingReview();
     model.destroy();
+    setSearchOpen(false);
+    setActiveHitIndex(-1);
     localStorage.removeItem(HISTORY_KEY);
     currentSessionFileRef.current = null;
     setCurrentFile(null);
@@ -1755,6 +1839,15 @@ export default function Home() {
           <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <button
               className="theme-toggle"
+              id="search-toggle-btn"
+              title="Search in conversation"
+              onClick={toggleSearch}
+              style={{ cursor: "pointer" }}
+            >
+              🔍
+            </button>
+            <button
+              className="theme-toggle"
               title={`${t("lnTutor")} (Ctrl+J)`}
               onClick={() => {
                 setTutorTab(null);
@@ -1863,7 +1956,77 @@ export default function Home() {
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
           </span>
+          {searchOpen ? (
+            <div className="search-bar" id="search-bar" role="search">
+              <input
+                className="search-input"
+                id="search-input"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setActiveHitIndex(0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    goMatch(e.shiftKey ? -1 : 1);
+                  }
+                }}
+                placeholder="Search in conversation…"
+              />
+              <span className="search-count">
+                {searchQuery.trim()
+                  ? searchHits.length === 0
+                    ? "No results"
+                    : `${Math.min(activeHitIndex + 1, searchHits.length)} of ${searchHits.length}`
+                  : ""}
+              </span>
+              <button
+                className="search-nav"
+                title="Previous match (Shift+Enter)"
+                disabled={searchHits.length === 0}
+                onClick={() => goMatch(-1)}
+              >
+                ↑
+              </button>
+              <button
+                className="search-nav"
+                title="Next match (Enter)"
+                disabled={searchHits.length === 0}
+                onClick={() => goMatch(1)}
+              >
+                ↓
+              </button>
+              <button className="search-nav" title="Close (Esc)" onClick={closeSearch}>
+                ✕
+              </button>
+            </div>
+          ) : null}
         </div>
+
+        {showTrialHint ? (
+          <div className="trial-hint">
+            <span>
+              You're running low on trial searches —{" "}
+              <a
+                href="/settings"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setLoginOpen(true);
+                }}
+              >
+                upgrade for unlimited access
+              </a>
+            </span>
+            <button
+              className="trial-hint-close"
+              onClick={dismissTrialHint}
+              title="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        ) : null}
 
         <Chat
           messages={messages}
@@ -1906,6 +2069,9 @@ export default function Home() {
             setTrialOverOpen(true);
           }}
           onHelp={() => setShowHelp(true)}
+          searchOpen={searchOpen}
+          searchHits={searchHits}
+          activeHitIndex={activeHitIndex}
           usageModel={
             model.provider === "cloud"
               ? model.geminiModel

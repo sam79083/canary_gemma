@@ -37,7 +37,7 @@ interface NodeProps {
   fullPath: string;
   parentPath: string;
   onOpenFile: (path: string) => void;
-  showMenu: (m: MenuState, reload: () => void) => void;
+  showMenu: (m: MenuState, reload: () => void, trigger?: HTMLElement) => void;
   loadEntries: (path: string) => Promise<FileEntry[]>;
   t: TFn;
 }
@@ -80,6 +80,7 @@ function FolderNode({ entry, fullPath, parentPath, onOpenFile, showMenu, loadEnt
           showMenu(
             { x: e.clientX, y: e.clientY, isDir: true, fullPath, parentPath },
             load,
+            e.currentTarget as HTMLElement,
           );
         }}
       >
@@ -95,7 +96,11 @@ function FolderNode({ entry, fullPath, parentPath, onOpenFile, showMenu, loadEnt
       {!open ? null : (
         <div className="file-tree-children">
           {state === "loading" ? (
-            <div style={{ padding: "4px 8px", fontSize: 12 }}>{t("trLoading")}</div>
+            <div className="loading-indicator" style={{ padding: "4px 8px" }}>
+              <span className="typing-dot" />
+              <span className="typing-dot" />
+              <span className="typing-dot" />
+            </div>
           ) : state === "error" ? (
             <div style={{ padding: "4px 8px", fontSize: 12 }}>{t("trLoadFail")}</div>
           ) : state === "empty" ? (
@@ -145,6 +150,7 @@ function FileNode({ entry, fullPath, parentPath, onOpenFile, showMenu }: NodePro
         showMenu(
           { x: e.clientX, y: e.clientY, isDir: false, fullPath, parentPath },
           () => {},
+          e.currentTarget as HTMLElement,
         );
       }}
     >
@@ -175,6 +181,8 @@ export default function FileTree({
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const menuReload = useRef<() => void>(() => {});
+  const menuTriggerRef = useRef<HTMLElement | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   // When the browser supports File System Access, the workspace is purely
   // local — Render never sees the files. Server API is only a fallback for
@@ -240,7 +248,52 @@ export default function FileTree({
     return () => document.removeEventListener("click", close);
   }, [menu]);
 
-  const showMenu = (m: MenuState, reload: () => void) => {
+  // Focus first menu item when menu opens.
+  useEffect(() => {
+    if (menu && menuRef.current) {
+      const firstItem = menuRef.current.querySelector<HTMLElement>('[role="menuitem"]');
+      firstItem?.focus();
+    }
+  }, [menu]);
+
+  // Return focus to trigger element when menu closes.
+  useEffect(() => {
+    if (!menu && menuTriggerRef.current) {
+      menuTriggerRef.current.focus();
+      menuTriggerRef.current = null;
+    }
+  }, [menu]);
+
+  // Keyboard navigation for the context menu.
+  const onMenuKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!menuRef.current) return;
+    const items = Array.from(menuRef.current.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    if (items.length === 0) return;
+    const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        items[currentIndex < items.length - 1 ? currentIndex + 1 : 0].focus();
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        items[currentIndex > 0 ? currentIndex - 1 : items.length - 1].focus();
+        break;
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        if (currentIndex >= 0) items[currentIndex].click();
+        break;
+      case "Escape":
+        e.preventDefault();
+        setMenu(null);
+        break;
+    }
+  }, []);
+
+  const showMenu = (m: MenuState, reload: () => void, trigger?: HTMLElement) => {
+    if (trigger) menuTriggerRef.current = trigger;
     setMenu(m);
     menuReload.current = reload;
   };
@@ -284,14 +337,25 @@ export default function FileTree({
           if (e.target === e.currentTarget) {
             e.preventDefault();
             e.stopPropagation();
-            showMenu({ x: e.clientX, y: e.clientY, isDir: true, fullPath: "", parentPath: "" }, loadRoot);
+            showMenu({ x: e.clientX, y: e.clientY, isDir: true, fullPath: "", parentPath: "" }, loadRoot, e.currentTarget as HTMLElement);
           }
         }}
       >
         {error ? (
           <div style={{ padding: 8, fontSize: 13 }}>{error}</div>
         ) : entries === null ? (
-          <div style={{ padding: 8, fontSize: 13 }}>{t("trLoading")}</div>
+          <div className="loading-indicator">
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+          </div>
+        ) : entries.length === 0 ? (
+          <div className="empty-state empty-state-compact">
+            <div className="empty-state-hint" style={{ marginBottom: 4, fontSize: 14 }}>
+              {t("trEmpty")}
+            </div>
+            <div className="empty-state-hint">{t("trEmptyHint")}</div>
+          </div>
         ) : (
           entries.map((entry) => {
             const fullPath = entry.name;
@@ -324,19 +388,17 @@ export default function FileTree({
       {menu ? (
         <div
           id="file-context-menu"
+          ref={menuRef}
+          role="menu"
+          aria-label="File actions"
+          className="context-menu"
           style={{
             position: "fixed",
             left: menu.x,
             top: menu.y,
-            background: "var(--model-bar-bg)",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            padding: "4px 0",
-            zIndex: 1000,
-            minWidth: 160,
-            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
           }}
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={onMenuKeyDown}
         >
           {menu.isDir ? (
             <>
@@ -461,10 +523,10 @@ export default function FileTree({
 function MenuItem({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <div
+      role="menuitem"
+      tabIndex={0}
+      className="context-menu-item"
       onClick={onClick}
-      onMouseOver={(e) => ((e.target as HTMLElement).style.background = "var(--border)")}
-      onMouseOut={(e) => ((e.target as HTMLElement).style.background = "transparent")}
-      style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13 }}
     >
       {label}
     </div>

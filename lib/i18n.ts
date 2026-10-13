@@ -198,6 +198,7 @@ const ko: Dict = {
   trDelConfirm: "{name}을(를) 삭제할까요?",
   trActionFail: "실패했어요: {msg}",
   trEmpty: "(비어 있음)",
+  trEmptyHint: "여기에서 우클릭해 파일이나 폴더를 만들거나, 채팅에서 요청하면 AI가 파일을 만들어줘요.",
   // ---- file editor ----
   edLoading: "불러오는 중…",
   edReadFail: "파일을 읽지 못했어요: {msg}",
@@ -647,6 +648,7 @@ const en: Dict = {
   trDelConfirm: "Delete {name}?",
   trActionFail: "Failed: {msg}",
   trEmpty: "(empty)",
+  trEmptyHint: "Right-click here to create a file or folder — or just ask in chat and the AI will write one for you.",
   edLoading: "Loading…",
   edReadFail: "Failed to read file: {msg}",
   edNoChanges: "No changes — file already up to date ✓",

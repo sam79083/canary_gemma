@@ -102,6 +102,8 @@ export default function Composer({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
 
   /** Grow with the text up to ~6 rows, then scroll inside the box. */
   const autoGrow = useCallback(() => {
@@ -116,6 +118,17 @@ export default function Composer({
   useEffect(() => {
     autoGrow();
   }, [input, autoGrow]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
+        setMoreOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [moreOpen]);
 
   const STARTERS = [
     { label: t("chSt1L"), prompt: t("chSt1P") },
@@ -350,47 +363,6 @@ export default function Composer({
             }
           }}
         />
-        <Tip label={t("chLooking")}>
-          <button
-            className="send-btn secondary"
-            onClick={() => void handleSearch()}
-            disabled={searchDisabled}
-            title={t("chLooking")}
-          >
-          {streaming ? (
-            "⏳"
-          ) : (
-            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                fill="#4285F4"
-                d="M23.5 12.3c0-.9-.1-1.5-.3-2.3H12v4.3h6.5c-.1 1.1-.8 2.7-2.4 3.8l-.1.1 3.5 2.7.2.1c2.2-2 3.8-5 3.8-8.7z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.8-2.9c-1 .7-2.4 1.2-4.1 1.2-3.1 0-5.8-2.1-6.8-5l-.1.1-3.6 2.8v.1C3.5 21.3 7.5 24 12 24z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M5.2 14.4c-.2-.7-.4-1.5-.4-2.4s.1-1.7.4-2.4l-.1-.1-3.5-2.7-.1.1C.5 8.9 0 10.4 0 12s.5 3.1 1.5 4.5l3.7-2.1z"
-              />
-              <path
-                fill="#EA4335"
-                d="M12 4.7c1.8 0 3 .8 3.7 1.4l3.3-3.2C17.9 1.1 15.2 0 12 0 7.5 0 3.5 2.7 1.5 6.9l3.7 2.8c1-2.9 3.7-5 6.8-5z"
-              />
-            </svg>
-          )}
-        </button>
-        </Tip>
-        <Tip label={t("cfHFDraw")}>
-          <button
-            className="send-btn secondary"
-            onClick={() => void handleDraw()}
-            disabled={streaming || !input.trim()}
-            title={t("cfHFDraw")}
-          >
-            🖼️
-          </button>
-        </Tip>
           {streaming ? (
             <button className="send-btn" onClick={() => onStop()} title={t("chStopped")}>
               ⏹
@@ -400,16 +372,84 @@ export default function Composer({
               ➤
             </button>
           )}
-          <Tip label={t("hpTitle")}>
-            <button
-              className="send-btn secondary"
-              onClick={() => onHelp()}
-              disabled={streaming}
-              title={t("hpTitle")}
-            >
-              ?
-            </button>
-          </Tip>
+          <div className="composer-more-wrap" ref={moreRef}>
+            <Tip label="More options">
+              <button
+                className="send-btn secondary"
+                onClick={() => setMoreOpen(!moreOpen)}
+                title="More options"
+                aria-haspopup="true"
+                aria-expanded={moreOpen}
+                aria-label="More options"
+              >
+                ⋯
+              </button>
+            </Tip>
+            {moreOpen ? (
+              <div
+                className="composer-more-menu"
+                role="menu"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setMoreOpen(false);
+                    moreRef.current?.querySelector("button")?.focus();
+                  }
+                }}
+              >
+                <button
+                  className="composer-more-item"
+                  role="menuitem"
+                  disabled={searchDisabled}
+                  onClick={() => {
+                    setMoreOpen(false);
+                    void handleSearch();
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      fill="#4285F4"
+                      d="M23.5 12.3c0-.9-.1-1.5-.3-2.3H12v4.3h6.5c-.1 1.1-.8 2.7-2.4 3.8l-.1.1 3.5 2.7.2.1c2.2-2 3.8-5 3.8-8.7z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.8-2.9c-1 .7-2.4 1.2-4.1 1.2-3.1 0-5.8-2.1-6.8-5l-.1.1-3.6 2.8v.1C3.5 21.3 7.5 24 12 24z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.2 14.4c-.2-.7-.4-1.5-.4-2.4s.1-1.7.4-2.4l-.1-.1-3.5-2.7-.1.1C.5 8.9 0 10.4 0 12s.5 3.1 1.5 4.5l3.7-2.1z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 4.7c1.8 0 3 .8 3.7 1.4l3.3-3.2C17.9 1.1 15.2 0 12 0 7.5 0 3.5 2.7 1.5 6.9l3.7 2.8c1-2.9 3.7-5 6.8-5z"
+                    />
+                  </svg>
+                  {t("chLooking")}
+                </button>
+                <button
+                  className="composer-more-item"
+                  role="menuitem"
+                  disabled={streaming || !input.trim()}
+                  onClick={() => {
+                    setMoreOpen(false);
+                    void handleDraw();
+                  }}
+                >
+                  🖼️ {t("cfHFDraw")}
+                </button>
+                <button
+                  className="composer-more-item"
+                  role="menuitem"
+                  disabled={streaming}
+                  onClick={() => {
+                    setMoreOpen(false);
+                    onHelp();
+                  }}
+                >
+                  ? {t("hpTitle")}
+                </button>
+              </div>
+            ) : null}
+          </div>
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
         <label

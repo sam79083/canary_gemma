@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { motion } from "motion/react";
 import { triggerDownload } from "@/lib/api";
 import { renderMarkdown, stripLeakedToolText } from "@/lib/markdown";
+import { highlightHtml, type HighlightHit, type SearchHit } from "@/lib/search";
 import type { ChatMessage } from "@/lib/types";
 import type { TFn } from "@/lib/i18n";
 
@@ -31,6 +32,9 @@ export default function MessageList({
   speakingIdx,
   speechSupported,
   onOpenReader,
+  searchOpen = false,
+  searchHits = [],
+  activeHitIndex = -1,
 }: {
   messages: ChatMessage[];
   streamText: string | null;
@@ -55,16 +59,73 @@ export default function MessageList({
   speakingIdx?: number | null;
   speechSupported?: boolean;
   onOpenReader?: (idx: number) => void;
+  /** In-conversation search (flat match list + which match is active). */
+  searchOpen?: boolean;
+  searchHits?: SearchHit[];
+  activeHitIndex?: number;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   /** Chat bubble context menu (right-click / long-press). */
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; idx: number } | null>(null);
   /** Long-press timer for touch devices (opens the same menu). */
   const touchRef = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null);
+  /** Element that triggered the context menu (for focus return). */
+  const menuTriggerRef = useRef<HTMLElement | null>(null);
+  /** Ref to the context menu container. */
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, streamText]);
+
+  // Group the flat search-hit list per message for quick lookup while rendering.
+  const hitsByMsg = useMemo(() => {
+    const map = new Map<number, HighlightHit[]>();
+    searchHits.forEach((hit, globalIdx) => {
+      const arr = map.get(hit.msgIdx) ?? [];
+      arr.push({ start: hit.start, end: hit.end, globalIdx });
+      map.set(hit.msgIdx, arr);
+    });
+    return map;
+  }, [searchHits]);
+
+  // Jump to the active match whenever navigation or the query changes.
+  useEffect(() => {
+    if (!searchOpen || activeHitIndex < 0) return;
+    const active = searchHits[activeHitIndex];
+    if (!active) return;
+    document
+      .querySelector(`.message[data-idx="${active.msgIdx}"]`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [searchOpen, searchHits, activeHitIndex]);
+
+  /** Plain-text highlight for user bubbles (React nodes, no HTML injection). */
+  const renderHighlightedText = useCallback(
+    (text: string, hits: HighlightHit[]): ReactNode => {
+      if (hits.length === 0) return text;
+      const sorted = [...hits].sort((a, b) => a.start - b.start || a.end - b.end);
+      const parts: ReactNode[] = [];
+      let cursor = 0;
+      for (const h of sorted) {
+        if (h.start < cursor || h.start >= h.end) continue;
+        if (h.start > cursor) parts.push(text.slice(cursor, h.start));
+        parts.push(
+          <span
+            key={h.globalIdx}
+            className={
+              h.globalIdx === activeHitIndex ? "search-match search-match-active" : "search-match"
+            }
+          >
+            {text.slice(h.start, h.end)}
+          </span>,
+        );
+        cursor = h.end;
+      }
+      parts.push(text.slice(cursor));
+      return parts;
+    },
+    [activeHitIndex],
+  );
 
   /** Right-click on a bubble: open the context menu for that message. */
   const onBubbleMenu = useCallback(
@@ -76,6 +137,7 @@ export default function MessageList({
       if (!Number.isInteger(idx) || !messages[idx]) return;
       e.preventDefault();
       e.stopPropagation();
+      menuTriggerRef.current = bubble;
       setCtxMenu({
         x: Math.min(e.clientX, window.innerWidth - 200),
         y: Math.min(e.clientY, window.innerHeight - 260),
@@ -92,6 +154,50 @@ export default function MessageList({
     document.addEventListener("click", close, { once: true });
     return () => document.removeEventListener("click", close);
   }, [ctxMenu]);
+
+  // Focus first menu item when menu opens.
+  useEffect(() => {
+    if (ctxMenu && menuRef.current) {
+      const firstItem = menuRef.current.querySelector<HTMLElement>('[role="menuitem"]');
+      firstItem?.focus();
+    }
+  }, [ctxMenu]);
+
+  // Return focus to trigger element when menu closes.
+  useEffect(() => {
+    if (!ctxMenu && menuTriggerRef.current) {
+      menuTriggerRef.current.focus();
+      menuTriggerRef.current = null;
+    }
+  }, [ctxMenu]);
+
+  // Keyboard navigation for the context menu.
+  const onMenuKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!menuRef.current) return;
+    const items = Array.from(menuRef.current.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    if (items.length === 0) return;
+    const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        items[currentIndex < items.length - 1 ? currentIndex + 1 : 0].focus();
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        items[currentIndex > 0 ? currentIndex - 1 : items.length - 1].focus();
+        break;
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        if (currentIndex >= 0) items[currentIndex].click();
+        break;
+      case "Escape":
+        e.preventDefault();
+        setCtxMenu(null);
+        break;
+    }
+  }, []);
 
   /** Long-press on a bubble (touch): same menu as right-click. */
   const onTouchStart = useCallback(
@@ -112,6 +218,7 @@ export default function MessageList({
         } catch {
           // ignore
         }
+        menuTriggerRef.current = bubble;
         setCtxMenu({
           x: Math.min(x, window.innerWidth - 200),
           y: Math.min(y, window.innerHeight - 260),
@@ -139,6 +246,33 @@ export default function MessageList({
       touchRef.current = null;
     }
   }, []);
+
+  // One-time welcome banner (dismissible; remembered via localStorage).
+  const [welcomeVisible, setWelcomeVisible] = useState(false);
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem("canary-welcomed")) setWelcomeVisible(true);
+    } catch {
+      setWelcomeVisible(true);
+    }
+  }, []);
+  const dismissWelcome = useCallback(() => {
+    try {
+      localStorage.setItem("canary-welcomed", "1");
+    } catch {
+      // ignore
+    }
+    setWelcomeVisible(false);
+  }, []);
+
+  const emptyChat = messages.length === 0 && streamText === null;
+  const showWelcome = welcomeVisible && messages.length === 0 && modelReady;
+
+  const STARTERS = [
+    { label: t("chSt1L"), prompt: t("chSt1P") },
+    { label: t("chSt2L"), prompt: t("chSt2P") },
+    { label: t("chSt3L"), prompt: t("chSt3P") },
+  ];
 
   /** Code-fence copy buttons are injected HTML — catch clicks by delegation. */
   const onCodeCopy = useCallback((e: React.MouseEvent) => {
@@ -186,7 +320,7 @@ export default function MessageList({
 
   return (
     <div
-      className="messages"
+      className={`messages${emptyChat ? " messages-empty" : ""}`}
       id="messages"
       onClick={onCodeCopy}
       onContextMenu={onBubbleMenu}
@@ -195,6 +329,14 @@ export default function MessageList({
       onTouchEnd={cancelTouch}
       onTouchCancel={cancelTouch}
     >
+      {showWelcome ? (
+        <div className="welcome-banner" id="welcome-banner">
+          <span>👋 Welcome! Ask anything — chat, write files, draw, and more.</span>
+          <button className="welcome-close" onClick={dismissWelcome} aria-label="Dismiss">
+            ✕
+          </button>
+        </div>
+      ) : null}
       {messages.map((m, i) => (
         <motion.div
           key={i}
@@ -211,11 +353,24 @@ export default function MessageList({
             ) : (
             <div
               className="content md"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(stripLeakedToolText(m.content), t("mdCopy")) }}
+              dangerouslySetInnerHTML={{
+                __html:
+                  searchOpen && hitsByMsg.get(i)?.length
+                    ? highlightHtml(
+                        renderMarkdown(stripLeakedToolText(m.content), t("mdCopy")),
+                        hitsByMsg.get(i) ?? [],
+                        activeHitIndex,
+                      )
+                    : renderMarkdown(stripLeakedToolText(m.content), t("mdCopy")),
+              }}
             />
             )
           ) : (
-            <div className="content">{m.content}</div>
+            <div className="content">
+              {searchOpen
+                ? renderHighlightedText(m.content, hitsByMsg.get(i) ?? [])
+                : m.content}
+            </div>
           )}
           {m.image ? (
             <>
@@ -288,23 +443,43 @@ export default function MessageList({
           ) : null}
         </motion.div>
       ))}
+      {emptyChat ? (
+        <div className="empty-state">
+          <div className="empty-state-title">Start a conversation!</div>
+          <div className="empty-state-hint">
+            Pick a suggestion below or type your own message.
+          </div>
+          <div className="empty-state-starters">
+            {STARTERS.map((s) => (
+              <button
+                key={s.label}
+                className="task-chip"
+                onClick={() => {
+                  setInput(s.prompt);
+                  inputRef.current?.focus();
+                }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {ctxMenu && messages[ctxMenu.idx] ? (
         <div
           id="chat-context-menu"
+          ref={menuRef}
+          role="menu"
+          aria-label="Message actions"
+          className="context-menu"
           style={{
             position: "fixed",
             left: ctxMenu.x,
             top: ctxMenu.y,
-            background: "var(--model-bar-bg)",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            padding: "4px 0",
-            zIndex: 1000,
-            minWidth: 180,
-            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
           }}
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
+          onKeyDown={onMenuKeyDown}
         >
           {(
             [
@@ -368,13 +543,13 @@ export default function MessageList({
           ).map((item) => (
             <div
               key={item.label}
+              role="menuitem"
+              tabIndex={0}
+              className="context-menu-item"
               onClick={() => {
                 setCtxMenu(null);
                 item.run();
               }}
-              onMouseOver={(e) => ((e.target as HTMLElement).style.background = "var(--border)")}
-              onMouseOut={(e) => ((e.target as HTMLElement).style.background = "transparent")}
-              style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13 }}
             >
               {item.label}
             </div>

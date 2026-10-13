@@ -24,6 +24,7 @@ import type { CEFR } from "@/lib/learn-bank";
 import type { BusyKind, Provider } from "@/hooks/useLanguageModel";
 import type { WorkspaceApi } from "@/hooks/useWorkspace";
 import type { ChatMessage, ReviewFn } from "@/lib/types";
+import type { SearchHit } from "@/lib/search";
 import { type Lang, LANGS, type TFn } from "@/lib/i18n";
 import { estimateTokens, recordUsage } from "@/lib/usage";
 import { sanitizeAnswer } from "@/lib/sanitize";
@@ -128,6 +129,10 @@ interface Props {
   onTrialOver?: () => void;
   /** Open the help dialog. */
   onHelp: () => void;
+  /** In-conversation search: highlight matches + jump to the active one. */
+  searchOpen: boolean;
+  searchHits: SearchHit[];
+  activeHitIndex: number;
   /** Cloud-draw key (Gemini image model, any device). Empty = local only. */
   geminiKey?: string;
   t: TFn;
@@ -163,6 +168,9 @@ export default function Chat({
   personalityLine = "",
   onTrialOver,
   onHelp,
+  searchOpen,
+  searchHits,
+  activeHitIndex,
   guidelines = "",
   t,
   lang,
@@ -1404,6 +1412,9 @@ export default function Chat({
         speakingIdx={speech.speakingKey}
         speechSupported={speech.supported}
         onOpenReader={(idx) => setReaderIdx(idx)}
+        searchOpen={searchOpen}
+        searchHits={searchHits}
+        activeHitIndex={activeHitIndex}
       />
       {readerIdx !== null && messages[readerIdx] ? (
         <ReaderOverlay
