@@ -1093,11 +1093,36 @@ export default function Chat({
       const approvedPlan = planContextRef.current;
       planContextRef.current = null;
       const guideBlock = customInstructionsPrompt(guidelines);
+      // Roleplay/practice rides along on agent turns too — otherwise a cafe
+      // order ("ice americano") looks like a filename and the model calls
+      // listFiles/readFile instead of replying in character. An active
+      // scenario also bans file tools for the turn (same rule as the plain
+      // path: conversation turns never touch files).
+      let practice = "";
+      if (practiceOn) {
+        const langName = LANGS.find((l) => l.code === lang)?.modelName ?? "Korean";
+        const sc = scenarioById(roleId);
+        if (sc) {
+          let lv: CEFR | null = null;
+          try {
+            lv = loadLearn().level;
+          } catch {
+            // default stands
+          }
+          practice =
+            roleplayLine(sc, lv, langName) +
+            "\nIMPORTANT: This is a roleplay conversation — reply in character in plain text. " +
+            "Do NOT call any file tools (no listFiles/readFile/writeFile/makeDir/deletePath) for this turn " +
+            "unless the user explicitly asks for a file.";
+        } else if (targets.length > 0) {
+          practice = practiceLine(targets, langName);
+        }
+      }
       let nextPrompt =
         (approvedPlan
           ? `Approved plan — follow its steps in order:\n${approvedPlan}\n\n`
           : "") +
-        `${buildAgentPreamble(rootListing, verbosePreamble)}\n${deliverHint}\n${guideBlock}\n${pageCtx}\n${prompt}`;
+        `${buildAgentPreamble(rootListing, verbosePreamble)}\n${deliverHint}\n${guideBlock}\n${pageCtx}\n${prompt}${practice}`;
       let finalAnswer: string | null = null;
       const writtenPaths: string[] = [];
 
@@ -1210,7 +1235,7 @@ export default function Chat({
       persistChat();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionRef, busyRef, input, messages, setInput, pushMessage, persistChat, setModelStatus, agentMode, workspace, reviewChange, provider, ensureVision, t, lang]);
+  }, [sessionRef, busyRef, input, messages, setInput, pushMessage, persistChat, setModelStatus, agentMode, workspace, reviewChange, provider, ensureVision, t, lang, practiceOn, roleId, targets, roleDone]);
 
   /** Drop the last assistant answer and re-ask the last user text (text only). */
   const handleRegen = useCallback(() => {
