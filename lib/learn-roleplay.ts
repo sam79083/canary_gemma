@@ -94,6 +94,81 @@ export const SCENARIOS: Scenario[] = [
       { label: "Ask for medicine/advice", keywords: ["medicine", "should", "advice", "prescription", "rest"] },
     ],
   },
+  {
+    id: "restaurant", name: "Restaurant", icon: "🍽️",
+    setting: "Role: friendly restaurant server taking a dine-in order, handling one request at a time.",
+    opener: "Good evening! Table for how many?",
+    goals: [
+      {
+        label: "Order food",
+        keywords: [
+          "menu", "order", "burger", "pasta", "pizza", "chicken", "rice",
+          "salad", "steak", "soup", "noodle", "fish", "want", "please",
+        ],
+      },
+      {
+        label: "Customize or flag allergy",
+        keywords: [
+          "without", "less", "extra", "spicy", "mild", "allergy", "allergic",
+          "vegetarian", "sauce", "cheese", "medium", "rare", "done",
+        ],
+      },
+      { label: "Ask for the bill", keywords: ["bill", "check", "pay", "card", "cash", "much"] },
+    ],
+  },
+  {
+    id: "taxi", name: "Taxi Ride", icon: "🚕",
+    setting: "Role: friendly taxi driver confirming the destination and route, one thing at a time.",
+    opener: "Hello! Where to?",
+    goals: [
+      {
+        label: "Say the destination",
+        keywords: [
+          "airport", "station", "hotel", "hospital", "school", "mart",
+          "gangnam", "hongdae", "myeongdong", "itaewon", "address",
+          "street", "downtown", "take", "go",
+        ],
+      },
+      {
+        label: "Confirm route or fare",
+        keywords: ["much", "fare", "long", "minutes", "far", "fast", "slow", "hurry", "meter", "card", "cash", "how"],
+      },
+      { label: "Arrive + say thanks", keywords: ["thank", "here", "stop", "perfect", "great", "good"] },
+    ],
+  },
+  {
+    id: "phone", name: "Phone Booking", icon: "📞",
+    setting: "Role: polite receptionist taking a phone booking, asking for one detail at a time.",
+    opener: "Good morning, Happy Clinic. How can I help you?",
+    goals: [
+      {
+        label: "Say what you need",
+        keywords: ["appointment", "book", "reserve", "doctor", "dentist", "see", "checkup", "consultation", "haircut", "table"],
+      },
+      {
+        label: "Give a day or time",
+        keywords: [
+          "monday", "tuesday", "wednesday", "thursday", "friday",
+          "saturday", "sunday", "today", "tomorrow", "weekend",
+          "morning", "afternoon", "evening", "clock", "time",
+        ],
+      },
+      { label: "Confirm details", keywords: ["name", "number", "phone", "confirm", "thank", "great", "perfect"] },
+    ],
+  },
+  {
+    id: "return", name: "Store Exchange", icon: "🛍️",
+    setting: "Role: helpful store clerk handling a return or exchange, one step at a time.",
+    opener: "Hi! What can I do for you today?",
+    goals: [
+      {
+        label: "Explain the problem",
+        keywords: ["return", "exchange", "refund", "broken", "wrong", "size", "small", "tight", "damaged", "defect", "rip", "stain"],
+      },
+      { label: "Say when / receipt", keywords: ["receipt", "yesterday", "today", "bought", "week", "ago", "days"] },
+      { label: "Ask for a solution", keywords: ["change", "possible", "can", "could", "another", "new", "please", "refund"] },
+    ],
+  },
 ];
 
 const ROLE_KEY = "canary-roleplay";
@@ -179,7 +254,11 @@ export function roleplayLine(sc: Scenario, level: CEFR | null, replyLang: string
     "You are Gemma, roleplaying as the scene partner below for English practice. Stay in character — roleplaying is correct, not deception. Only state your model identity if the learner asks who you are.",
     `Scene: ${sc.setting}`,
     `The learner is ${level ?? "A1/A2"} level: keep YOUR lines to 1–3 short sentences, simple words.`,
-    "One step at a time — never dump three questions at once. If the learner stalls, offer two example replies they can copy.",
+    "One step at a time — never dump three questions at once. Never lecture about vocabulary or grammar; the scene always comes first.",
+    "Format your reply in layers, each on its own line with its small label. Omit a layer entirely when it isn't needed — never print empty labels.",
+    "Layer 1 — 💡 Fix: if the learner's sentence has a mistake or sounds unnatural, give ONE short correction in parentheses on this line, e.g. `💡 Fix: (More natural: \"I'd like an iced americano, please.\")`. Omit this line when their sentence is fine.",
+    "Layer 2 — ▶️ Reply: your in-character scene reply (always present).",
+    "Layer 3 — 💬 You can say: two short example replies the learner can copy, e.g. `\"Yes, please.\" / \"No, that's everything.\"`. Only when the learner stalls or seems stuck; omit otherwise.",
     `Reply mostly in ${replyLang}, but keep the scene in English. Under 100 words.`,
     "Never output an identity disclaimer (\"I am Gemma…\") unprompted — just play the scene.",
     "--- End Roleplay ---",
