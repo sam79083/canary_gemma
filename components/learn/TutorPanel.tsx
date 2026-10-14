@@ -5,6 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import Confetti from "@/components/Confetti";
 import QuizCard from "@/components/learn/QuizCard";
+import DojoPanel from "@/components/learn/DojoPanel";
 import { useLanguage } from "@/hooks/useLanguage";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -135,12 +136,12 @@ import {
 } from "@/lib/learn-endef";
 import { unlockAch } from "@/lib/achievements";
 
-type PTab = "quiz" | "idiom" | "book" | "cards" | "listen" | "review" | "essay" | "style" | "folio" | "assess" | "me";
+type PTab = "quiz" | "idiom" | "book" | "cards" | "listen" | "dojo" | "review" | "essay" | "style" | "folio" | "assess" | "me";
 type GateMode = "menu" | "check" | "test";
 type QuizMode = "quick" | "full" | "exam" | "endless";
 type FlashMode = "flip" | "match" | "write";
 
-const VALID_TABS: PTab[] = ["quiz", "idiom", "book", "cards", "listen", "review", "essay", "style", "folio", "assess", "me"];
+const VALID_TABS: PTab[] = ["quiz", "idiom", "book", "cards", "listen", "dojo", "review", "essay", "style", "folio", "assess", "me"];
 
 /** Tiny browser TTS: EN-first, no deps. Chat's full hook stays untouched. */
 function speakText(text: string): void {
@@ -1117,14 +1118,14 @@ export default function TutorPanel({
       )}
 
       <div style={{ display: "flex", gap: 6, padding: "10px 12px 0", overflowX: "auto", scrollbarWidth: "thin" }}>
-        {(["quiz", "idiom", "book", "cards", "listen", "review", "essay", "style", "folio", "assess", "me"] as PTab[]).map((id) => (
+        {(["quiz", "idiom", "book", "cards", "listen", "dojo", "review", "essay", "style", "folio", "assess", "me"] as PTab[]).map((id) => (
           <button
             key={id}
             className={`sidebar-btn small${tab === id ? " secondary" : ""}`}
             onClick={() => { setTab(id); setGateMode("menu"); setAiAnswer(null); }}
             style={{ flex: "0 0 auto", justifyContent: "center", padding: "8px 10px", fontSize: 13 }}
           >
-            {id === "quiz" ? `⚡ ${L("lnPractice", "Quiz")}` : id === "idiom" ? `😎 ${L("lnIdiomDay", "Idiom")}` : id === "book" ? `📖 Book` : id === "cards" ? `🗂️ Cards${flash.length > 0 ? ` (${flash.length})` : ""}` : id === "listen" ? `👂 Ear` : id === "review" ? `🔁 ${L("lnReviewTab", "Review")} (${reviewItems.length})` : id === "essay" ? `✍️ ${L("lnEssay", "Essay")}` : id === "style" ? `✨ Style` : id === "folio" ? `💼 Folio` : id === "assess" ? `🎯 ${L("lnAssess", "Level")}` : `🏆 ${L("lnMe", "Me")}`}
+            {id === "quiz" ? `⚡ ${L("lnPractice", "Quiz")}` : id === "idiom" ? `😎 ${L("lnIdiomDay", "Idiom")}` : id === "book" ? `📖 Book` : id === "cards" ? `🗂️ Cards${flash.length > 0 ? ` (${flash.length})` : ""}` : id === "listen" ? `👂 Ear` : id === "dojo" ? `💻 ${L("lnDojo", "Code")}` : id === "review" ? `🔁 ${L("lnReviewTab", "Review")} (${reviewItems.length})` : id === "essay" ? `✍️ ${L("lnEssay", "Essay")}` : id === "style" ? `✨ Style` : id === "folio" ? `💼 Folio` : id === "assess" ? `🎯 ${L("lnAssess", "Level")}` : `🏆 ${L("lnMe", "Me")}`}
           </button>
         ))}
       </div>
@@ -2051,6 +2052,16 @@ export default function TutorPanel({
               </div>
             )}
           </div>
+        ) : null}
+
+        {tab === "dojo" ? (
+          <DojoPanel
+            onSendToChat={onSendToChat}
+            onXP={(n, note) => {
+              bonus(n);
+              toast(`+${n} XP — ${note} 💻`);
+            }}
+          />
         ) : null}
 
         {tab === "assess" ? (
