@@ -12,7 +12,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # Must match render.yaml NODE_VERSION: npm test uses
+          # --experimental-strip-types (Node 22.6+ only).
+          node-version: "22"
           cache: npm
       - run: npm ci
       - run: npm run typecheck
