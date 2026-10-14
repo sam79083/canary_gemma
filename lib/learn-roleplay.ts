@@ -21,30 +21,42 @@ export interface Scenario {
   goals: [RoleGoal, RoleGoal, RoleGoal];
 }
 
+// NOTE: settings are phrased as "Role: ..." (never a leading "You are a …").
+// A bare "You are a barista" conflicts with the on-device model's guardrailed
+// identity and makes it dump its self-description instead of roleplaying.
+// roleplayLine() wraps these as "Scene: ..." under an identity-safe frame,
+// so the AI answers dynamically in character for EVERY scenario — nothing
+// about any scene's replies is hardcoded beyond the opener + goal keywords.
 export const SCENARIOS: Scenario[] = [
   {
     id: "cafe", name: "Cafe Order", icon: "☕",
-    setting: "You are a friendly cafe barista. Take my order step by step.",
+    setting: "Role: friendly cafe barista taking the customer's order step by step.",
     opener: "Hi there! Welcome to Coco Cafe. What can I get for you today?",
     goals: [
-      { label: "Order a drink", keywords: ["coffee", "please"] },
+      {
+        label: "Order a drink",
+        keywords: [
+          "coffee", "americano", "latte", "espresso", "cappuccino", "mocha",
+          "tea", "ade", "juice", "smoothie", "drink", "order", "please",
+        ],
+      },
       { label: "Pick a size", keywords: ["small", "medium", "large", "regular"] },
       { label: "Say thanks", keywords: ["thank"] },
     ],
   },
   {
     id: "interview", name: "Job Interview", icon: "💼",
-    setting: "You are a kind job interviewer for a part-time cafe job. Ask one question at a time.",
+    setting: "Role: kind job interviewer for a part-time cafe job, asking one question at a time.",
     opener: "Thanks for coming in! First — tell me a little about yourself.",
     goals: [
-      { label: "Introduce yourself", keywords: ["name", "i"] },
+      { label: "Introduce yourself", keywords: ["name", "called", "am", "my", "from", "student", "work", "live"] },
       { label: "Name a strength", keywords: ["hard", "friendly", "careful", "punctual", "responsible", "diligent"] },
       { label: "Ask a question back", keywords: ["?"] },
     ],
   },
   {
     id: "airport", name: "Airport Help", icon: "✈️",
-    setting: "You are an airport information desk clerk. I am lost and a little stressed — be patient.",
+    setting: "Role: patient airport information desk clerk helping a lost, slightly stressed traveler.",
     opener: "Hello! How can I help you today?",
     goals: [
       { label: "Say where you go", keywords: ["go", "flight", "gate", "seoul", "tokyo", "bus", "jeju"] },
@@ -54,7 +66,7 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     id: "hotel", name: "Hotel Check-in", icon: "🏨",
-    setting: "You are a hotel receptionist. Check me in warmly, one step at a time.",
+    setting: "Role: warm hotel receptionist checking the guest in, one step at a time.",
     opener: "Good evening! Welcome to Hotel Coco. Do you have a reservation?",
     goals: [
       { label: "Give your name", keywords: ["name", "reservation", "book"] },
@@ -64,7 +76,7 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     id: "smalltalk", name: "Small Talk", icon: "💬",
-    setting: "You are a friendly classmate chatting before class. Keep it light and ask about me too.",
+    setting: "Role: friendly classmate chatting lightly before class, asking about the learner too.",
     opener: "Hey! How was your weekend?",
     goals: [
       { label: "Answer + reason (because)", keywords: ["because"] },
@@ -74,7 +86,7 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     id: "doctor", name: "Doctor Visit", icon: "🩺",
-    setting: "You are a gentle clinic doctor. Ask about my symptoms one at a time.",
+    setting: "Role: gentle clinic doctor asking about the patient's symptoms one at a time.",
     opener: "Hello, come in. What seems to be the problem today?",
     goals: [
       { label: "Describe the symptom", keywords: ["hurt", "pain", "sick", "fever", "cough", "headache", "cold", "stomach"] },
@@ -151,15 +163,25 @@ export function checkGoals(message: string, goals: RoleGoal[]): boolean[] {
   );
 }
 
-/** Persona prefix for an active scenario (appended like practiceLine). */
+/** Persona prefix for an active scenario (appended like practiceLine).
+ *
+ * Identity-safe: the on-device model (Chrome Prompt API) is guardrailed to
+ * identify as Gemma — a bare "You are a barista" conflicts with that and
+ * makes it dump its self-description ("I am Gemma, a large language model…")
+ * instead of roleplaying. Framing it as "Gemma roleplaying as …" satisfies
+ * the guardrail while staying in character. Do NOT regress to a leading
+ * "You are a …" line.
+ */
 export function roleplayLine(sc: Scenario, level: CEFR | null, replyLang: string): string {
   return [
     "",
     `--- Roleplay: ${sc.icon} ${sc.name} ---`,
-    sc.setting,
+    "You are Gemma, roleplaying as the scene partner below for English practice. Stay in character — roleplaying is correct, not deception. Only state your model identity if the learner asks who you are.",
+    `Scene: ${sc.setting}`,
     `The learner is ${level ?? "A1/A2"} level: keep YOUR lines to 1–3 short sentences, simple words.`,
     "One step at a time — never dump three questions at once. If the learner stalls, offer two example replies they can copy.",
     `Reply mostly in ${replyLang}, but keep the scene in English. Under 100 words.`,
+    "Never output an identity disclaimer (\"I am Gemma…\") unprompted — just play the scene.",
     "--- End Roleplay ---",
     "",
   ].join("\n");

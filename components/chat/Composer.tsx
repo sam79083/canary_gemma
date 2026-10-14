@@ -252,7 +252,7 @@ export default function Composer({
           <div className="task-row" title="Words you are practicing — use one in chat for +5 XP">
             {practiceTargets.length === 0 ? (
               <span style={{ fontSize: 12, opacity: 0.7 }}>
-                🦜 Add words from Learn 🦜 or select text in chat 💬
+                Add words from Learn or select text in chat 💬 — or pick a 🎭 scene above
               </span>
             ) : (
               practiceTargets.map((tg) => {
@@ -280,16 +280,37 @@ export default function Composer({
         </div>
       ) : null}
       {emptyChat && modelReady && !streaming ? (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+          <div className="task-row" title="English roleplay — the AI plays the scene partner and replies in character">
+            <span style={{ fontSize: 12, fontWeight: 700 }}>🎭 English roleplay:</span>
+            {SCENARIOS.map((s) => (
+              <button
+                key={s.id}
+                className="task-chip"
+                onClick={() => {
+                  if (!practiceOn) setPracticeOn(true);
+                  onPickScenario(s.id);
+                  inputRef.current?.focus();
+                }}
+                disabled={streaming || roleId === s.id}
+                title={`${s.name}: ${s.opener}`}
+                style={roleId === s.id ? { opacity: 0.6 } : undefined}
+              >
+                {s.icon} {s.name}
+              </button>
+            ))}
+          </div>
           {agentMode ? (
-            <button
-              className="send-btn secondary"
-              style={{ width: "auto", borderRadius: 16, padding: "6px 12px", fontSize: 12, height: "auto", fontWeight: 700 }}
-              onClick={() => onRunPrompt(t("chDemoP"))}
-              title={t("chDemoP")}
-            >
-              {t("chDemoL")}
-            </button>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button
+                className="send-btn secondary"
+                style={{ width: "auto", borderRadius: 16, padding: "6px 12px", fontSize: 12, height: "auto", fontWeight: 700 }}
+                onClick={() => onRunPrompt(t("chDemoP"))}
+                title={t("chDemoP")}
+              >
+                {t("chDemoL")}
+              </button>
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -456,7 +477,7 @@ export default function Composer({
             {t("plMode")}
           </label>
           <label
-            title="Practice English: AI weaves your target words into replies and scores your usage (+5 XP each)"
+            title="English roleplay: the AI plays a scene partner (barista, interviewer…) and scores your goals with XP"
             style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center", cursor: "pointer" }}
           >
             <input
@@ -465,7 +486,7 @@ export default function Composer({
               onChange={(e) => setPracticeOn(e.target.checked)}
               disabled={streaming}
             />
-            🦜 Practice
+            🎭 Roleplay
           </label>
         {!workspaceConnected && workspaceSupported ? (
           <span style={{ fontSize: 12, opacity: 0.7 }}>{t("chAgentHint")}</span>
