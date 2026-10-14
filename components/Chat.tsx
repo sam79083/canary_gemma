@@ -756,7 +756,9 @@ export default function Chat({
     // (Photo turns above already returned; plans cover text/file tasks.)
     // planFlowActiveRef skips this on the delegated re-entry — otherwise
     // approving a plan would draft another plan, forever.
-    if (planMode && sessionRef.current && !planFlowActiveRef.current) {
+    // Roleplay turns never plan: a cafe order is conversation, not a file task.
+    const roleplayActive = practiceOn && scenarioById(roleId) !== null;
+    if (planMode && sessionRef.current && !planFlowActiveRef.current && !roleplayActive) {
       await runPlanFlow(prompt);
       return;
     }
@@ -800,8 +802,13 @@ export default function Chat({
       }
     }
 
-    // Plain chat path — agent toggle off.
-    if (!agentMode) {
+    // Plain chat path — agent toggle off, OR an active roleplay scenario.
+    // Roleplay is conversation by definition: routing it through the plain
+    // path keeps file tools (listFiles/writeFile/ReviewCard) out entirely,
+    // instead of relying on the model to obey a "don't call tools" line.
+    // The tiny on-device model follows routing reliably; it does NOT follow
+    // buried instruction bans reliably ("order" became uploads/order.txt).
+    if (!agentMode || roleplayActive) {
       setStreamText("");
       let full = "";
       try {
