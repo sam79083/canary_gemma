@@ -1,5 +1,21 @@
 # Canary — private AI chat with a file agent (Next.js)
 
+[![ci](https://github.com/sam79083/canary_gemma/actions/workflows/ci/badge.svg)](https://github.com/sam79083/canary_gemma/actions/workflows/ci)
+
+<!-- Replace the URL below with your Render URL from the dashboard (service "canary"). -->
+**🌐 Live demo:** `https://YOUR-SERVICE.onrender.com` — opens straight into a working AI (trial mode, zero setup) — then try `?demo=cafe` for a pre-played English-roleplay tour, e.g. `https://YOUR-SERVICE.onrender.com?demo=cafe`
+
+> **Hiring-manager tour (60 seconds):** open the demo link → scroll the Coco Cafe roleplay (correction → reply → one-tap answers → scorecard) → tap a 💬 chip to keep talking → hit **＋ New scene** to make your own. No keys, no downloads. (Note: Render's free tier sleeps when idle — first load after a while can take ~30s. Open the link a couple of minutes before showtime.)
+
+<!-- TODO(record): 30s GIF of the ?demo=cafe scroll + tapping a 💬 chip. Spec: 1280px, fresh profile, trial mode. Place at docs/demo.gif and embed here. -->
+
+## How it works (architecture in 30 seconds)
+
+- **Three AI providers, one shape** (`hooks/useLanguageModel.ts`): on-device Gemma (Chrome Prompt API), local Ollama, cloud Gemini — interchangeable sessions, so chat/tools work unchanged. Fresh visitors without local AI auto-steer to trial cloud.
+- **File agent without function calling** (`lib/agent.ts` + `components/Chat.tsx`): the model emits ` ```toolcall {"name":"writeFile",…} ` blocks, the app runs them in a ≤6-step loop. Every mutation stops at a human gate (`ReviewCard`: ✓ Keep / ↩ Undo, editable) backed by `lib/undo.ts` — nothing is written silently.
+- **English roleplay engine** (`lib/learn-roleplay.ts`): 10 curated scenes + user-created ones (localStorage). One shared prompt template drives all scenes (identity-safe framing, 3 labeled reply layers); goals grade deterministically offline via keyword matching with negation guards; XP/streaks in `lib/learn-*.ts`. `?demo=<scene>` seeds a pre-played tour; clearing a scene offers a copyable scorecard.
+- **Nearly stateless server** (`app/api/*/route.ts` are thin JSON/file proxies): keys, chats, and prefs live in the browser / workspace folder / Supabase Postgres.
+
 Chat UI with a workspace file agent. Three interchangeable AI providers,
 10 UI languages (Korean default), saved chats, and optional Google web
 search via SerpAPI. Deployable to Render; files stay on your machine.

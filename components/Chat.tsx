@@ -57,6 +57,7 @@ import {
   type PracticeTarget,
 } from "@/lib/learn-useit";
 import {
+  buildDemoScript,
   buildRoleWrapUp,
   checkGoals,
   createCustomScene,
@@ -332,6 +333,50 @@ export default function Chat({
     });
     if (roleId === id) pickScenario(null);
   }, [roleId, pickScenario]);
+  /** ?demo=cafe hiring-link tour: pre-played scene, fresh chats only. */
+  const demoSeededRef = useRef(false);
+  useEffect(() => {
+    if (demoSeededRef.current) return;
+    let demoId: string | null = null;
+    try {
+      demoId = new URLSearchParams(window.location.search).get("demo");
+    } catch {
+      return;
+    }
+    if (!demoId || demoId !== "cafe") return;
+    if (messages.length > 0) return;
+    try {
+      // HISTORY_KEY lives in app/page.tsx; a stored chat wins over the demo.
+      if (localStorage.getItem("gemma4-chat-history")) return;
+    } catch {
+      return;
+    }
+    const script = buildDemoScript();
+    if (script.length === 0) return;
+    demoSeededRef.current = true;
+    setPractice(true);
+    const sc = resolveScenario("cafe", []);
+    if (sc) {
+      setRoleId(sc.id);
+      setRoleDone([true, true, true]);
+      try {
+        saveRoleplay(sc.id);
+        saveRoleDone(sc.id, [true, true, true]);
+      } catch {
+        // ignore
+      }
+    }
+    for (const m of script) pushMessage(m.role, m.content);
+    persistChat();
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("demo");
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // D: practice-the-selection bubble (text selected inside chat bubbles).
   const [selText, setSelText] = useState<string | null>(null);
   useEffect(() => {

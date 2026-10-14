@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildDemoScript,
   buildRoleWrapUp,
   checkGoals,
   createCustomScene,
@@ -164,6 +165,22 @@ describe("learn-roleplay scenarios", () => {
     assert.ok(isCustomId(made.id) && !isCustomId("cafe") && !isCustomId(null));
     // no localStorage under node
     assert.deepEqual(loadCustomScenes(), []);
+  });
+  it("demo script plays the full arc", () => {
+    const demo = buildDemoScript();
+    assert.equal(demo.length, 8);
+    assert.deepEqual(demo.map((m) => m.role), [
+      "assistant", "user", "assistant", "user", "assistant", "user", "assistant", "assistant",
+    ]);
+    assert.ok(demo[0].content.includes("Coco Cafe"));
+    // flawed order shows 💡 Fix; clean follow-up omits it
+    assert.ok(demo[2].content.includes("💡 Fix"));
+    assert.ok(!demo[4].content.includes("💡 Fix"));
+    // 💬 lines parse into one-tap chips
+    assert.deepEqual(extractExamples(demo[2].content), ["Iced, please", "Hot, please"]);
+    assert.deepEqual(extractExamples(demo[4].content), ["Yes, please", "No, that's everything"]);
+    // closes with the real wrap-up
+    assert.ok(demo[7].content.includes("cleared!") && demo[7].content.includes("Tip:"));
   });
   it("new realistic scenes grade their goals", () => {
     const restaurant = scenarioById("restaurant")!;

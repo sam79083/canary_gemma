@@ -460,6 +460,29 @@ export default function MessageList({
               {copiedIdx === i ? "✓" : <Share2 size={14} aria-hidden="true" />}
             </button>
           ) : null}
+          {m.role === "assistant" &&
+          typeof m.content === "string" &&
+          m.content.startsWith("🏆") &&
+          m.content.includes("cleared!") ? (
+            <button
+              className="msg-share"
+              title="Copy scorecard to share"
+              onClick={() => {
+                let link = "";
+                try {
+                  link = `${window.location.origin}${window.location.pathname}`;
+                } catch {
+                  link = "";
+                }
+                void shareMsg(
+                  `${m.content}\n\n— practiced with Coco 🎭 English Roleplay${link ? ` — try it: ${link}?demo=cafe` : ""}`,
+                  i,
+                );
+              }}
+            >
+              {copiedIdx === i ? "✓" : "📤"}
+            </button>
+          ) : null}
           {m.role === "assistant" && onSpeak && speechSupported ? (
             <button
               className="msg-share"

@@ -892,7 +892,26 @@ export default function Home() {
     }
     void refreshSessions();
     void (async () => {
-      const avail = await model.supported();
+      let avail = await model.supported();
+      // Fresh visitors on browsers without on-device/local AI (the hiring
+      // manager opening the shared link): steer to trial cloud so the first
+      // minute works with zero setup. Explicit provider choices are respected.
+      if (
+        (avail === "unavailable" || avail === "unsupported") &&
+        (model.provider === "gemma" || model.provider === "ollama")
+      ) {
+        let fresh = true;
+        try {
+          // PROVIDER_KEY lives in hooks/useLanguageModel.ts.
+          fresh = localStorage.getItem("canary-provider") === null;
+        } catch {
+          fresh = true;
+        }
+        if (fresh) {
+          model.setProvider("cloud");
+          avail = await model.supported();
+        }
+      }
       if (avail === "unavailable" || avail === "unsupported") {
         setMessages(stored);
         hydratedRef.current = true;

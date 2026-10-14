@@ -5,6 +5,7 @@
 // Self-contained (no runtime cross-imports) so plain `node --test` covers it.
 
 import type { CEFR } from "./learn-bank";
+import type { ChatMessage } from "./types";
 
 export interface RoleGoal {
   label: string;
@@ -455,6 +456,38 @@ export function saveRoleDone(id: string | null | undefined, done: boolean[]): vo
 export function buildRoleWrapUp(sc: Scenario): string {
   const did = sc.goals.map((g) => g.label).join(" · ");
   return `🏆 ${sc.icon} ${sc.name} cleared! You: ${did}. 💡 Tip: ${sc.tip}`;
+}
+
+/**
+ * Pre-played demo conversation for `?demo=cafe` (the hiring-link tour).
+ * A flawed first order showcases the 💡 Fix layer, a clean follow-up omits
+ * it, the 💬 lines parse into one-tap chips via extractExamples, and it
+ * closes with the real wrap-up. Seeded messages bypass XP/scoring.
+ */
+export function buildDemoScript(): ChatMessage[] {
+  const sc = scenarioById("cafe");
+  if (!sc) return [];
+  const wrap = buildRoleWrapUp(sc);
+  const script: Array<[ChatMessage["role"], string]> = [
+    ["assistant", `${sc.icon} ${sc.opener}`],
+    ["user", "Give me ice americano big please"],
+    [
+      "assistant",
+      "💡 Fix: (More natural: \"I'd like a large iced americano, please.\")\n" +
+        "▶️ Reply: Got it — one large iced americano! Would you like it hot or iced?\n" +
+        "💬 You can say: \"Iced, please.\" / \"Hot, please.\"",
+    ],
+    ["user", "Iced, please. Medium."],
+    [
+      "assistant",
+      "▶️ Reply: One medium iced americano — coming right up! Anything else with that?\n" +
+        "💬 You can say: \"Yes, please.\" / \"No, that's everything.\"",
+    ],
+    ["user", "No, that's everything. Thanks!"],
+    ["assistant", "▶️ Reply: Perfect — your americano will be right out. Enjoy! ☕"],
+    ["assistant", wrap],
+  ];
+  return script.map(([role, content]) => ({ role, content }));
 }
 
 /**
