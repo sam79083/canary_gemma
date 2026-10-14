@@ -18,7 +18,10 @@ export interface Scenario {
   icon: string;
   setting: string;
   opener: string;
-  goals: [RoleGoal, RoleGoal, RoleGoal];
+  /** Built-ins always carry 3; custom scenes carry 0–3 (or none). */
+  goals: RoleGoal[];
+  /** One-sentence takeaway shown in the wrap-up message when the scene clears. */
+  tip: string;
 }
 
 // NOTE: settings are phrased as "Role: ..." (never a leading "You are a …").
@@ -32,6 +35,7 @@ export const SCENARIOS: Scenario[] = [
     id: "cafe", name: "Cafe Order", icon: "☕",
     setting: "Role: friendly cafe barista taking the customer's order step by step.",
     opener: "Hi there! Welcome to Coco Cafe. What can I get for you today?",
+    tip: "In cafes, lead with 'I'd like…' or 'Can I get…' — then size, then temperature: 'a tall iced americano'.",
     goals: [
       {
         label: "Order a drink",
@@ -40,7 +44,10 @@ export const SCENARIOS: Scenario[] = [
           "tea", "ade", "juice", "smoothie", "drink", "order", "please",
         ],
       },
-      { label: "Pick a size", keywords: ["small", "medium", "large", "regular"] },
+      {
+        label: "Pick a size",
+        keywords: ["small", "medium", "large", "regular", "short", "tall", "grande", "venti"],
+      },
       { label: "Say thanks", keywords: ["thank"] },
     ],
   },
@@ -48,9 +55,17 @@ export const SCENARIOS: Scenario[] = [
     id: "interview", name: "Job Interview", icon: "💼",
     setting: "Role: kind job interviewer for a part-time cafe job, asking one question at a time.",
     opener: "Thanks for coming in! First — tell me a little about yourself.",
+    tip: "Start answers with 'I' + a verb — 'I worked…', 'I learned…'. Short and confident beats long and vague.",
     goals: [
-      { label: "Introduce yourself", keywords: ["name", "called", "am", "my", "from", "student", "work", "live"] },
-      { label: "Name a strength", keywords: ["hard", "friendly", "careful", "punctual", "responsible", "diligent"] },
+      // "m" catches "I'm …" (normalized to "i m"); bare "am" never appears in it.
+      { label: "Introduce yourself", keywords: ["name", "called", "am", "m", "my", "from", "student", "work", "live"] },
+      {
+        label: "Name a strength",
+        keywords: [
+          "hard", "friendly", "careful", "punctual", "responsible", "diligent",
+          "team", "organized", "patient", "honest", "creative", "learner", "fast", "kind",
+        ],
+      },
       { label: "Ask a question back", keywords: ["?"] },
     ],
   },
@@ -58,131 +73,334 @@ export const SCENARIOS: Scenario[] = [
     id: "airport", name: "Airport Help", icon: "✈️",
     setting: "Role: patient airport information desk clerk helping a lost, slightly stressed traveler.",
     opener: "Hello! How can I help you today?",
+    tip: "Question word first, then the place: 'Where is Gate 12?' beats 'Gate 12 where?' every time.",
     goals: [
-      { label: "Say where you go", keywords: ["go", "flight", "gate", "seoul", "tokyo", "bus", "jeju"] },
-      { label: "Show your ticket/time", keywords: ["ticket", "time", "late", "morning", "afternoon", "boarding"] },
-      { label: "Ask for directions", keywords: ["where", "how"] },
+      {
+        label: "Say where you go",
+        keywords: [
+          "go", "flight", "gate", "bus", "seoul", "busan", "tokyo", "jeju",
+          "incheon", "gimpo", "transfer", "transit", "connecting", "terminal",
+          "train", "subway", "taxi", "baggage", "luggage", "departure", "arrival",
+        ],
+      },
+      {
+        label: "Show your ticket/time",
+        keywords: [
+          "ticket", "time", "late", "morning", "afternoon", "evening", "night",
+          "boarding", "delay", "clock", "passport", "reservation", "miss", "book",
+        ],
+      },
+      { label: "Ask for directions", keywords: ["where", "how", "which", "way"] },
     ],
   },
   {
     id: "hotel", name: "Hotel Check-in", icon: "🏨",
     setting: "Role: warm hotel receptionist checking the guest in, one step at a time.",
     opener: "Good evening! Welcome to Hotel Coco. Do you have a reservation?",
+    tip: "Keep one sentence ready: 'I have a reservation under [name].' It solves half of check-in.",
     goals: [
-      { label: "Give your name", keywords: ["name", "reservation", "book"] },
-      { label: "Ask about breakfast/wifi", keywords: ["breakfast", "wifi", "wi-fi", "pool", "checkout"] },
-      { label: "Confirm the room", keywords: ["room", "key", "floor", "night"] },
+      { label: "Give your name", keywords: ["name", "reservation", "book", "confirm", "confirmation", "under", "stay"] },
+      // "wi-fi" could never match (normalized to "wi fi"), so match both halves.
+      {
+        label: "Ask about breakfast/wifi",
+        keywords: ["breakfast", "wifi", "wi", "fi", "internet", "pool", "gym", "parking", "lobby", "time", "checkout"],
+      },
+      {
+        label: "Confirm the room",
+        keywords: ["room", "key", "card", "floor", "night", "twin", "double", "suite", "view", "smoke"],
+      },
     ],
   },
   {
     id: "smalltalk", name: "Small Talk", icon: "💬",
     setting: "Role: friendly classmate chatting lightly before class, asking about the learner too.",
     opener: "Hey! How was your weekend?",
+    tip: "'Because' is your best friend — one reason turns a 3-word answer into real conversation.",
     goals: [
-      { label: "Answer + reason (because)", keywords: ["because"] },
+      { label: "Answer + reason (because)", keywords: ["because", "cuz", "cos", "since"] },
       { label: "Ask back", keywords: ["?"] },
-      { label: "Use past tense", keywords: ["was", "were", "went", "did", "had", "watched", "visited", "played"] },
+      {
+        label: "Use past tense",
+        keywords: [
+          "was", "were", "went", "did", "had", "watched", "visited", "played",
+          "ate", "drank", "slept", "woke", "met", "saw", "got", "took",
+          "came", "left", "felt", "thought", "said", "told", "made", "bought",
+          "spent", "tried",
+        ],
+      },
     ],
   },
   {
     id: "doctor", name: "Doctor Visit", icon: "🩺",
     setting: "Role: gentle clinic doctor asking about the patient's symptoms one at a time.",
     opener: "Hello, come in. What seems to be the problem today?",
+    tip: "Say 'since Monday', not 'from Monday' — duration ('for three days') or start point ('since Monday') is what clinics chart.",
     goals: [
-      { label: "Describe the symptom", keywords: ["hurt", "pain", "sick", "fever", "cough", "headache", "cold", "stomach"] },
-      { label: "Say since when", keywords: ["since", "yesterday", "days", "morning", "week", "ago"] },
-      { label: "Ask for medicine/advice", keywords: ["medicine", "should", "advice", "prescription", "rest"] },
+      {
+        label: "Describe the symptom",
+        keywords: [
+          "hurt", "pain", "sick", "fever", "cough", "headache", "cold", "stomach",
+          "sore", "throat", "dizzy", "nose", "runny", "stuffy", "ache",
+          "vomit", "rash", "swollen", "tired",
+        ],
+      },
+      {
+        label: "Say since when",
+        keywords: ["since", "yesterday", "today", "last", "night", "morning", "days", "hours", "week", "month", "ago", "just"],
+      },
+      {
+        label: "Ask for medicine/advice",
+        keywords: ["medicine", "pill", "syrup", "treatment", "should", "advice", "prescription", "recommend", "rest", "help"],
+      },
     ],
   },
   {
     id: "restaurant", name: "Restaurant", icon: "🍽️",
     setting: "Role: friendly restaurant server taking a dine-in order, handling one request at a time.",
     opener: "Good evening! Table for how many?",
+    tip: "Put 'no' or 'without' right before the item ('no cheese, please') — and allergies always as 'I'm allergic to…', never just 'no'.",
     goals: [
       {
         label: "Order food",
         keywords: [
           "menu", "order", "burger", "pasta", "pizza", "chicken", "rice",
-          "salad", "steak", "soup", "noodle", "fish", "want", "please",
+          "salad", "steak", "soup", "noodle", "fish", "sandwich", "fries",
+          "curry", "sushi", "ramen", "dessert", "cake", "bread", "water",
+          "want", "please",
         ],
       },
       {
         label: "Customize or flag allergy",
         keywords: [
-          "without", "less", "extra", "spicy", "mild", "allergy", "allergic",
-          "vegetarian", "sauce", "cheese", "medium", "rare", "done",
+          "without", "less", "extra", "spicy", "mild", "salty", "sweet",
+          "allergy", "allergic", "vegetarian", "sauce", "cheese", "dressing",
+          "side", "ice", "medium", "rare", "done",
         ],
       },
-      { label: "Ask for the bill", keywords: ["bill", "check", "pay", "card", "cash", "much"] },
+      {
+        label: "Ask for the bill",
+        keywords: ["bill", "check", "pay", "card", "cash", "much", "split", "together", "receipt"],
+      },
     ],
   },
   {
     id: "taxi", name: "Taxi Ride", icon: "🚕",
     setting: "Role: friendly taxi driver confirming the destination and route, one thing at a time.",
     opener: "Hello! Where to?",
+    tip: "Place first, landmark second: 'Myeongdong — the main street entrance.' Drivers navigate by landmarks, not addresses.",
     goals: [
       {
         label: "Say the destination",
         keywords: [
-          "airport", "station", "hotel", "hospital", "school", "mart",
-          "gangnam", "hongdae", "myeongdong", "itaewon", "address",
-          "street", "downtown", "take", "go",
+          "airport", "station", "terminal", "hotel", "hospital", "school",
+          "university", "office", "apartment", "mart", "mall", "gangnam",
+          "hongdae", "myeongdong", "itaewon", "address", "street", "downtown",
+          "subway", "bus", "take", "go",
         ],
       },
       {
         label: "Confirm route or fare",
-        keywords: ["much", "fare", "long", "minutes", "far", "fast", "slow", "hurry", "meter", "card", "cash", "how"],
+        keywords: [
+          "much", "fare", "long", "minutes", "far", "fast", "slow", "hurry",
+          "meter", "traffic", "jam", "left", "right", "straight", "corner",
+          "card", "cash", "how",
+        ],
       },
-      { label: "Arrive + say thanks", keywords: ["thank", "here", "stop", "perfect", "great", "good"] },
+      // No "good": it fires on a plain "good morning" before the ride starts.
+      { label: "Arrive + say thanks", keywords: ["thank", "here", "stop", "perfect", "great", "bye"] },
     ],
   },
   {
     id: "phone", name: "Phone Booking", icon: "📞",
     setting: "Role: polite receptionist taking a phone booking, asking for one detail at a time.",
     opener: "Good morning, Happy Clinic. How can I help you?",
+    tip: "Day + time in one breath — 'Friday morning', 'tomorrow at 3' — then spell your name. That order prevents most callbacks.",
     goals: [
       {
         label: "Say what you need",
-        keywords: ["appointment", "book", "reserve", "doctor", "dentist", "see", "checkup", "consultation", "haircut", "table"],
+        keywords: [
+          "appointment", "book", "reserve", "doctor", "dentist", "see",
+          "checkup", "consultation", "haircut", "table", "salon", "visit",
+          "sick", "cancel", "cancelled", "canceled", "change",
+        ],
       },
       {
         label: "Give a day or time",
         keywords: [
           "monday", "tuesday", "wednesday", "thursday", "friday",
-          "saturday", "sunday", "today", "tomorrow", "weekend",
-          "morning", "afternoon", "evening", "clock", "time",
+          "saturday", "sunday", "today", "tomorrow", "tonight", "weekend",
+          "morning", "afternoon", "evening", "night", "noon", "clock", "time",
         ],
       },
-      { label: "Confirm details", keywords: ["name", "number", "phone", "confirm", "thank", "great", "perfect"] },
+      // No "great"/"perfect": they fire on turn-1 softeners ("Perfect, I'd like…").
+      { label: "Confirm details", keywords: ["name", "number", "phone", "mobile", "confirm", "confirmation", "spell", "thank", "yes"] },
     ],
   },
   {
     id: "return", name: "Store Exchange", icon: "🛍️",
     setting: "Role: helpful store clerk handling a return or exchange, one step at a time.",
     opener: "Hi! What can I do for you today?",
+    tip: "Facts first, ask second: 'I bought this yesterday' + receipt, then 'Can I exchange it?' — the order makes 'yes' easy.",
     goals: [
       {
         label: "Explain the problem",
-        keywords: ["return", "exchange", "refund", "broken", "wrong", "size", "small", "tight", "damaged", "defect", "rip", "stain"],
+        keywords: [
+          "return", "exchange", "refund", "broken", "wrong", "size", "small",
+          "big", "large", "long", "tight", "color", "different", "hole",
+          "missing", "fade", "damage", "defect", "rip", "stain",
+        ],
       },
-      { label: "Say when / receipt", keywords: ["receipt", "yesterday", "today", "bought", "week", "ago", "days"] },
-      { label: "Ask for a solution", keywords: ["change", "possible", "can", "could", "another", "new", "please", "refund"] },
+      {
+        label: "Say when / receipt",
+        keywords: ["receipt", "yesterday", "today", "last", "bought", "week", "month", "days", "hours", "ago", "just"],
+      },
+      {
+        label: "Ask for a solution",
+        keywords: ["change", "possible", "can", "could", "another", "new", "please", "refund", "credit", "send", "replace", "replacement"],
+      },
     ],
   },
 ];
 
 const ROLE_KEY = "canary-roleplay";
+const ROLE_DONE_KEY = "canary-roleplay-done";
 
 export function scenarioById(id: string | null | undefined): Scenario | null {
   if (!id) return null;
   return SCENARIOS.find((s) => s.id === id) ?? null;
 }
 
+export function isCustomId(id: string | null | undefined): boolean {
+  return !!id && id.startsWith("custom-");
+}
+
+// ---- User-created scenes (option A: no more hardcoded-only list) ----
+
+export interface CustomDraft {
+  name: string;
+  icon: string;
+  setting: string;
+  opener: string;
+  /** Plain goal labels, 0–3 used (keywords are derived, not asked). */
+  goals: string[];
+}
+
+export interface CustomScene extends CustomDraft {
+  id: string;
+}
+
+const CUSTOM_KEY = "canary-custom-scenes";
+const MAX_CUSTOM = 20;
+
+const LABEL_STOP = new Set([
+  "the", "a", "an", "to", "for", "of", "and", "or", "my", "your", "you",
+  "with", "that", "this", "about", "please", "on", "in", "at", "is", "are", "it",
+]);
+
+/** Gradeable keywords derived from a user's goal label ("Order a pizza" → order+pizza). */
+export function keywordsFromLabel(label: string): string[] {
+  return ((label || "").toLowerCase().match(/[a-z0-9]+/g) ?? [])
+    .filter((w) => w.length > 2 && !LABEL_STOP.has(w))
+    .slice(0, 6);
+}
+
+const CUSTOM_TIP =
+  "Free practice counts too — notice which sentences felt easy, and reuse them next time.";
+
+export function toScenario(c: CustomScene): Scenario {
+  return {
+    id: c.id,
+    name: c.name,
+    icon: c.icon,
+    setting: `Role: ${c.setting}`,
+    opener: c.opener,
+    goals: c.goals.map((label) => ({ label, keywords: keywordsFromLabel(label) })),
+    tip: CUSTOM_TIP,
+  };
+}
+
+/** Built-in or custom scene by id (customs supplied by the caller). */
+export function resolveScenario(
+  id: string | null | undefined,
+  customs: CustomScene[] = [],
+): Scenario | null {
+  if (!id) return null;
+  const builtin = SCENARIOS.find((s) => s.id === id);
+  if (builtin) return builtin;
+  const custom = customs.find((c) => c.id === id);
+  return custom ? toScenario(custom) : null;
+}
+
+export function createCustomScene(d: CustomDraft): CustomScene | null {
+  const name = (d.name || "").trim().slice(0, 30);
+  const setting = (d.setting || "").trim().slice(0, 300);
+  if (!name || !setting) return null;
+  const opener = (d.opener || "").trim().slice(0, 200) || "Hi! Let's practice — you start.";
+  const goals = (Array.isArray(d.goals) ? d.goals : [])
+    .map((g) => (g || "").trim().slice(0, 60))
+    .filter(Boolean)
+    .slice(0, 3);
+  const icon = (d.icon || "").trim().slice(0, 4) || "🎭";
+  return { id: `custom-${Date.now().toString(36)}`, name, icon, setting, opener, goals };
+}
+
+export function loadCustomScenes(): CustomScene[] {
+  try {
+    if (typeof localStorage === "undefined") return [];
+    const raw = localStorage.getItem(CUSTOM_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as unknown;
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter(
+        (x): x is CustomScene =>
+          !!x &&
+          typeof x === "object" &&
+          typeof (x as CustomScene).id === "string" &&
+          (x as CustomScene).id.startsWith("custom-") &&
+          typeof (x as CustomScene).name === "string" &&
+          (x as CustomScene).name.trim() !== "" &&
+          typeof (x as CustomScene).setting === "string" &&
+          (x as CustomScene).setting.trim() !== "",
+      )
+      .map((x) => ({
+        id: (x as CustomScene).id.slice(0, 40),
+        name: (x as CustomScene).name.trim().slice(0, 30),
+        icon: typeof (x as CustomScene).icon === "string" && (x as CustomScene).icon.trim()
+          ? (x as CustomScene).icon.trim().slice(0, 4)
+          : "🎭",
+        setting: (x as CustomScene).setting.trim().slice(0, 300),
+        opener: typeof (x as CustomScene).opener === "string" && (x as CustomScene).opener.trim()
+          ? (x as CustomScene).opener.trim().slice(0, 200)
+          : "Hi! Let's practice — you start.",
+        goals: Array.isArray((x as CustomScene).goals)
+          ? (x as CustomScene).goals
+            .filter((g): g is string => typeof g === "string" && g.trim() !== "")
+            .map((g) => g.trim().slice(0, 60))
+            .slice(0, 3)
+          : [],
+      }))
+      .slice(0, MAX_CUSTOM);
+  } catch {
+    return [];
+  }
+}
+
+export function saveCustomScenes(list: CustomScene[]): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(CUSTOM_KEY, JSON.stringify(list.slice(0, MAX_CUSTOM)));
+  } catch {
+    // best-effort
+  }
+}
+
 export function loadRoleplay(): string | null {
   try {
     if (typeof localStorage === "undefined") return null;
     const raw = localStorage.getItem(ROLE_KEY);
-    return raw && SCENARIOS.some((s) => s.id === raw) ? raw : null;
+    // Built-ins plus user-created scenes (custom ids survive reload too).
+    return raw && (SCENARIOS.some((s) => s.id === raw) || raw.startsWith("custom-")) ? raw : null;
   } catch {
     return null;
   }
@@ -196,6 +414,69 @@ export function saveRoleplay(id: string | null): void {
   } catch {
     // best-effort
   }
+}
+
+const DONE_OFF: [boolean, boolean, boolean] = [false, false, false];
+
+/** Goal checkmarks for a scene (survive reload via localStorage). */
+export function loadRoleDone(id: string | null | undefined): [boolean, boolean, boolean] {
+  try {
+    if (typeof localStorage === "undefined" || !id) return [...DONE_OFF] as [boolean, boolean, boolean];
+    const raw = localStorage.getItem(ROLE_DONE_KEY);
+    if (!raw) return [...DONE_OFF] as [boolean, boolean, boolean];
+    const obj = JSON.parse(raw) as unknown;
+    const arr = (obj as Record<string, unknown>)?.[id];
+    if (!Array.isArray(arr) || arr.length !== 3) return [...DONE_OFF] as [boolean, boolean, boolean];
+    return [arr[0] === true, arr[1] === true, arr[2] === true];
+  } catch {
+    return [...DONE_OFF] as [boolean, boolean, boolean];
+  }
+}
+
+export function saveRoleDone(id: string | null | undefined, done: boolean[]): void {
+  try {
+    if (typeof localStorage === "undefined" || !id) return;
+    const raw = localStorage.getItem(ROLE_DONE_KEY);
+    let obj: Record<string, boolean[]> = {};
+    try {
+      const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+      if (parsed && typeof parsed === "object") obj = parsed as Record<string, boolean[]>;
+    } catch {
+      obj = {};
+    }
+    obj[id] = [done[0] === true, done[1] === true, done[2] === true];
+    localStorage.setItem(ROLE_DONE_KEY, JSON.stringify(obj));
+  } catch {
+    // best-effort
+  }
+}
+
+/** Wrap-up recap pushed as an assistant message when a scene clears. */
+export function buildRoleWrapUp(sc: Scenario): string {
+  const did = sc.goals.map((g) => g.label).join(" · ");
+  return `🏆 ${sc.icon} ${sc.name} cleared! You: ${did}. 💡 Tip: ${sc.tip}`;
+}
+
+/**
+ * One-tap replies: pull the model's `💬 You can say: "A" / "B"` line out of
+ * an assistant message so the UI can render each as a send chip. Returns []
+ * when the reply carries no examples (wrong shape, not a roleplay turn).
+ */
+export function extractExamples(text: string): string[] {
+  const line = (text || "").split("\n").find((l) => /you can say/i.test(l));
+  if (!line) return [];
+  const after = line.split(/you can say/i)[1] ?? "";
+  const cleaned = after.replace(/^[\s:—–-]+/, "");
+  return cleaned
+    .split(/[/|•]/)
+    .map((s) =>
+      s
+        .trim()
+        .replace(/^["'“”`]+|["'“”`.,!?;]+$/g, "")
+        .trim(),
+    )
+    .filter((s) => s.length > 0 && s.length <= 80)
+    .slice(0, 3);
 }
 
 function norm(s: string): string {

@@ -18,11 +18,14 @@ import { HF_DRAW_LABEL } from "@/lib/cloud-model";
 import type { Provider } from "@/hooks/useLanguageModel";
 import type { TFn } from "@/lib/i18n";
 import type { AttachedPhoto } from "./useAttachments";
-import { SCENARIOS } from "@/lib/learn-roleplay";
+import { isCustomId, type CustomDraft, type Scenario } from "@/lib/learn-roleplay";
 
 function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
 }
+
+/** Icon choices for a user-created scene. */
+const SCENE_ICONS = ["🎭", "🛒", "🏦", "💇", "📦", "🍕", "🏥", "🎓", "💼", "☎️"];
 
 /** Prompt box + tool buttons + quota line. */
 export default function Composer({
@@ -68,6 +71,9 @@ export default function Composer({
   roleId,
   onPickScenario,
   roleGoals,
+  scenarios,
+  onAddCustom,
+  onDeleteCustom,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -111,11 +117,23 @@ export default function Composer({
   roleId: string | null;
   onPickScenario: (id: string | null) => void;
   roleGoals: { label: string; done: boolean }[];
+  /** Built-in + user-created scenes (Chat merges them). */
+  scenarios: Scenario[];
+  onAddCustom: (d: CustomDraft) => void;
+  onDeleteCustom: (id: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
+  /** "My situation" scene builder (collapsible, practice row + empty chat). */
+  const [customOpen, setCustomOpen] = useState(false);
+  const [cName, setCName] = useState("");
+  const [cIcon, setCIcon] = useState(SCENE_ICONS[0]);
+  const [cSetting, setCSetting] = useState("");
+  const [cOpener, setCOpener] = useState("");
+  const [cGoals, setCGoals] = useState<string[]>(["", "", ""]);
+  const customList = scenarios.filter((s) => isCustomId(s.id));
 
   /** Grow with the text up to ~6 rows, then scroll inside the box. */
   const autoGrow = useCallback(() => {
@@ -233,12 +251,20 @@ export default function Composer({
               title="Roleplay scenario (empty = free practice chat)"
             >
               <option value="">🎭 Free chat</option>
-              {SCENARIOS.map((s) => (
+              {scenarios.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.icon} {s.name}
                 </option>
               ))}
             </select>
+            <button
+              className="task-chip"
+              onClick={() => setCustomOpen((v) => !v)}
+              disabled={streaming}
+              title="Create your own scene — your situation, your goals"
+            >
+              ＋ Custom
+            </button>
             {roleGoals.map((g) => (
               <span
                 key={g.label}
@@ -249,6 +275,95 @@ export default function Composer({
               </span>
             ))}
           </div>
+          {customOpen ? (
+            <div
+              className="task-row"
+              style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}
+              title="Create your own scene — saved on this device"
+            >
+              <div style={{ display: "flex", gap: 6 }}>
+                <select
+                  className="theme-toggle"
+                  value={cIcon}
+                  onChange={(e) => setCIcon(e.target.value)}
+                  disabled={streaming}
+                  style={{ cursor: "pointer", fontSize: 14 }}
+                  title="Scene icon"
+                >
+                  {SCENE_ICONS.map((ic) => (
+                    <option key={ic} value={ic}>{ic}</option>
+                  ))}
+                </select>
+                <input
+                  value={cName}
+                  onChange={(e) => setCName(e.target.value)}
+                  disabled={streaming}
+                  placeholder="Scene name — e.g. Bank visit"
+                  maxLength={30}
+                  style={{ flex: 1, fontSize: 12, padding: "4px 8px", borderRadius: 8 }}
+                />
+              </div>
+              <input
+                value={cSetting}
+                onChange={(e) => setCSetting(e.target.value)}
+                disabled={streaming}
+                placeholder="Role: who is the AI? e.g. helpful bank clerk helping me open an account"
+                maxLength={300}
+                style={{ fontSize: 12, padding: "4px 8px", borderRadius: 8 }}
+              />
+              <input
+                value={cOpener}
+                onChange={(e) => setCOpener(e.target.value)}
+                disabled={streaming}
+                placeholder="First line (optional) — e.g. Good morning! How can I help?"
+                maxLength={200}
+                style={{ fontSize: 12, padding: "4px 8px", borderRadius: 8 }}
+              />
+              {cGoals.map((g, gi) => (
+                <input
+                  key={gi}
+                  value={g}
+                  onChange={(e) =>
+                    setCGoals((prev) => prev.map((p, pi) => (pi === gi ? e.target.value : p)))
+                  }
+                  disabled={streaming}
+                  placeholder={`Goal ${gi + 1} (optional) — e.g. Ask about fees`}
+                  maxLength={60}
+                  style={{ fontSize: 12, padding: "4px 8px", borderRadius: 8 }}
+                />
+              ))}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <button
+                  className="task-chip"
+                  disabled={streaming || !cName.trim() || !cSetting.trim()}
+                  title="Save and start this scene now"
+                  onClick={() => {
+                    onAddCustom({ name: cName, icon: cIcon, setting: cSetting, opener: cOpener, goals: cGoals });
+                    setCName("");
+                    setCSetting("");
+                    setCOpener("");
+                    setCGoals(["", "", ""]);
+                    setCustomOpen(false);
+                    inputRef.current?.focus();
+                  }}
+                >
+                  ＋ Start this scene
+                </button>
+                {customList.map((s) => (
+                  <span key={s.id} className="task-chip" title={s.name}>
+                    {s.icon} {s.name}{" "}
+                    <button
+                      className="quota-refresh"
+                      title="Delete scene"
+                      onClick={() => onDeleteCustom(s.id)}
+                    >
+                      <X size={12} aria-hidden="true" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div className="task-row" title="Words you are practicing — use one in chat for +5 XP">
             {practiceTargets.length === 0 ? (
               <span style={{ fontSize: 12, opacity: 0.7 }}>
@@ -283,7 +398,7 @@ export default function Composer({
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
           <div className="task-row" title="English roleplay — the AI plays the scene partner and replies in character">
             <span style={{ fontSize: 12, fontWeight: 700 }}>🎭 English roleplay:</span>
-            {SCENARIOS.map((s) => (
+            {scenarios.map((s) => (
               <button
                 key={s.id}
                 className="task-chip"
@@ -299,6 +414,18 @@ export default function Composer({
                 {s.icon} {s.name}
               </button>
             ))}
+            <button
+              className="task-chip"
+              onClick={() => {
+                if (!practiceOn) setPracticeOn(true);
+                setCustomOpen(true);
+                inputRef.current?.focus();
+              }}
+              disabled={streaming}
+              title="Create your own scene — your situation, your goals"
+            >
+              ＋ New scene
+            </button>
           </div>
           {agentMode ? (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

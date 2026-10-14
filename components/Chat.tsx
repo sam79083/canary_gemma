@@ -57,11 +57,21 @@ import {
   type PracticeTarget,
 } from "@/lib/learn-useit";
 import {
+  buildRoleWrapUp,
   checkGoals,
+  createCustomScene,
+  loadCustomScenes,
+  loadRoleDone,
   loadRoleplay,
+  resolveScenario,
   roleplayLine,
+  saveCustomScenes,
+  saveRoleDone,
   saveRoleplay,
-  scenarioById,
+  SCENARIOS,
+  toScenario,
+  type CustomDraft,
+  type CustomScene,
 } from "@/lib/learn-roleplay";
 import { awardXP, dayStr, loadLearn, saveLearn } from "@/lib/learn-store";
 import { useAttachments } from "@/components/chat/useAttachments";
@@ -214,7 +224,17 @@ export default function Chat({
   /** Lowercase terms already used (and XP-awarded) this session. */
   const [usedTerms, setUsedTerms] = useState<string[]>([]);
   const practiceScoredRef = useRef<string | null>(null);
+  /** Scene id awaiting its clear wrap-up (pushed after the model's reply). */
+  const roleClearPendingRef = useRef<string | null>(null);
   // ---- Roleplay scenario (structured practice inside Practice mode) ----
+  // User-created scenes live in localStorage; merged with built-ins wherever listed.
+  const [customScenes, setCustomScenes] = useState<CustomScene[]>(() => {
+    try {
+      return loadCustomScenes();
+    } catch {
+      return [];
+    }
+  });
   const [roleId, setRoleId] = useState<string | null>(() => {
     try {
       return loadRoleplay();
@@ -222,11 +242,17 @@ export default function Chat({
       return null;
     }
   });
-  const [roleDone, setRoleDone] = useState<boolean[]>([false, false, false]);
-  const pickScenario = useCallback((id: string | null) => {
-    const sc = scenarioById(id);
+  const [roleDone, setRoleDone] = useState<boolean[]>(() => {
+    try {
+      return loadRoleDone(loadRoleplay());
+    } catch {
+      return [false, false, false];
+    }
+  });
+  const pickScenario = useCallback((id: string | null, customs?: CustomScene[]) => {
+    const sc = resolveScenario(id, customs ?? customScenes);
     setRoleId(sc ? sc.id : null);
-    setRoleDone([false, false, false]);
+    setRoleDone(loadRoleDone(sc ? sc.id : null));
     try {
       saveRoleplay(sc ? sc.id : null);
     } catch {
@@ -236,7 +262,7 @@ export default function Chat({
       pushMessage("assistant", `${sc.icon} ${sc.opener}`);
       persistChat();
     }
-  }, [pushMessage, persistChat]);
+  }, [pushMessage, persistChat, customScenes]);
   const setPractice = useCallback((on: boolean) => {
     setPracticeOn(on);
     try {
@@ -270,6 +296,42 @@ export default function Chat({
       return next;
     });
   }, []);
+  // Goal checkmarks survive reload (per scene) — a refresh mid-roleplay
+  // no longer wipes the ✓ chips.
+  useEffect(() => {
+    try {
+      saveRoleDone(roleId, roleDone);
+    } catch {
+      // memory is best-effort
+    }
+  }, [roleId, roleDone]);
+  /** Create "my situation" scene (validated in lib) and start it at once. */
+  const addCustom = useCallback((d: CustomDraft) => {
+    const made = createCustomScene(d);
+    if (!made) return;
+    // pickScenario resolves against the post-add list (state lags one render).
+    const next = [...customScenes.filter((c) => c.id !== made.id), made].slice(-20);
+    setCustomScenes(next);
+    try {
+      saveCustomScenes(next);
+    } catch {
+      // ignore
+    }
+    setPractice(true);
+    pickScenario(made.id, next);
+  }, [customScenes, setPractice, pickScenario]);
+  const deleteCustom = useCallback((id: string) => {
+    setCustomScenes((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      try {
+        saveCustomScenes(next);
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+    if (roleId === id) pickScenario(null);
+  }, [roleId, pickScenario]);
   // D: practice-the-selection bubble (text selected inside chat bubbles).
   const [selText, setSelText] = useState<string | null>(null);
   useEffect(() => {
@@ -603,7 +665,7 @@ export default function Chat({
           notes.push(`"${fresh.map((f) => f.term).join('", "')}"`);
         }
       }
-      const sc = scenarioById(roleId);
+      const sc = resolveScenario(roleId, customScenes);
       if (sc) {
         const hits = checkGoals(prompt, sc.goals);
         const freshIdx = hits
@@ -613,7 +675,13 @@ export default function Chat({
           setRoleDone((prev) => prev.map((d, i) => d || hits[i]));
           gained += 3 * freshIdx.length;
           notes.push(freshIdx.map((i) => sc.goals[i].label).join(", "));
-          if (hits.every(Boolean)) notes.push("🏆 Roleplay cleared!");
+          // Custom scenes may carry no goals: nothing to clear, no wrap-up.
+          if (sc.goals.length > 0 && hits.every(Boolean)) {
+            notes.push("🏆 Roleplay cleared!");
+            // First turn where ALL goals stand: queue the wrap-up recap.
+            // It goes out after the model's reply below, never before it.
+            if (!roleDone.every(Boolean)) roleClearPendingRef.current = sc.id;
+          }
         }
       }
       if (gained > 0) {
@@ -757,7 +825,7 @@ export default function Chat({
     // planFlowActiveRef skips this on the delegated re-entry — otherwise
     // approving a plan would draft another plan, forever.
     // Roleplay turns never plan: a cafe order is conversation, not a file task.
-    const roleplayActive = practiceOn && scenarioById(roleId) !== null;
+    const roleplayActive = practiceOn && resolveScenario(roleId, customScenes) !== null;
     if (planMode && sessionRef.current && !planFlowActiveRef.current && !roleplayActive) {
       await runPlanFlow(prompt);
       return;
@@ -817,7 +885,7 @@ export default function Chat({
         let practice = "";
         if (practiceOn) {
           const langName = LANGS.find((l) => l.code === lang)?.modelName ?? "Korean";
-          const sc = scenarioById(roleId);
+          const sc = resolveScenario(roleId, customScenes);
           if (sc) {
             let lv: CEFR | null = null;
             try {
@@ -833,12 +901,22 @@ export default function Chat({
         full = await runModelTurn(pageCtx + prompt + personalityLine + practice);
         const clean = sanitizeAnswer(stripToolCalls(full).trim());
         if (stopRef.current) {
+          roleClearPendingRef.current = null;
           if (clean) pushMessage("assistant", clean);
           pushMessage("assistant", t("chStopped"));
           persistChat();
         } else if (clean) {
           rememberClean(clean);
           pushMessage("assistant", clean);
+          // Scene just cleared: recap + one tip right after the reply.
+          if (roleClearPendingRef.current) {
+            const clearedId = roleClearPendingRef.current;
+            roleClearPendingRef.current = null;
+            const csc = resolveScenario(clearedId, customScenes);
+            if (csc && clearedId === roleId) {
+              pushMessage("assistant", buildRoleWrapUp(csc));
+            }
+          }
           persistChat();
         }
       } catch (e) {
@@ -1108,7 +1186,7 @@ export default function Chat({
       let practice = "";
       if (practiceOn) {
         const langName = LANGS.find((l) => l.code === lang)?.modelName ?? "Korean";
-        const sc = scenarioById(roleId);
+        const sc = resolveScenario(roleId, customScenes);
         if (sc) {
           let lv: CEFR | null = null;
           try {
@@ -1242,7 +1320,7 @@ export default function Chat({
       persistChat();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionRef, busyRef, input, messages, setInput, pushMessage, persistChat, setModelStatus, agentMode, workspace, reviewChange, provider, ensureVision, t, lang, practiceOn, roleId, targets, roleDone]);
+  }, [sessionRef, busyRef, input, messages, setInput, pushMessage, persistChat, setModelStatus, agentMode, workspace, reviewChange, provider, ensureVision, t, lang, practiceOn, roleId, targets, roleDone, customScenes]);
 
   /** Drop the last assistant answer and re-ask the last user text (text only). */
   const handleRegen = useCallback(() => {
@@ -1440,6 +1518,10 @@ export default function Chat({
         searchOpen={searchOpen}
         searchHits={searchHits}
         activeHitIndex={activeHitIndex}
+        onUseExample={(text) => {
+          if (streaming || busyRef.current) return;
+          void handleSend(text);
+        }}
       />
       {readerIdx !== null && messages[readerIdx] ? (
         <ReaderOverlay
@@ -1562,8 +1644,11 @@ export default function Chat({
         onRemoveTarget={dropTarget}
         roleId={roleId}
         onPickScenario={pickScenario}
+        scenarios={[...SCENARIOS, ...customScenes.map(toScenario)]}
+        onAddCustom={addCustom}
+        onDeleteCustom={deleteCustom}
         roleGoals={(() => {
-          const sc = scenarioById(roleId);
+          const sc = resolveScenario(roleId, customScenes);
           return sc ? sc.goals.map((g, i) => ({ label: g.label, done: roleDone[i] ?? false })) : [];
         })()}
       />

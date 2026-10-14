@@ -18,6 +18,7 @@ import { renderMarkdown, stripLeakedToolText } from "@/lib/markdown";
 import { highlightHtml, type HighlightHit, type SearchHit } from "@/lib/search";
 import type { ChatMessage } from "@/lib/types";
 import type { TFn } from "@/lib/i18n";
+import { extractExamples } from "@/lib/learn-roleplay";
 
 /** Message bubbles + right-click menu + live stream block. */
 export default function MessageList({
@@ -46,6 +47,7 @@ export default function MessageList({
   searchOpen = false,
   searchHits = [],
   activeHitIndex = -1,
+  onUseExample,
 }: {
   messages: ChatMessage[];
   streamText: string | null;
@@ -74,6 +76,8 @@ export default function MessageList({
   searchOpen?: boolean;
   searchHits?: SearchHit[];
   activeHitIndex?: number;
+  /** One-tap roleplay replies: parsed from the model's "You can say" line. */
+  onUseExample?: (text: string) => void;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   /** Chat bubble context menu (right-click / long-press). */
@@ -383,6 +387,29 @@ export default function MessageList({
                 : m.content}
             </div>
           )}
+          {(() => {
+            // Roleplay "You can say" line → tappable send chips (beginners
+            // tap instead of retyping). Pure parse, no hooks in the loop.
+            if (m.role !== "assistant" || !onUseExample) return null;
+            const ex = extractExamples(typeof m.content === "string" ? m.content : "");
+            if (ex.length === 0) return null;
+            const send = onUseExample;
+            return (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                {ex.map((e) => (
+                  <button
+                    key={e}
+                    className="task-chip"
+                    disabled={streaming}
+                    title={`Say "${e}"`}
+                    onClick={() => send(e)}
+                  >
+                    💬 {e.length > 28 ? e.slice(0, 28) + "…" : e}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
           {m.image ? (
             <>
               <img src={m.image.url} alt={m.image.name} className="msg-img" />
