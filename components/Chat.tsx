@@ -61,6 +61,7 @@ import {
   buildRoleWrapUp,
   checkGoals,
   createCustomScene,
+  extractCorrectedPhrases,
   loadCustomScenes,
   loadRoleDone,
   loadRoleplay,
@@ -227,6 +228,9 @@ export default function Chat({
   const practiceScoredRef = useRef<string | null>(null);
   /** Scene id awaiting its clear wrap-up (pushed after the model's reply). */
   const roleClearPendingRef = useRef<string | null>(null);
+  const [wrapUpOpen, setWrapUpOpen] = useState(false);
+  const [wrapUpScene, setWrapUpScene] = useState<ReturnType<typeof resolveScenario>>(null);
+  const [wrapUpPhrases, setWrapUpPhrases] = useState<string[]>([]);
   // ---- Roleplay scenario (structured practice inside Practice mode) ----
   // User-created scenes live in localStorage; merged with built-ins wherever listed.
   const [customScenes, setCustomScenes] = useState<CustomScene[]>(() => {
@@ -966,6 +970,10 @@ export default function Chat({
             const csc = resolveScenario(clearedId, customScenes);
             if (csc && clearedId === roleId) {
               pushMessage("assistant", buildRoleWrapUp(csc));
+              const phrases = extractCorrectedPhrases(messages.map((m) => m.content));
+              setWrapUpScene(csc);
+              setWrapUpPhrases(phrases);
+              setWrapUpOpen(true);
             }
           }
           persistChat();
@@ -1765,6 +1773,53 @@ export default function Chat({
           return sc ? sc.goals.map((g, i) => ({ label: g.label, done: roleDone[i] ?? false })) : [];
         })()}
       />
+      {wrapUpOpen && wrapUpScene ? (
+        <div className="review-overlay" role="dialog" aria-modal="true">
+          <div className="review-card" style={{ maxWidth: 420 }}>
+            <h3 style={{ marginTop: 0 }}>Scene complete</h3>
+            <div style={{ fontSize: 13, margin: "8px 0" }}>
+              {"Score: " + roleDone.filter(Boolean).length + "/" + Math.max(1, wrapUpScene.goals.length) + " goals"}
+            </div>
+            <div style={{ fontSize: 13, margin: "8px 0", opacity: 0.85 }}>
+              {wrapUpScene.tip}
+            </div>
+            {wrapUpPhrases.length > 0 ? (
+              <div style={{ margin: "10px 0" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Add to vocab notes:</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {wrapUpPhrases.map((p) => (
+                    <button
+                      key={p}
+                      className="task-chip"
+                      onClick={() => {
+                        setTargets((prev) => {
+                          const next = addTarget(prev, p);
+                          try { saveTargets(next); } catch {}
+                          return next;
+                        });
+                      }}
+                    >
+                      {"+ " + p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="review-actions" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+              <button className="editor-btn" onClick={() => setWrapUpOpen(false)}>Continue</button>
+              <button
+                className="editor-btn primary"
+                onClick={() => {
+                  setWrapUpOpen(false);
+                  pickScenario(null);
+                }}
+              >
+                End scene
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {selText && !streaming ? (
         <button
           className="sidebar-btn small primary"

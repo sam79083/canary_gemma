@@ -665,3 +665,25 @@ export function roleplayLine(sc: Scenario, level: CEFR | null, replyLang: string
     "",
   ].join("\n");
 }
+
+
+export function extractCorrectedPhrases(texts: string[]): string[] {
+  const out: string[] = [];
+  for (const t of texts || []) {
+    const parsed = parseRoleplayReply(t);
+    const fix = parsed.fix || "";
+    const matches = fix.match(/"([^"]{3,80})"/g) || [];
+    for (const m of matches) {
+      const p = m.slice(1, -1).trim();
+      if (p && !out.some((x) => x.toLowerCase() === p.toLowerCase())) out.push(p);
+    }
+    if (matches.length === 0) {
+      const mn = /more natural\s*[:\-]?\s*(.+)/i.exec(fix);
+      if (mn) {
+        const p = mn[1].trim().replace(/^["']+|["'.,!?;]+$/g, "").trim();
+        if (p && p.length <= 80 && !out.some((x) => x.toLowerCase() === p.toLowerCase())) out.push(p);
+      }
+    }
+  }
+  return out.slice(0, 8);
+}
