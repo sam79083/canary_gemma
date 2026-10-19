@@ -18,7 +18,7 @@ import { renderMarkdown, stripLeakedToolText } from "@/lib/markdown";
 import { highlightHtml, type HighlightHit, type SearchHit } from "@/lib/search";
 import type { ChatMessage } from "@/lib/types";
 import type { TFn } from "@/lib/i18n";
-import { extractExamples } from "@/lib/learn-roleplay";
+import { extractExamples, parseRoleplayReply } from "@/lib/learn-roleplay";
 
 /** Message bubbles + right-click menu + live stream block. */
 export default function MessageList({
@@ -48,6 +48,7 @@ export default function MessageList({
   searchHits = [],
   activeHitIndex = -1,
   onUseExample,
+  roleplayActive = false,
 }: {
   messages: ChatMessage[];
   streamText: string | null;
@@ -76,8 +77,10 @@ export default function MessageList({
   searchOpen?: boolean;
   searchHits?: SearchHit[];
   activeHitIndex?: number;
-  /** One-tap roleplay replies: parsed from the model's "You can say" line. */
+  /** One-tap roleplay replies: parsed from the suggestion layer. */
   onUseExample?: (text: string) => void;
+  /** A roleplay scene is active — split replies into Fix / Reply / chips. */
+  roleplayActive?: boolean;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   /** Chat bubble context menu (right-click / long-press). */
@@ -352,7 +355,16 @@ export default function MessageList({
           </button>
         </div>
       ) : null}
-      {messages.map((m, i) => (
+      {messages.map((m, i) => {
+        // Roleplay layer split (💡 Fix / ▶️ Reply / 💬 Try saying). Only for
+        // assistant messages while a scene is active and not in raw/search
+        // view — ordinary chat is left untouched. Pure parse, no hooks.
+        const rp =
+          m.role === "assistant" && roleplayActive && !searchOpen && rawIdx !== i
+            ? parseRoleplayReply(stripLeakedToolText(m.content))
+            : null;
+        const rpLayers = rp?.layered ? rp : null;
+        return (
         <motion.div
           key={i}
           className={`message ${m.role}`}
@@ -363,53 +375,63 @@ export default function MessageList({
         >
           <div className="avatar">{m.role === "user" ? "U" : "G"}</div>
           {m.role === "assistant" ? (
-            rawIdx === i ? (
-              <pre className="content" style={{ fontSize: 12 }}>{stripLeakedToolText(m.content)}</pre>
-            ) : (
-            <div
-              className="content md"
-              dangerouslySetInnerHTML={{
-                __html:
-                  searchOpen && hitsByMsg.get(i)?.length
-                    ? highlightHtml(
-                        renderMarkdown(stripLeakedToolText(m.content), t("mdCopy")),
-                        hitsByMsg.get(i) ?? [],
-                        activeHitIndex,
-                      )
-                    : renderMarkdown(stripLeakedToolText(m.content), t("mdCopy")),
-              }}
-            />
-            )
-          ) : (
-            <div className="content">
-              {searchOpen
-                ? renderHighlightedText(m.content, hitsByMsg.get(i) ?? [])
-                : m.content}
-            </div>
-          )}
-          {(() => {
-            // Roleplay "You can say" line → tappable send chips (beginners
-            // tap instead of retyping). Pure parse, no hooks in the loop.
-            if (m.role !== "assistant" || !onUseExample) return null;
-            const ex = extractExamples(typeof m.content === "string" ? m.content : "");
-            if (ex.length === 0) return null;
-            const send = onUseExample;
-            return (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
-                {ex.map((e) => (
-                  <button
-                    key={e}
-                    className="task-chip"
-                    disabled={streaming}
-                    title={`Say "${e}"`}
-                    onClick={() => send(e)}
-                  >
-                    💬 {e.length > 28 ? e.slice(0, 28) + "…" : e}
-                  </button>
-                ))}
-              </div>
-            );
-          })()}
+            <div className="msg-body">
+              {rawIdx === i ? (
+                <pre className="content" style={{ fontSize: 12 }}>{stripLeakedToolText(m.content)}</pre>
+              ) : rpLayers ? (
+                <>
+                  {rpLayers.fix ? (
+                    <div className="rp-fix">
+                      <span className="rp-fix-label">💡 Fix</span>
+                      <span>{rpLayers.fix}</span>
+                    </div>
+                  ) : null}
+                  <div
+                    className="content md"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(rpLayers.reply, t("mdCopy")) }}
+                  />
+                </>
+              ) : (
+                <div
+                  className="content md"
+                  dangerouslySetInnerHTML={{
+                    __html:
+                      searchOpen && hitsByMsg.get(i)?.length
+                        ? highlightHtml(
+                            renderMarkdown(stripLeakedToolText(m.content), t("mdCopy")),
+                            hitsByMsg.get(i) ?? [],
+                            activeHitIndex,
+                          )
+                        : renderMarkdown(stripLeakedToolText(m.content), t("mdCopy")),
+                  }}
+                />
+              )}
+              {onUseExample
+                ? (() => {
+                    // Suggestion layer → tappable send chips (beginners tap
+                    // instead of retyping). Reuses the parse above so the
+                    // chips never duplicate text shown in the bubble.
+                    const ex = rpLayers ? rpLayers.examples : extractExamples(m.content);
+                    if (ex.length === 0) return null;
+                    const send = onUseExample;
+                    return (
+                      <div className="rp-say">
+                        <span className="rp-say-label">💬 {t("rpTrySaying")}</span>
+                        {ex.map((e) => (
+                          <button
+                            key={e}
+                            className="task-chip"
+                            disabled={streaming}
+                            title={`Say "${e}"`}
+                            onClick={() => send(e)}
+                          >
+                            {e}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()
+                : null}
           {m.image ? (
             <>
               <img src={m.image.url} alt={m.image.name} className="msg-img" />
@@ -451,6 +473,14 @@ export default function MessageList({
               ))}
             </div>
           ) : null}
+            </div>
+          ) : (
+            <div className="content">
+              {searchOpen
+                ? renderHighlightedText(m.content, hitsByMsg.get(i) ?? [])
+                : m.content}
+            </div>
+          )}
           {m.role === "assistant" ? (
             <button
               className="msg-share"
@@ -503,7 +533,8 @@ export default function MessageList({
             </button>
           ) : null}
         </motion.div>
-      ))}
+        );
+      })}
       {emptyChat ? (
         <div className="empty-state">
           <div className="empty-state-title">{t("chEmptyTitle")}</div>

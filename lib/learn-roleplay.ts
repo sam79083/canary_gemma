@@ -473,43 +473,129 @@ export function buildDemoScript(): ChatMessage[] {
     ["user", "Give me ice americano big please"],
     [
       "assistant",
-      "💡 Fix: (More natural: \"I'd like a large iced americano, please.\")\n" +
-        "▶️ Reply: Got it — one large iced americano! Would you like it hot or iced?\n" +
-        "💬 You can say: \"Iced, please.\" / \"Hot, please.\"",
+      "💡 Fix\n(More natural: \"I'd like a large iced americano, please.\")\n\n" +
+        "▶️ Reply\nGot it — one large iced americano! Would you like it hot or iced?\n\n" +
+        "💬 Try saying\n\"Iced, please.\"\n\"Hot, please.\"",
     ],
     ["user", "Iced, please. Medium."],
     [
       "assistant",
-      "▶️ Reply: One medium iced americano — coming right up! Anything else with that?\n" +
-        "💬 You can say: \"Yes, please.\" / \"No, that's everything.\"",
+      "▶️ Reply\nOne medium iced americano — coming right up! Anything else with that?\n\n" +
+        "💬 Try saying\n\"Yes, please.\"\n\"No, that's everything.\"",
     ],
     ["user", "No, that's everything. Thanks!"],
-    ["assistant", "▶️ Reply: Perfect — your americano will be right out. Enjoy! ☕"],
+    ["assistant", "▶️ Reply\nPerfect — your americano will be right out. Enjoy! ☕"],
     ["assistant", wrap],
   ];
   return script.map(([role, content]) => ({ role, content }));
 }
 
-/**
- * One-tap replies: pull the model's `💬 You can say: "A" / "B"` line out of
- * an assistant message so the UI can render each as a send chip. Returns []
- * when the reply carries no examples (wrong shape, not a roleplay turn).
- */
-export function extractExamples(text: string): string[] {
-  const line = (text || "").split("\n").find((l) => /you can say/i.test(l));
-  if (!line) return [];
-  const after = line.split(/you can say/i)[1] ?? "";
-  const cleaned = after.replace(/^[\s:—–-]+/, "");
-  return cleaned
-    .split(/[/|•]/)
+/** Parsed layers of one roleplay reply (see `parseRoleplayReply`). */
+export interface RoleplayReply {
+  /** Correction layer — null when the learner's sentence needed no fix. */
+  fix: string | null;
+  /** In-character scene reply (whole text when the model ignored the format). */
+  reply: string;
+  /** One-tap suggestions parsed from the "Try saying" layer. */
+  examples: string[];
+  /** True when a Reply marker was found — safe for the UI to restyle. */
+  layered: boolean;
+}
+
+type LayerKind = "fix" | "reply" | "say";
+
+const LAYER_MARKER =
+  /(💡|▶️|💬)\s*(?:fix|correction|reply|response|you can say|try saying)?\s*[:\-—]?\s*|(fix|correction|reply|response|you can say|try saying)\s*[:\-—]\s*/gi;
+
+function markerKind(match: string): LayerKind {
+  if (match.includes("💡") || /fix|correction/i.test(match)) return "fix";
+  if (match.includes("▶️") || /reply|response/i.test(match)) return "reply";
+  return "say";
+}
+
+/** Clean one suggestion list ("A" / "B", bullet or newline-separated). */
+function parseExampleList(body: string): string[] {
+  if (!body) return [];
+  const rows = body
+    .split(/\s*[/|•]\s*|\n+/)
     .map((s) =>
       s
         .trim()
+        .replace(/^[\s\-*•\d.)]+/, "")
         .replace(/^["'“”`]+|["'“”`.,!?;]+$/g, "")
         .trim(),
     )
-    .filter((s) => s.length > 0 && s.length <= 80)
-    .slice(0, 3);
+    .filter((s) => s.length > 0 && s.length <= 80);
+  const uniq: string[] = [];
+  for (const r of rows) if (!uniq.includes(r)) uniq.push(r);
+  return uniq.slice(0, 3);
+}
+
+const EMPTY_REPLY: RoleplayReply = { fix: null, reply: "", examples: [], layered: false };
+
+/**
+ * Split a roleplay reply into its labeled layers. Tolerant by design: the
+ * model may print `💡 Fix / ▶️ Reply / 💬 Try saying` with blank lines (the
+ * prompted shape), cram them onto one line, or drop the labels entirely.
+ * Only a Reply marker (▶️ or "Reply:") counts as layered, so ordinary chat
+ * that merely mentions those words is returned untouched.
+ */
+export function parseRoleplayReply(text: string): RoleplayReply {
+  const src = (text || "").replace(/\r\n/g, "\n").trim();
+  if (!src) return EMPTY_REPLY;
+  const plain: RoleplayReply = { ...EMPTY_REPLY, reply: src };
+
+  const marks: Array<{ kind: LayerKind; start: number; end: number }> = [];
+  const re = new RegExp(LAYER_MARKER.source, "gi");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) marks.push({ kind: markerKind(m[0]), start: m.index, end: m.index + m[0].length });
+  if (marks.length === 0 || !marks.some((x) => x.kind === "reply")) return plain;
+
+  const sections: Record<LayerKind, string> = { fix: "", reply: "", say: "" };
+  const seen = new Set<LayerKind>();
+  for (let i = 0; i < marks.length; i++) {
+    const body = src.slice(marks[i].end, i + 1 < marks.length ? marks[i + 1].start : src.length).trim();
+    if (!body) continue;
+    sections[marks[i].kind] = seen.has(marks[i].kind) ? `${sections[marks[i].kind]}\n${body}` : body;
+    seen.add(marks[i].kind);
+  }
+
+  const header = src.slice(0, marks[0].start).trim();
+  if (header) {
+    if (marks[0].kind === "fix") sections.fix = `${header} ${sections.fix}`.trim();
+    else sections.reply = `${header} ${sections.reply}`.trim();
+  }
+
+  return {
+    fix: sections.fix || null,
+    reply: sections.reply,
+    examples: parseExampleList(sections.say),
+    layered: true,
+  };
+}
+
+/** Normalize a reply to the prompted shape, layers separated by blank lines. */
+export function formatRoleplayReply(text: string): string {
+  const rp = parseRoleplayReply(text);
+  if (!rp.layered) return (text || "").trim();
+  const out: string[] = [];
+  if (rp.fix) out.push(`💡 Fix\n${rp.fix}`);
+  out.push(`▶️ Reply\n${rp.reply}`);
+  if (rp.examples.length) out.push(`💬 Try saying\n${rp.examples.map((e) => `"${e}"`).join("\n")}`);
+  return out.join("\n\n");
+}
+
+/**
+ * One-tap replies: pull the model's suggestion layer out of an assistant
+ * message so the UI can render each as a send chip. Returns [] when the
+ * reply carries no examples (wrong shape, not a roleplay turn).
+ */
+export function extractExamples(text: string): string[] {
+  const parsed = parseRoleplayReply(text);
+  if (parsed.layered) return parsed.examples;
+  const m = /(?:💬\s*(?:you can say|try saying)?|you can say|try saying)\s*[:\-—]?\s*([\s\S]*)/i.exec(text || "");
+  if (!m) return [];
+  return parseExampleList(m[1].split(/\n\s*(?:💡|▶️|💬)/)[0]);
 }
 
 function norm(s: string): string {
@@ -569,10 +655,10 @@ export function roleplayLine(sc: Scenario, level: CEFR | null, replyLang: string
     `Scene: ${sc.setting}`,
     `The learner is ${level ?? "A1/A2"} level: keep YOUR lines to 1–3 short sentences, simple words.`,
     "One step at a time — never dump three questions at once. Never lecture about vocabulary or grammar; the scene always comes first.",
-    "Format your reply in layers, each on its own line with its small label. Omit a layer entirely when it isn't needed — never print empty labels.",
-    "Layer 1 — 💡 Fix: if the learner's sentence has a mistake or sounds unnatural, give ONE short correction in parentheses on this line, e.g. `💡 Fix: (More natural: \"I'd like an iced americano, please.\")`. Omit this line when their sentence is fine.",
-    "Layer 2 — ▶️ Reply: your in-character scene reply (always present).",
-    "Layer 3 — 💬 You can say: two short example replies the learner can copy, e.g. `\"Yes, please.\" / \"No, that's everything.\"`. Only when the learner stalls or seems stuck; omit otherwise.",
+    "Format your reply as up to THREE sections, separated by ONE BLANK LINE. Put the section label on its own line, then its content below it. Never put two sections on the same line; omit a section entirely instead of printing an empty label.",
+    "Section 1 — `💡 Fix` (only when the learner's sentence has a mistake or sounds unnatural): ONE short correction, e.g.\n💡 Fix\n(More natural: \"I'd like an iced americano, please.\")",
+    "Section 2 — `▶️ Reply` (always present): your in-character scene reply.",
+    "Section 3 — `💬 Try saying` (only when the learner stalls or seems stuck): two short example replies they can copy, one per line, each in quotes, e.g.\n💬 Try saying\n\"Yes, please.\"\n\"No, that's everything.\"",
     `Reply mostly in ${replyLang}, but keep the scene in English. Under 100 words.`,
     "Never output an identity disclaimer (\"I am Gemma…\") unprompted — just play the scene.",
     "--- End Roleplay ---",

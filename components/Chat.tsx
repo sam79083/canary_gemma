@@ -1627,6 +1627,7 @@ export default function Chat({
         searchOpen={searchOpen}
         searchHits={searchHits}
         activeHitIndex={activeHitIndex}
+        roleplayActive={practiceOn && resolveScenario(roleId, customScenes) !== null}
         onUseExample={(text) => {
           if (streaming || busyRef.current) return;
           void handleSend(text);

@@ -546,6 +546,52 @@ body {
     margin-bottom: 0;
 }
 
+/* Assistant bubble + its chips/attachments stacked in a column. */
+.msg-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+}
+
+/* Roleplay "💡 Fix" callout (shown only when a correction was given). */
+.rp-fix {
+    align-self: flex-start;
+    max-width: 100%;
+    background: var(--status-bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--status-text);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.rp-fix-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.75;
+    margin-bottom: 2px;
+}
+
+/* Roleplay suggestion chips row: "💬 Try saying" label + tappable phrases. */
+.rp-say {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: 2px;
+}
+
+.rp-say-label {
+    font-size: 12px;
+    opacity: 0.65;
+}
+
 .message .content.md .md-h {
     margin: 10px 0 6px;
     font-size: 14px;

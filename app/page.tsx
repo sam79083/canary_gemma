@@ -1876,65 +1876,15 @@ export default function Home() {
           <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <button
               className="theme-toggle"
-              id="search-toggle-btn"
-              title="Search in conversation"
-              onClick={toggleSearch}
-              style={{ cursor: "pointer" }}
-            >
-              🔍
-            </button>
-            <button
-              className="theme-toggle"
               title={`${t("lnTutor")} (Ctrl+J)`}
               onClick={() => {
                 setTutorTab(null);
                 setTutorOpen(true);
               }}
-              style={{ cursor: "pointer", fontWeight: 800 }}
+              style={{ cursor: "pointer", fontWeight: 800, fontSize: 16 }}
             >
-              🦜
+              🦜 Learn
             </button>
-            {member ? (
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <button
-                    className="theme-toggle"
-                    title={auth.user ?? ""}
-                    style={{ cursor: "pointer", fontWeight: 700 }}
-                  >
-                    👤 {auth.user} ✓
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    className="menu-content"
-                    side="bottom"
-                    align="end"
-                    sideOffset={6}
-                  >
-                    <DropdownMenu.Label className="menu-label">
-                      {t("lgMember", { user: auth.user ?? "" })}
-                    </DropdownMenu.Label>
-                    <DropdownMenu.Separator className="menu-separator" />
-                    <DropdownMenu.Item
-                      className="menu-item"
-                      onSelect={() => handleLogout()}
-                    >
-                      {t("lgLogout")}
-                    </DropdownMenu.Item>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
-            ) : (
-              <button
-                className="theme-toggle"
-                title={t("lgLogin")}
-                onClick={() => setLoginOpen(true)}
-                style={{ cursor: "pointer" }}
-              >
-                {t("lgLogin")}
-              </button>
-            )}
             <select
               className="theme-toggle"
               title={t("pgLangTitle")}
@@ -1950,6 +1900,54 @@ export default function Home() {
                 </option>
               ))}
             </select>
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  className="theme-toggle"
+                  title="More options"
+                  style={{ cursor: "pointer", fontSize: 16 }}
+                >
+                  ⋯
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  className="menu-content"
+                  side="bottom"
+                  align="end"
+                  sideOffset={6}
+                >
+                  <DropdownMenu.Item
+                    className="menu-item"
+                    onSelect={toggleSearch}
+                  >
+                    🔍 Search in conversation
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Separator className="menu-separator" />
+                  {member ? (
+                    <>
+                      <DropdownMenu.Label className="menu-label">
+                        {t("lgMember", { user: auth.user ?? "" })}
+                      </DropdownMenu.Label>
+                      <DropdownMenu.Item
+                        className="menu-item"
+                        onSelect={() => handleLogout()}
+                      >
+                        {t("lgLogout")}
+                      </DropdownMenu.Item>
+                    </>
+                  ) : (
+                    <DropdownMenu.Item
+                      className="menu-item"
+                      onSelect={() => setLoginOpen(true)}
+                    >
+                      {t("lgLogin")}
+                    </DropdownMenu.Item>
+                  )}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          </span>
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
                 <button
@@ -1992,7 +1990,6 @@ export default function Home() {
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
-          </span>
           {searchOpen ? (
             <div className="search-bar" id="search-bar" role="search">
               <input

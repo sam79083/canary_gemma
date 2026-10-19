@@ -6,11 +6,13 @@ import {
   checkGoals,
   createCustomScene,
   extractExamples,
+  formatRoleplayReply,
   isCustomId,
   keywordsFromLabel,
   loadCustomScenes,
   loadRoleDone,
   loadRoleplay,
+  parseRoleplayReply,
   resolveScenario,
   roleplayLine,
   scenarioById,
@@ -74,13 +76,57 @@ describe("learn-roleplay scenarios", () => {
     const many = extractExamples('💬 You can say: "a" / "b" | "c" / "d"');
     assert.equal(many.length, 3);
   });
+  it("parseRoleplayReply: full blank-line format", () => {
+    const rp = parseRoleplayReply(
+      "💡 Fix\n(More natural: \"I'd like a large iced americano, please.\")\n\n" +
+        "▶️ Reply\nGot it — one large iced americano!\n\n" +
+        "💬 Try saying\n\"Iced, please.\"\n\"Hot, please.\"",
+    );
+    assert.equal(rp.layered, true);
+    assert.equal(rp.fix, '(More natural: "I\'d like a large iced americano, please.")');
+    assert.equal(rp.reply, "Got it — one large iced americano!");
+    assert.deepEqual(rp.examples, ["Iced, please", "Hot, please"]);
+  });
+  it("parseRoleplayReply: crammed single line", () => {
+    const rp = parseRoleplayReply(
+      "💡 Fix: (Good.) ▶️ Okay. Can you describe it? 💬 \"It's dull.\" / \"It comes and goes.\"",
+    );
+    assert.equal(rp.layered, true);
+    assert.equal(rp.fix, "(Good.)");
+    assert.equal(rp.reply, "Okay. Can you describe it?");
+    assert.deepEqual(rp.examples, ["It's dull", "It comes and goes"]);
+  });
+  it("parseRoleplayReply: no fix layer", () => {
+    const rp = parseRoleplayReply("▶️ Reply\nOne medium iced americano, coming right up!");
+    assert.equal(rp.fix, null);
+    assert.equal(rp.reply, "One medium iced americano, coming right up!");
+    assert.deepEqual(rp.examples, []);
+  });
+  it("parseRoleplayReply: plain chat untouched", () => {
+    const rp = parseRoleplayReply("Just a normal reply with no layers at all.");
+    assert.equal(rp.layered, false);
+    assert.equal(rp.reply, "Just a normal reply with no layers at all.");
+  });
+  it("parseRoleplayReply: text labels only", () => {
+    const rp = parseRoleplayReply('Reply: Got it.\nYou can say: "A" / "B"');
+    assert.equal(rp.layered, true);
+    assert.equal(rp.reply, "Got it.");
+    assert.deepEqual(rp.examples, ["A", "B"]);
+  });
+  it("formatRoleplayReply: rebuilds blank-line layers", () => {
+    const out = formatRoleplayReply("💡 Fix: (Good.) ▶️ Okay. 💬 \"A\" / \"B\"");
+    assert.equal(out.includes("\n\n"), true);
+    assert.ok(out.startsWith("💡 Fix\n"));
+    assert.ok(out.includes("▶️ Reply\nOkay."));
+    assert.ok(out.includes('💬 Try saying\n"A"\n"B"'));
+  });
   it("persona prompt names the scene, level, language", () => {
     const sc = scenarioById("airport")!;
     const p = roleplayLine(sc, "A2", "Korean");
     assert.ok(p.includes("Airport") && p.includes("A2") && p.includes("Korean"));
     assert.ok(p.toLowerCase().includes("one step at a time"));
-    assert.ok(p.toLowerCase().includes("parentheses"), "scene prompt teaches parenthetical corrections");
-    assert.ok(p.includes("💡 Fix") && p.includes("▶️ Reply") && p.includes("💬 You can say"), "scene prompt labels all three layers");
+    assert.ok(p.includes("ONE short correction"), "scene prompt teaches the fix format");
+    assert.ok(p.includes("💡 Fix") && p.includes("▶️ Reply") && p.includes("💬 Try saying"), "scene prompt labels all three layers");
   });
   it("realistic words grade across scenes", () => {
     // "I'm …" normalizes to "i m": intro must catch the bare contraction.

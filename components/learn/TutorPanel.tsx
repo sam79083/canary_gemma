@@ -165,6 +165,34 @@ type FlashMode = "flip" | "match" | "write";
 
 const VALID_TABS: PTab[] = ["quiz", "idiom", "book", "read", "cards", "listen", "dojo", "say", "work", "review", "essay", "style", "folio", "assess", "me"];
 
+/** Self-explanatory tab groups — each collapses to keep newbies focused. */
+const TAB_GROUPS: { label: string; icon: string; tabs: PTab[] }[] = [
+  { label: "Learn", icon: "📘", tabs: ["quiz", "idiom", "book", "read", "cards", "listen"] },
+  { label: "Speak", icon: "🗣️", tabs: ["say", "dojo", "work"] },
+  { label: "Write", icon: "✍️", tabs: ["essay", "style"] },
+  { label: "Progress", icon: "📊", tabs: ["review", "folio", "assess", "me"] },
+];
+
+function tabLabel(id: PTab, L: (k: string, f: string) => string, flashLen: number, reviewLen: number): string {
+  switch (id) {
+    case "quiz": return `⚡ ${L("lnPractice", "Quiz")}`;
+    case "idiom": return `😎 ${L("lnIdiomDay", "Idiom")}`;
+    case "book": return "📖 Book";
+    case "read": return "📰 Read";
+    case "cards": return `🗂️ Cards${flashLen > 0 ? ` (${flashLen})` : ""}`;
+    case "listen": return "👂 Ear";
+    case "dojo": return `💻 ${L("lnDojo", "Code")}`;
+    case "say": return "🗣️ Say";
+    case "work": return "🧑‍💼 Work";
+    case "review": return `🔁 ${L("lnReviewTab", "Review")} (${reviewLen})`;
+    case "essay": return `✍️ ${L("lnEssay", "Essay")}`;
+    case "style": return "✨ Style";
+    case "folio": return "💼 Folio";
+    case "assess": return `🎯 ${L("lnAssess", "Level")}`;
+    case "me": return `🏆 ${L("lnMe", "Me")}`;
+  }
+}
+
 /** Tiny browser TTS: EN-first, no deps. Chat's full hook stays untouched.
  *  Optional rate override (e.g. 0.7 for slow shadowing model). */
 function speakText(text: string, rate?: number): void {
@@ -270,6 +298,8 @@ export default function TutorPanel({
   const [tab, setTab] = useState<PTab>(
     initialTab && (VALID_TABS as string[]).includes(initialTab) ? initialTab : "quiz",
   );
+  /** Collapsed tab groups — the active tab's group is always expanded. */
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [gateMode, setGateMode] = useState<GateMode>("menu");
   const [checks, setChecks] = useState<Record<string, boolean>>({});
   const [essayTopicId, setEssayTopicId] = useState<string | null>(null);
@@ -1245,17 +1275,43 @@ export default function TutorPanel({
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 6, padding: "10px 12px 0", overflowX: "auto", scrollbarWidth: "thin" }}>
-        {(["quiz", "idiom", "book", "read", "cards", "listen", "dojo", "say", "work", "review", "essay", "style", "folio", "assess", "me"] as PTab[]).map((id) => (
-          <button
-            key={id}
-            className={`sidebar-btn small${tab === id ? " secondary" : ""}`}
-            onClick={() => { setTab(id); setGateMode("menu"); setAiAnswer(null); }}
-            style={{ flex: "0 0 auto", justifyContent: "center", padding: "8px 10px", fontSize: 13 }}
-          >
-            {id === "quiz" ? `⚡ ${L("lnPractice", "Quiz")}` : id === "idiom" ? `😎 ${L("lnIdiomDay", "Idiom")}` : id === "book" ? `📖 Book` : id === "read" ? `📰 Read` : id === "cards" ? `🗂️ Cards${flash.length > 0 ? ` (${flash.length})` : ""}` : id === "listen" ? `👂 Ear` : id === "dojo" ? `💻 ${L("lnDojo", "Code")}` : id === "say" ? `🗣️ Say` : id === "work" ? `🧑‍💼 Work` : id === "review" ? `🔁 ${L("lnReviewTab", "Review")} (${reviewItems.length})` : id === "essay" ? `✍️ ${L("lnEssay", "Essay")}` : id === "style" ? `✨ Style` : id === "folio" ? `💼 Folio` : id === "assess" ? `🎯 ${L("lnAssess", "Level")}` : `🏆 ${L("lnMe", "Me")}`}
-          </button>
-        ))}
+      <div style={{ padding: "10px 12px 0", display: "flex", flexDirection: "column", gap: 4 }}>
+        {TAB_GROUPS.map((g) => {
+          const isActiveGroup = g.tabs.includes(tab);
+          const isCollapsed = !isActiveGroup && collapsedGroups[g.label] !== false;
+          return (
+            <div key={g.label}>
+              <button
+                className="sidebar-btn small"
+                onClick={() => setCollapsedGroups((prev) => ({ ...prev, [g.label]: !isCollapsed }))}
+                style={{
+                  width: "100%",
+                  justifyContent: "flex-start",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  opacity: isActiveGroup ? 1 : 0.7,
+                  padding: "6px 10px",
+                }}
+              >
+                {g.icon} {g.label} {isCollapsed ? "▸" : "▾"}
+              </button>
+              {!isCollapsed ? (
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", padding: "4px 0 0 12px" }}>
+                  {g.tabs.map((id) => (
+                    <button
+                      key={id}
+                      className={`sidebar-btn small${tab === id ? " secondary" : ""}`}
+                      onClick={() => { setTab(id); setGateMode("menu"); setAiAnswer(null); }}
+                      style={{ padding: "6px 10px", fontSize: 12 }}
+                    >
+                      {tabLabel(id, L, flash.length, reviewItems.length)}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>

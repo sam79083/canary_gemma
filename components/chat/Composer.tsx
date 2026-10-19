@@ -135,6 +135,8 @@ export default function Composer({
   const moreRef = useRef<HTMLDivElement>(null);
   /** "My situation" scene builder (collapsible, practice row + empty chat). */
   const [customOpen, setCustomOpen] = useState(false);
+  /** Scene & voice controls row — collapsed by default to reduce clutter. */
+  const [sceneOpen, setSceneOpen] = useState(false);
   const [cName, setCName] = useState("");
   const [cIcon, setCIcon] = useState(SCENE_ICONS[0]);
   const [cSetting, setCSetting] = useState("");
@@ -249,43 +251,15 @@ export default function Composer({
       {practiceOn ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <div className="task-row" title="Roleplay a scene — the AI plays a character with goals">
-            <select
-              className="theme-toggle"
-              value={roleId ?? ""}
-              onChange={(e) => onPickScenario(e.target.value || null)}
-              disabled={streaming}
-              style={{ cursor: "pointer", fontSize: 12 }}
-              title="Roleplay scenario (empty = free practice chat)"
-            >
-              <option value="">🎭 Free chat</option>
-              {scenarios.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.icon} {s.name}
-                </option>
-              ))}
-            </select>
             <button
               className="task-chip"
-              onClick={() => setCustomOpen((v) => !v)}
+              onClick={() => setSceneOpen((v) => !v)}
               disabled={streaming}
-              title="Create your own scene — your situation, your goals"
+              title="Scene & voice options"
+              style={sceneOpen ? { background: "var(--green)", color: "#fff" } : undefined}
             >
-              ＋ Custom
+              ⚙ Scene & voice
             </button>
-            {voiceLoopAvailable ? (
-              <button
-                className="task-chip"
-                onClick={onToggleVoiceLoop}
-                title="Hands-free voice loop: the AI speaks, your mic opens, what you say is sent automatically — best with headphones"
-                style={
-                  voiceLoop
-                    ? { background: "var(--green)", color: "#fff", fontWeight: 800 }
-                    : undefined
-                }
-              >
-                {voiceLoop ? "🔁 Voice loop ON" : "🔁 Voice loop"}
-              </button>
-            ) : null}
             {roleGoals.map((g) => (
               <span
                 key={g.label}
@@ -296,6 +270,47 @@ export default function Composer({
               </span>
             ))}
           </div>
+          {sceneOpen ? (
+            <div className="task-row">
+              <select
+                className="theme-toggle"
+                value={roleId ?? ""}
+                onChange={(e) => onPickScenario(e.target.value || null)}
+                disabled={streaming}
+                style={{ cursor: "pointer", fontSize: 12 }}
+                title="Roleplay scenario (empty = free practice chat)"
+              >
+                <option value="">🎭 Free chat</option>
+                {scenarios.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.icon} {s.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="task-chip"
+                onClick={() => setCustomOpen((v) => !v)}
+                disabled={streaming}
+                title="Create your own scene — your situation, your goals"
+              >
+                ＋ Custom
+              </button>
+              {voiceLoopAvailable ? (
+                <button
+                  className="task-chip"
+                  onClick={onToggleVoiceLoop}
+                  title="Hands-free voice loop: the AI speaks, your mic opens, what you say is sent automatically — best with headphones"
+                  style={
+                    voiceLoop
+                      ? { background: "var(--green)", color: "#fff", fontWeight: 800 }
+                      : undefined
+                  }
+                >
+                  {voiceLoop ? "🔁 Voice loop ON" : "🔁 Voice loop"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {customOpen ? (
             <div
               className="task-row"
