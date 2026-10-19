@@ -58,6 +58,14 @@ describe("markdown renderer", () => {
     assert.ok(!renderMarkdown("<script>alert(1)</script>").includes("<script>"));
   });
 
+  it("escapes quotes so links cannot break out of href", () => {
+    const h = renderMarkdown('[x](https://a.b/"onmouseover="alert(1))');
+    assert.ok(!h.includes('"onmouseover='), "raw quote injected an attribute");
+    assert.ok(!h.includes('onmouseover="alert'), h);
+    const attr = renderMarkdown('["onmouseover="x](https://a.b/)');
+    assert.ok(!attr.includes('onmouseover="x"'), "quote in link text injected an attribute");
+  });
+
   it("renders unclosed fences (streaming)", () => {
     assert.ok(renderMarkdown("```py\nprint(1)").includes("print(1)"));
   });

@@ -9,7 +9,7 @@
 // bots seeded by week number, so the learner always has rivals at a similar
 // pace. Pure functions — fully test-covered.
 
-export type PortfolioKind = "essay" | "polish" | "sentence" | "file" | "milestone";
+export type PortfolioKind = "essay" | "polish" | "sentence" | "file" | "milestone" | "ielts";
 
 export interface PortfolioEntry {
   id: string;
@@ -96,7 +96,13 @@ const KIND_LABEL: Record<PortfolioKind, string> = {
   sentence: "💬 Sentence",
   file: "📁 File",
   milestone: "🏆 Milestone",
+  ielts: "🎓 IELTS practice",
 };
+
+/** Display label for any stored kind (old data may lack a known kind). */
+export function portfolioKindLabel(kind: string): string {
+  return KIND_LABEL[kind as PortfolioKind] ?? kind;
+}
 
 /** One Markdown document of the whole journey — the shareable artifact. */
 export function exportPortfolioMd(entries: PortfolioEntry[], level: string | null, xp: number): string {

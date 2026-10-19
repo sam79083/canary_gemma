@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getMember, supabaseServer } from "@/supabase/server";
 
-// Free-tier guard: one small JSONB blob per member (level, XP, SRS cards).
-const MAX_BYTES = 100000;
+// Free-tier guard: one JSONB blob per member (level, XP, SRS cards). Heavy
+// users (≈5k SRS cards) approach 500KB; the client slims + retries on 413.
+const MAX_BYTES = 512000;
 
 // GET /api/learn-state — the member's saved learning progress (401 visitors).
 export async function GET() {

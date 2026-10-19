@@ -314,6 +314,67 @@ export function scoreToCEFR(score: number, total: number): CEFR {
   return "A1";
 }
 
+export interface PlacementBand {
+  level: CEFR;
+  correct: number;
+  total: number;
+  passed: boolean;
+}
+
+export interface PlacementReport {
+  level: CEFR;
+  bands: PlacementBand[];
+  /** Items correct / total across all bands. */
+  score: number;
+  total: number;
+  /** True when the ceiling was actually tested (next band failed or C2 passed)
+   *  and no lower band was failed — a clean, trustworthy placement. */
+  confident: boolean;
+}
+
+/**
+ * Band-gated placement — much harder to game than a raw ratio:
+ * the level is the HIGHEST CEFR band where the learner answered ≥2 of 3.
+ * One lucky guess can't lift you a whole level, and one shaky band can't sink
+ * an otherwise solid profile. Bands need at least 2 attempts to count.
+ * Falls back to A1 when nothing passes.
+ */
+export function scorePlacementDetailed(
+  items: { level: CEFR }[],
+  correct: boolean[],
+): PlacementReport {
+  const byBand = new Map<CEFR, { correct: number; total: number }>();
+  items.forEach((it, i) => {
+    const b = byBand.get(it.level) ?? { correct: 0, total: 0 };
+    b.total += 1;
+    if (correct[i]) b.correct += 1;
+    byBand.set(it.level, b);
+  });
+  const bands: PlacementBand[] = CEFR_ORDER.filter((l) => byBand.has(l)).map((l) => {
+    const b = byBand.get(l)!;
+    return {
+      level: l,
+      correct: b.correct,
+      total: b.total,
+      passed: b.total >= 2 && b.correct / b.total >= 2 / 3,
+    };
+  });
+  let level: CEFR = "A1";
+  for (const b of bands) if (b.passed) level = b.level;
+  const above = bands.find((b) => CEFR_ORDER.indexOf(b.level) === CEFR_ORDER.indexOf(level) + 1);
+  const belowFailed = bands.some(
+    (b) => CEFR_ORDER.indexOf(b.level) < CEFR_ORDER.indexOf(level) && !b.passed,
+  );
+  const confident = level === "C2" || (!!above && !above.passed && !belowFailed);
+  return {
+    level,
+    bands,
+    score: bands.reduce((a, b) => a + b.correct, 0),
+    total: bands.reduce((a, b) => a + b.total, 0),
+    confident,
+  };
+}
+
 // --- 30-second self-check ("not sure what my level is?") --------------------
 // Ordered can-do statements, easiest first. Doubles as reading practice;
 // Korean glosses keep true beginners unblocked. Count-based mapping keeps it
@@ -389,13 +450,15 @@ function shuffled<T>(arr: T[], rng: () => number): T[] {
  * 5 at-level (the main set), 2 stretch (one step above). Edges fold inward
  * (A1 warms up at A1; C1 stretches at C1), so nothing is ever above the
  * learner's head. Shuffled per (day, salt), skips recently-seen ids.
- * Zero-token.
+ * `preferSkill` (the active curriculum unit) nudges up to 3 of the main five
+ * toward that skill — a hint, never a filter. Zero-token.
  */
 export function buildDailyLesson(
   dateStr: string,
   level: CEFR | null,
   exclude: string[] = [],
   salt: string | number = "",
+  preferSkill?: Skill,
 ): BankItem[] {
   const lv = levelRank(level ?? "A1");
   const top = CEFR_ORDER.length - 1;
@@ -438,7 +501,12 @@ export function buildDailyLesson(
   };
 
   takeBalanced(warm, 3);
-  takeBalanced(main, 5);
+  if (preferSkill) {
+    takeBalanced(main.filter((i) => i.skill === preferSkill), 3);
+    takeBalanced(main, 2);
+  } else {
+    takeBalanced(main, 5);
+  }
   takeBalanced(reach, 2);
   // Top-up 1: unseen items from anywhere in range.
   if (taken.length < 10) {

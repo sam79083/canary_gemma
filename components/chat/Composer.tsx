@@ -74,6 +74,9 @@ export default function Composer({
   scenarios,
   onAddCustom,
   onDeleteCustom,
+  voiceLoop,
+  voiceLoopAvailable,
+  onToggleVoiceLoop,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -121,6 +124,10 @@ export default function Composer({
   scenarios: Scenario[];
   onAddCustom: (d: CustomDraft) => void;
   onDeleteCustom: (id: string) => void;
+  /** Hands-free roleplay: AI speaks → mic opens → your words auto-send. */
+  voiceLoop: boolean;
+  voiceLoopAvailable: boolean;
+  onToggleVoiceLoop: () => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -265,6 +272,20 @@ export default function Composer({
             >
               ＋ Custom
             </button>
+            {voiceLoopAvailable ? (
+              <button
+                className="task-chip"
+                onClick={onToggleVoiceLoop}
+                title="Hands-free voice loop: the AI speaks, your mic opens, what you say is sent automatically — best with headphones"
+                style={
+                  voiceLoop
+                    ? { background: "var(--green)", color: "#fff", fontWeight: 800 }
+                    : undefined
+                }
+              >
+                {voiceLoop ? "🔁 Voice loop ON" : "🔁 Voice loop"}
+              </button>
+            ) : null}
             {roleGoals.map((g) => (
               <span
                 key={g.label}

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { gradeChoice, gradeFill, type BankItem } from "@/lib/learn-bank";
-import type { AnswerResult } from "@/lib/learn-store";
+import type { AnswerResult, CardGrade } from "@/lib/learn-store";
 import type { UseItBridge } from "./UseItBox";
 import UseItBox from "./UseItBox";
 
@@ -37,12 +37,16 @@ export default function QuizCard({
   onDone,
   cta,
   useIt,
+  srsGrades,
 }: {
   items: BankItem[];
   onDone: (results: AnswerResult[]) => void;
   cta: string;
   /** When set, answered vocab questions offer inline use-it-now practice. */
   useIt?: UseItBridge | null;
+  /** Review mode: after a correct answer, let the learner self-rate
+   *  Hard/Good/Easy (feeds the SM-2 scheduler). Wrong answers are "again". */
+  srsGrades?: boolean;
 }) {
   const [idx, setIdx] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
@@ -50,6 +54,17 @@ export default function QuizCard({
   const [checked, setChecked] = useState<null | boolean>(null);
   const [hintOpen, setHintOpen] = useState(false);
   const [results, setResults] = useState<AnswerResult[]>([]);
+  const [grade, setGradeState] = useState<CardGrade>(2);
+  /** Self-rating updates the just-answered result (default good). */
+  const setGrade = (g: CardGrade) => {
+    setGradeState(g);
+    setResults((prev) => {
+      if (prev.length === 0) return prev;
+      const next = [...prev];
+      next[next.length - 1] = { ...next[next.length - 1], grade: g };
+      return next;
+    });
+  };
   // Anti-farm: ↻ Retry replays for learning, but Done records XP only for
   // the first completion of this mounted set.
   const countedRef = useRef(false);
@@ -61,6 +76,7 @@ export default function QuizCard({
     setTyped("");
     setChecked(null);
     setHintOpen(false);
+    setGradeState(2);
   }, [idx]);
 
   if (items.length === 0) return <p>No questions.</p>;
@@ -178,6 +194,32 @@ export default function QuizCard({
       {checked !== null ? (
         <div style={{ fontSize: 13, background: "var(--border)", borderRadius: 6, padding: 8 }}>
           {checked ? PRAISE[idx % PRAISE.length] : NUDGE[idx % NUDGE.length]} — {item.explain}
+          {srsGrades && checked ? (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>
+                How did that feel? (sets the next review)
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {(
+                  [
+                    [1, "😅 Hard"],
+                    [2, "🙂 Good"],
+                    [3, "⚡ Easy"],
+                  ] as const
+                ).map(([g, label]) => (
+                  <button
+                    key={g}
+                    data-testid={`srs-grade-${g}`}
+                    className={`sidebar-btn small${grade === g ? " secondary" : ""}`}
+                    style={{ width: "auto" }}
+                    onClick={() => setGrade(g)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div style={{ marginTop: 8 }}>
             <button data-testid="quiz-next" className="sidebar-btn small primary" onClick={() => setIdx((v) => v + 1)}>
               {idx + 1 === items.length ? "See result →" : "Next →"}

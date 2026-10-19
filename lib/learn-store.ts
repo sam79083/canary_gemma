@@ -1,9 +1,9 @@
 // Learning progress store — localStorage-first (free-tier safe).
 //
 // Guests AND members share the same local core: level, XP, per-skill stats,
-// per-day aggregates, and SRS card states. Members may later sync the tiny
-// `days` aggregate to Supabase (1 row/user/day); nothing here requires it,
-// so Render/Supabase free tiers stay at ~zero extra cost.
+// per-day aggregates, and SRS card states. Members sync the full state to
+// Supabase (one small JSONB row/member) with an additive merge so two
+// devices never lose each other's work (see mergeLearnState).
 //
 // Pure reducers (emptyState/recordAnswers/...) are runtime-free and covered
 // by test/learn.test.mts. Only loadLearn/saveLearn touch localStorage.
@@ -16,7 +16,7 @@ import type { BankItem, CEFR, Skill } from "./learn-bank";
 // must be self-contained (repo precedent: only type-only cross-imports).
 // lib/learn-srs.ts re-exports these for UI convenience.
 export interface CardState {
-  /** Multiplier applied on pass. Starts 2.5, -0.2 on fail, min 1.3. */
+  /** SM-2 easiness factor. Starts 2.5, moves ±per grade, clamped [1.3, 3.0]. */
   ease: number;
   /** Days until next review. */
   interval: number;
@@ -46,25 +46,46 @@ export function initCard(today: string): CardState {
   return { ease: 2.5, interval: 1, due: today, fails: 0, passes: 0 };
 }
 
-/** Apply one review. pass=true → interval grows; false → reset to 1 day. */
-export function reviewCard(prev: CardState, pass: boolean, today: string): CardState {
-  if (pass) {
-    const interval =
-      prev.passes === 0 ? 1 : prev.passes === 1 ? 6 : Math.max(1, Math.round(prev.interval * prev.ease));
+/** Self-rated SRS grades: 0 again, 1 hard, 2 good, 3 easy (SM-2 q 2–5). */
+export type CardGrade = 0 | 1 | 2 | 3;
+
+const SRS_MAX_INTERVAL = 365; // days — past this, a word is effectively known
+const SRS_EASE_MAX = 3.0;
+
+/**
+ * Apply one review SM-2 style. Accepts a boolean for legacy callers
+ * (true = good, false = again) or an explicit CardGrade from the Review
+ * tab's self-rating. EF follows the SM-2 formula; a lapse resets the
+ * repetition count (passes = 0) so re-learning restarts at 1 day.
+ */
+export function reviewCard(prev: CardState, grade: boolean | CardGrade, today: string): CardState {
+  const g: CardGrade = grade === true ? 2 : grade === false ? 0 : grade;
+  const q = g + 2; // 2, 3, 4, 5
+  const ease = Math.min(
+    SRS_EASE_MAX,
+    Math.max(1.3, Math.round((prev.ease + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))) * 100) / 100),
+  );
+  if (g === 0) {
     return {
-      ease: prev.ease,
-      interval,
-      due: addDays(today, interval),
-      fails: prev.fails,
-      passes: prev.passes + 1,
+      ease,
+      interval: 1,
+      due: addDays(today, 1),
+      fails: prev.fails + 1,
+      passes: 0,
     };
   }
+  const interval =
+    prev.passes === 0
+      ? 1
+      : prev.passes === 1
+        ? 6
+        : Math.min(SRS_MAX_INTERVAL, Math.max(1, Math.round(prev.interval * ease)));
   return {
-    ease: Math.max(1.3, Math.round((prev.ease - 0.2) * 100) / 100),
-    interval: 1,
-    due: addDays(today, 1),
-    fails: prev.fails + 1,
-    passes: prev.passes,
+    ease,
+    interval,
+    due: addDays(today, interval),
+    fails: prev.fails,
+    passes: prev.passes + 1,
   };
 }
 
@@ -125,23 +146,35 @@ export function emptyState(): LearnState {
 export interface AnswerResult {
   item: BankItem;
   correct: boolean;
+  /** Optional self-rating for SRS cards (Review tab). Defaults to
+   *  good (2) on correct, again (0) on wrong. */
+  grade?: CardGrade;
 }
 
 /**
- * Record one finished session (placement, lesson, or review). Returns a NEW
- * state (no mutation): +10 XP per correct, +2 per attempt, per-skill + per-day
- * aggregates, and SRS card updates for vocab items.
+ * Record finished answers. Returns a NEW state (no mutation): +10 XP per
+ * correct, +2 per attempt, per-skill + per-day aggregates, and SRS card
+ * updates for vocab items.
+ *
+ * `lesson: false` records the answers without incrementing the lesson
+ * counter — used by per-item commits (one listening question, one idiom
+ * try) so "lessons" counts sessions, not taps. Callers that batch a whole
+ * session (quiz Done, review, placement, essay) keep the default.
+ * `addLesson` counts a session completed outside recordAnswers (a full
+ * listening round).
  */
 export function recordAnswers(
   prev: LearnState,
   results: AnswerResult[],
   day: string,
+  opts?: { lesson?: boolean },
 ): LearnState {
+  const countsLesson = (opts?.lesson ?? true) && results.length > 0;
   const next: LearnState = {
     version: 1,
     level: prev.level,
     xp: prev.xp,
-    lessons: prev.lessons + (results.length > 0 ? 1 : 0),
+    lessons: prev.lessons + (countsLesson ? 1 : 0),
     skills: {
       vocab: { ...prev.skills.vocab },
       grammar: { ...prev.skills.grammar },
@@ -162,17 +195,46 @@ export function recordAnswers(
     if (r.correct) s.correct += 1;
     if (r.item.word) {
       const before = next.cards[r.item.word] ?? initCard(day);
-      next.cards[r.item.word] = reviewCard(before, r.correct, day);
+      const grade: CardGrade = r.grade ?? (r.correct ? 2 : 0);
+      next.cards[r.item.word] = reviewCard(before, grade, day);
     }
   }
   next.xp += gained;
   const d = next.days[day] ?? { day, xp: 0, lessons: 0, correct: 0, asked: 0 };
   d.xp += gained;
-  d.lessons += results.length > 0 ? 1 : 0;
+  d.lessons += countsLesson ? 1 : 0;
   d.correct += correct;
   d.asked += results.length;
   next.days[day] = d;
   return next;
+}
+
+/** Count one completed session (e.g. a finished listening round) without
+ *  touching XP or skills. Pure. */
+export function addLesson(prev: LearnState, day: string): LearnState {
+  const days = { ...prev.days };
+  const d = days[day] ?? { day, xp: 0, lessons: 0, correct: 0, asked: 0 };
+  days[day] = { ...d, lessons: d.lessons + 1 };
+  return { ...prev, days, lessons: prev.lessons + 1 };
+}
+
+/** Bonus-XP gate keys paid once per calendar day, nested day → key. */
+export type BonusGates = Record<string, Record<string, 1>>;
+
+/**
+ * Anti-farming rule for repeatable bonus XP: each key pays once per day.
+ * Pure and additive — other days are preserved; callers persist `next`
+ * (typically in localStorage) and award XP only when `fresh`. Keeps XP a
+ * learning signal instead of a tap counter.
+ */
+export function gateBonusOnce(
+  gates: BonusGates,
+  day: string,
+  key: string,
+): { fresh: boolean; next: BonusGates } {
+  const today = gates[day] ?? {};
+  if (today[key]) return { fresh: false, next: gates };
+  return { fresh: true, next: { ...gates, [day]: { ...today, [key]: 1 } } };
 }
 
 export function setLevel(prev: LearnState, level: CEFR): LearnState {
@@ -219,11 +281,16 @@ export function weekSeries(state: LearnState, today: string): DayEntry[] {
   return out;
 }
 
-/** Word ids due for review today (only tracked cards). */
+/** Word ids due for review today (only tracked cards), most overdue first. */
 export function dueWords(state: LearnState, today: string): string[] {
   return Object.keys(state.cards)
     .filter((w) => state.cards[w].due <= today)
-    .sort();
+    .sort((a, b) => {
+      const da = state.cards[a].due;
+      const db = state.cards[b].due;
+      if (da !== db) return da < db ? -1 : 1;
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
 }
 
 /** Word ids failed 3+ times — "vocabs you keep forgetting". */
@@ -245,7 +312,7 @@ export function sanitizeLearnState(p: Partial<LearnState>): LearnState {
       const cc = c as Partial<CardState>;
       if (typeof cc.due !== "string") continue;
       cleanCards[w.slice(0, 60)] = {
-        ease: typeof cc.ease === "number" ? Math.min(2.5, Math.max(1.3, cc.ease)) : 2.5,
+        ease: typeof cc.ease === "number" ? Math.min(3.0, Math.max(1.3, cc.ease)) : 2.5,
         interval: typeof cc.interval === "number" ? Math.min(3650, Math.max(1, Math.floor(cc.interval))) : 1,
         due: cc.due.slice(0, 10),
         fails: typeof cc.fails === "number" ? Math.min(1000, Math.max(0, Math.floor(cc.fails))) : 0,
@@ -367,23 +434,108 @@ export function isEmptyState(s: LearnState): boolean {
   return s.level === null && s.xp === 0 && s.lessons === 0;
 }
 
+const CEFR_RANK: Record<CEFR, number> = { A1: 0, A2: 1, B1: 2, B2: 3, C1: 4, C2: 5 };
+
+/** Keep the card with more lifetime reviews; tie → the later due date.
+ *  `fails` merges as max so leech status is never forgotten. */
+function mergeCard(a: CardState, b: CardState): CardState {
+  const ra = a.passes + a.fails;
+  const rb = b.passes + b.fails;
+  const win = ra !== rb ? (ra > rb ? a : b) : a.due >= b.due ? a : b;
+  return { ...win, fails: Math.max(a.fails, b.fails) };
+}
+
 /**
- * Pick the winning state. Remote wins when local is empty (new device) or
- * when the server copy is strictly newer than our last local save.
- * Otherwise local wins (offline-first). Never throws.
+ * Additive, lossless merge of local and remote progress (member sync).
+ * Days and skill counters merge component-wise with max() — never
+ * double-counts a shared history, never drops a device's session. Cards
+ * keep the more-reviewed state per word. Totals are raised to at least the
+ * merged day sums so XP/lessons never go backwards. Pure — covered by
+ * test/learn.test.mts.
  */
-export function chooseState(
-  local: LearnState,
-  localSavedAt: number,
-  remote: RemoteLearn | null,
-): { state: LearnState; from: "local" | "remote" } {
-  if (!remote) return { state: local, from: "local" };
-  if (isEmptyState(local)) return { state: remote.state, from: "remote" };
-  const remoteTs = Date.parse(remote.updated_at);
-  if (Number.isFinite(remoteTs) && remoteTs > localSavedAt) {
-    return { state: remote.state, from: "remote" };
+export function mergeLearnState(local: LearnState, remote: LearnState): LearnState {
+  const days: Record<string, DayEntry> = { ...local.days };
+  for (const [k, e] of Object.entries(remote.days)) {
+    const prev = days[k];
+    days[k] = prev
+      ? {
+          day: k,
+          xp: Math.max(prev.xp, e.xp),
+          lessons: Math.max(prev.lessons, e.lessons),
+          correct: Math.max(prev.correct, e.correct),
+          asked: Math.max(prev.asked, e.asked),
+        }
+      : { ...e, day: k };
   }
-  return { state: local, from: "local" };
+  const cards: Record<string, CardState> = { ...local.cards };
+  for (const [k, c] of Object.entries(remote.cards)) {
+    const prev = cards[k];
+    if (!prev) {
+      cards[k] = c;
+      continue;
+    }
+    cards[k] = mergeCard(prev, c);
+  }
+  let sumXp = 0;
+  let sumLessons = 0;
+  for (const e of Object.values(days)) {
+    sumXp += e.xp;
+    sumLessons += e.lessons;
+  }
+  const level =
+    local.level && remote.level
+      ? CEFR_RANK[local.level] >= CEFR_RANK[remote.level]
+        ? local.level
+        : remote.level
+      : local.level ?? remote.level;
+  return sanitizeLearnState({
+    version: 1,
+    level,
+    xp: Math.max(local.xp, remote.xp, sumXp),
+    lessons: Math.max(local.lessons, remote.lessons, sumLessons),
+    skills: {
+      vocab: {
+        asked: Math.max(local.skills.vocab.asked, remote.skills.vocab.asked),
+        correct: Math.max(local.skills.vocab.correct, remote.skills.vocab.correct),
+      },
+      grammar: {
+        asked: Math.max(local.skills.grammar.asked, remote.skills.grammar.asked),
+        correct: Math.max(local.skills.grammar.correct, remote.skills.grammar.correct),
+      },
+      reading: {
+        asked: Math.max(local.skills.reading.asked, remote.skills.reading.asked),
+        correct: Math.max(local.skills.reading.correct, remote.skills.reading.correct),
+      },
+      writing: {
+        asked: Math.max(local.skills.writing.asked, remote.skills.writing.asked),
+        correct: Math.max(local.skills.writing.correct, remote.skills.writing.correct),
+      },
+      listening: {
+        asked: Math.max(local.skills.listening.asked, remote.skills.listening.asked),
+        correct: Math.max(local.skills.listening.correct, remote.skills.listening.correct),
+      },
+    },
+    days,
+    cards,
+  });
+}
+
+/** Cloud-size fallback: keep the soonest-due 2,000 cards (leeches first),
+ *  the last 120 days, and merge totals back in so the slimmer blob is still
+ *  self-consistent. Used when the server rejects an oversized push. */
+export function slimStateForCloud(state: LearnState): LearnState {
+  const keys = Object.keys(state.cards);
+  const leeches = keys.filter((w) => state.cards[w].fails >= 3);
+  const rest = keys
+    .filter((w) => state.cards[w].fails < 3)
+    .sort((a, b) => (state.cards[a].due < state.cards[b].due ? -1 : 1));
+  const keep = [...leeches, ...rest].slice(0, 2000);
+  const cards: Record<string, CardState> = {};
+  for (const w of keep) cards[w] = state.cards[w];
+  const dayKeys = Object.keys(state.days).sort().slice(-120);
+  const days: Record<string, DayEntry> = {};
+  for (const k of dayKeys) days[k] = state.days[k];
+  return { ...state, cards, days };
 }
 
 /** Last local save timestamp (ms). 0 = never saved on this device. */
@@ -424,15 +576,25 @@ export async function fetchRemote(): Promise<RemoteLearn | null> {
   }
 }
 
-/** PUT /api/learn-state — false for visitors, errors, or oversized blobs. */
+const putState = async (state: LearnState): Promise<Response> =>
+  fetch("/api/learn-state", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ state }),
+  });
+
+/** PUT /api/learn-state — false for visitors or errors. On 413 (blob over
+ *  the free-tier cap) retries once with a slimmed copy so heavy users still
+ *  get cloud backup. */
 export async function pushRemote(state: LearnState): Promise<boolean> {
   try {
-    const res = await fetch("/api/learn-state", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state }),
-    });
-    return res.ok;
+    const res = await putState(state);
+    if (res.ok) return true;
+    if (res.status === 413) {
+      const retry = await putState(slimStateForCloud(state));
+      return retry.ok;
+    }
+    return false;
   } catch {
     return false;
   }

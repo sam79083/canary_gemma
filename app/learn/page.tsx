@@ -12,12 +12,12 @@ export default function LearnPage() {
   const { lang, t } = useLanguage();
   const auth = useAuth();
   const model = useLanguageModel(lang, t, auth.user !== null);
-  const [tab, setTab] = useState<"quiz" | "idiom" | "book" | "cards" | "review" | "essay" | "style" | "folio" | "assess" | "me">("quiz");
+  const [tab, setTab] = useState<"quiz" | "idiom" | "book" | "read" | "cards" | "listen" | "dojo" | "say" | "work" | "review" | "essay" | "style" | "folio" | "assess" | "me">("quiz");
 
   useEffect(() => {
     try {
       const q = new URLSearchParams(window.location.search).get("tab");
-      if (q && ["quiz", "idiom", "book", "cards", "review", "essay", "style", "folio", "assess", "me"].includes(q))
+      if (q && ["quiz", "idiom", "book", "read", "cards", "listen", "dojo", "say", "work", "review", "essay", "style", "folio", "assess", "me"].includes(q))
         setTab(q as typeof tab);
     } catch {
       // ignore

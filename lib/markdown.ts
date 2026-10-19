@@ -5,7 +5,12 @@
 // Unclosed fences (mid-stream) are auto-closed so streaming never breaks.
 
 function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 /**
@@ -43,7 +48,16 @@ function inline(s: string): string {
   // s is already escaped; add inline elements.
   let out = s;
   out = out.replace(/`([^`\n]+)`/g, "<code class=\"md-code\">$1</code>");
-  out = out.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  out = out.replace(
+    /\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
+    (_m, label: string, url: string) => {
+      // Defense-in-depth: esc() already encodes quotes, but strip any quote
+      // entities from the URL so a crafted link can never escape the href
+      // attribute (old payload: [x](https://a/"onmouseover="...)).
+      const safe = url.replace(/&quot;|&#0?39;|&apos;/gi, "");
+      return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+    },
+  );
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   out = out.replace(/(^|[^*\w])\*([^*\n]+)\*/g, "$1<em>$2</em>");
   out = out.replace(/(^|[^~\w])~~([^~\n]+)~~/g, "$1<del>$2</del>");

@@ -431,6 +431,12 @@ export default function Chat({
     lang,
     streaming,
   });
+  // ---- Voice roleplay loop (hands-free: AI speaks → mic opens → auto-send) ----
+  const [voiceLoop, setVoiceLoop] = useState(false);
+  const voiceLoopPhase = useRef<"idle" | "speaking" | "listening">("idle");
+  /** messages.length already read aloud — stops re-speaking the same turn
+   *  when a silent mic session ends without sending. */
+  const voiceLoopSpokeRef = useRef(-1);
   const { copiedIdx, shareMsg, copyText } = useClipboard();
   const { quota, quotaLow, renewal, loadQuota } = useQuota(t);
   const focusInput = useFocusInput({ inputRef, streaming });
@@ -1367,6 +1373,64 @@ export default function Chat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionRef, busyRef, input, messages, setInput, pushMessage, persistChat, setModelStatus, agentMode, workspace, reviewChange, provider, ensureVision, t, lang, practiceOn, roleId, targets, roleDone, customScenes]);
 
+  /**
+   * Voice loop step 1 — a finished assistant turn: read it aloud.
+   * Skipped while another message is being read or mid-phase.
+   */
+  useEffect(() => {
+    if (!voiceLoop || !speech.supported) return;
+    if (streaming || voiceLoopPhase.current !== "idle") return;
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant" || !last.content.trim()) return;
+    if (voiceLoopSpokeRef.current === messages.length) return;
+    // One mic owner at a time: never let TTS talk over an open mic
+    // (the recognizer would hear the AI's own voice).
+    if (listening) toggleVoice();
+    voiceLoopPhase.current = "speaking";
+    voiceLoopSpokeRef.current = messages.length;
+    speech.speak(messages.length - 1, last.content, lang);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceLoop, streaming, messages, speech.supported, listening]);
+
+  /** Voice loop step 2 — read-aloud finished: open the mic for the reply. */
+  useEffect(() => {
+    if (!voiceLoop) return;
+    if (voiceLoopPhase.current !== "speaking" || speech.speakingKey !== null) return;
+    voiceLoopPhase.current = "listening";
+    if (!listening) toggleVoice();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [speech.speakingKey, voiceLoop]);
+
+  /** Voice loop step 3 — mic session ended: send what we heard (if anything). */
+  useEffect(() => {
+    if (!voiceLoop) return;
+    if (voiceLoopPhase.current !== "listening" || listening) return;
+    voiceLoopPhase.current = "idle";
+    const said = input.trim();
+    if (!said) return;
+    if (busyRef.current || streaming || !modelReady) return;
+    setInput("");
+    void handleSend(said);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listening, voiceLoop, input]);
+
+  /** Loop toggle: ON starts the cycle at the next assistant turn; OFF stops
+   *  speech + mic immediately (no surprise recording). */
+  const toggleVoiceLoop = useCallback(() => {
+    if (voiceLoop) {
+      voiceLoopPhase.current = "idle";
+      speech.stop();
+      if (listening) toggleVoice();
+      setVoiceLoop(false);
+      return;
+    }
+    if (!speech.supported || !speechOK) return;
+    if (listening) toggleVoice();
+    voiceLoopPhase.current = "idle";
+    setVoiceLoop(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceLoop, listening, speech, speechOK, toggleVoice]);
+
   /** Drop the last assistant answer and re-ask the last user text (text only). */
   const handleRegen = useCallback(() => {
     if (busyRef.current || streaming || !modelReady) return;
@@ -1692,6 +1756,9 @@ export default function Chat({
         scenarios={[...SCENARIOS, ...customScenes.map(toScenario)]}
         onAddCustom={addCustom}
         onDeleteCustom={deleteCustom}
+        voiceLoop={voiceLoop}
+        voiceLoopAvailable={speech.supported && speechOK && roleId !== null}
+        onToggleVoiceLoop={toggleVoiceLoop}
         roleGoals={(() => {
           const sc = resolveScenario(roleId, customScenes);
           return sc ? sc.goals.map((g, i) => ({ label: g.label, done: roleDone[i] ?? false })) : [];

@@ -9,9 +9,8 @@ import DojoPanel from "@/components/learn/DojoPanel";
 import { useLanguage } from "@/hooks/useLanguage";
 import { useAuth } from "@/hooks/useAuth";
 import {
-  chooseState,
   fetchRemote,
-  loadMetaSavedAt,
+  mergeLearnState,
   pushRemote,
   saveMetaSavedAt,
 } from "@/lib/learn-store";
@@ -22,9 +21,10 @@ import { CEFR_ORDER } from "@/lib/learn-bank";
 import {
   SELF_CHECK,
   getPlacementTest,
-  scoreToCEFR,
+  scorePlacementDetailed,
   suggestLevelFromChecks,
 } from "@/lib/learn-bank";
+import { currentUnit } from "@/lib/learn-curriculum";
 import {
   ESSAY_DRAFT_KEY,
   ESSAY_TOPICS,
@@ -51,9 +51,11 @@ import {
 } from "@/lib/learn-idioms";
 import {
   dayStr,
+  addLesson,
   awardXP,
   dueWords,
   emptyState,
+  gateBonusOnce,
   leechWords,
   loadLearn,
   recordAnswers,
@@ -62,6 +64,7 @@ import {
   weakestSkill,
   weekSeries,
   type AnswerResult,
+  type BonusGates,
   type LearnState,
 } from "@/lib/learn-store";
 import {
@@ -87,14 +90,21 @@ import {
   exportPortfolioMd,
   leagueTable,
   loadPortfolio,
+  portfolioKindLabel,
   removeEntry,
   savePortfolio,
   type PortfolioEntry,
 } from "@/lib/learn-portfolio";
+import { buildProofEvidence, exportProofSheet } from "@/lib/learn-proof";
+import { loadPronounceStats } from "@/lib/learn-pronounce";
 import { spellBatch } from "@/lib/learn-spell";
 import type { Idiom } from "@/lib/learn-idioms";
 import ShadowBox from "@/components/learn/ShadowBox";
 import UseItBox from "@/components/learn/UseItBox";
+import ReadBox from "@/components/learn/ReadBox";
+import PronounceBox from "@/components/learn/PronounceBox";
+import CareerBox from "@/components/learn/CareerBox";
+import IeltsBox from "@/components/learn/IeltsBox";
 import {
   gradeHeard,
   listenBatch,
@@ -134,24 +144,37 @@ import {
   saveChoiceMode,
   type ChoiceMode,
 } from "@/lib/learn-endef";
+import {
+  detectErrors,
+  drillItemFor,
+  emptyErrorProfile,
+  errorDrills,
+  loadErrorProfile,
+  recordErrors,
+  saveErrorProfile,
+  topErrorKinds,
+  ERROR_KIND_LABEL,
+  type ErrorProfile,
+} from "@/lib/learn-errors";
 import { unlockAch } from "@/lib/achievements";
 
-type PTab = "quiz" | "idiom" | "book" | "cards" | "listen" | "dojo" | "review" | "essay" | "style" | "folio" | "assess" | "me";
+type PTab = "quiz" | "idiom" | "book" | "read" | "cards" | "listen" | "dojo" | "say" | "work" | "review" | "essay" | "style" | "folio" | "assess" | "me";
 type GateMode = "menu" | "check" | "test";
 type QuizMode = "quick" | "full" | "exam" | "endless";
 type FlashMode = "flip" | "match" | "write";
 
-const VALID_TABS: PTab[] = ["quiz", "idiom", "book", "cards", "listen", "dojo", "review", "essay", "style", "folio", "assess", "me"];
+const VALID_TABS: PTab[] = ["quiz", "idiom", "book", "read", "cards", "listen", "dojo", "say", "work", "review", "essay", "style", "folio", "assess", "me"];
 
-/** Tiny browser TTS: EN-first, no deps. Chat's full hook stays untouched. */
-function speakText(text: string): void {
+/** Tiny browser TTS: EN-first, no deps. Chat's full hook stays untouched.
+ *  Optional rate override (e.g. 0.7 for slow shadowing model). */
+function speakText(text: string, rate?: number): void {
   try {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     const synth = window.speechSynthesis;
     synth.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "en-US";
-    u.rate = getSpeechRate();
+    u.rate = rate ?? getSpeechRate();
     try {
       const vs = synth.getVoices();
       const en = vs.find((v) => v.lang?.toLowerCase().startsWith("en") && /natural|online|neural|google/i.test(v.name)) ?? vs.find((v) => v.lang?.toLowerCase().startsWith("en"));
@@ -333,7 +356,9 @@ export default function TutorPanel({
     pullingRef.current = true;
     void fetchRemote()
       .then((remote) => {
-        if (remote) setState((prev) => chooseState(prev, loadMetaSavedAt(), remote).state);
+        // Additive merge (never last-writer-wins): two devices keep both
+        // progress sets. The merged result is pushed back on the next debounce.
+        if (remote) setState((prev) => mergeLearnState(prev, remote.state));
       })
       .catch(() => {})
       .finally(() => {
@@ -343,11 +368,23 @@ export default function TutorPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.loading, member, hydrated]);
 
+  const unitNow = useMemo(
+    () => currentUnit(state.lessons, state.level),
+    [state.lessons, state.level],
+  );
   const fullLesson = useMemo(
     // Full set is [warm-up ×3, at-level ×5, reach ×2] — stable all day.
-    () => buildDailyLesson(today, state.level, loadSeen(), `${quizKey}|${openSalt}`),
+    // The active curriculum unit nudges up to 3 of the main five its way.
+    () =>
+      buildDailyLesson(
+        today,
+        state.level,
+        loadSeen(),
+        `${quizKey}|${openSalt}`,
+        unitNow?.unit.skill,
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [today, state.level, quizKey, openSalt],
+    [today, state.level, quizKey, openSalt, unitNow],
   );
   const lesson = useMemo(() => {
     // Quick 5: fresh sample from the big generated pool on every open —
@@ -439,8 +476,15 @@ export default function TutorPanel({
         if (it) out.push(idiomToBankItem(it) as unknown as BankItem);
         continue;
       }
-      // Generated + AI + spelling + listening cards resolve via session cache.
-      if (w.startsWith("gen:") || w.startsWith("ai:") || w.startsWith("spell:") || w.startsWith("listen:")) {
+      // Generated + AI + spelling + listening + error-drill cards resolve via
+      // session cache (error drills are re-registered from the profile on mount).
+      if (
+        w.startsWith("gen:") ||
+        w.startsWith("ai:") ||
+        w.startsWith("spell:") ||
+        w.startsWith("listen:") ||
+        w.startsWith("err:")
+      ) {
         const it = lookupGenWord(w);
         if (it) out.push(it);
       }
@@ -448,19 +492,52 @@ export default function TutorPanel({
     return out.slice(0, 10);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, today, reviewKey]);
-  /** recordAnswers + adaptive rolling buffer (last-20 accuracy for level tips). */
-  const commitAnswers = (prev: LearnState, results: AnswerResult[], day: string): LearnState => {
+  /** recordAnswers + adaptive rolling buffer (last-20 accuracy for level tips).
+   *  `lesson: false` for per-item commits (one listen question, one idiom try) —
+   *  a "lesson" is a finished session, not a tap. */
+  const commitAnswers = (prev: LearnState, results: AnswerResult[], day: string, lesson = true): LearnState => {
     try {
       pushRecent(results.map((r) => r.correct));
     } catch {
       // buffer is best-effort
     }
-    return recordAnswers(prev, results, day);
+    return recordAnswers(prev, results, day, { lesson });
   };
   const finishReview = (results: AnswerResult[]) => {
     if (results.length > 0) markSeen(results.map((r) => r.item.id));
     setState((prev) => commitAnswers(prev, results, today));
     setReviewKey((k) => k + 1);
+  };
+  // ---- Structured error profile: mistakes in the learner's own sentences
+  // become an error radar (Me tab) and drillable ones become SRS cards, so
+  // review targets yesterday's actual slips.
+  const [errorProfile, setErrorProfile] = useState<ErrorProfile>(emptyErrorProfile);
+  useEffect(() => {
+    setErrorProfile(loadErrorProfile());
+  }, []);
+  const errorDrillItems = useMemo(
+    () => (errorProfile.recent.length > 0 ? errorDrills(errorProfile, state.level) : []),
+    [errorProfile, state.level],
+  );
+  useEffect(() => {
+    if (errorDrillItems.length > 0) rememberGenItems(errorDrillItems);
+  }, [errorDrillItems]);
+  /** Record deterministic errors from learner text + queue drills for review. */
+  const recordTextErrors = (text: string, level: CEFR | null) => {
+    const found = detectErrors(text);
+    if (found.length === 0) return;
+    const next = recordErrors(errorProfile, found, today);
+    if (next === errorProfile) return;
+    setErrorProfile(next);
+    saveErrorProfile(next);
+    const drills = found
+      .map((e) => drillItemFor(e, level))
+      .filter((x): x is BankItem => x !== null);
+    if (drills.length > 0) {
+      setState((prev) =>
+        commitAnswers(prev, drills.map((item) => ({ item, correct: false })), today, false),
+      );
+    }
   };
   const unlocked = useMemo(() => unlockedFor([...IDIOMS, ...bulkIdioms], state.level), [state.level, bulkIdioms]);
   const locked = useMemo(() => nextLocked([...IDIOMS, ...bulkIdioms], state.level), [state.level, bulkIdioms]);
@@ -529,10 +606,20 @@ export default function TutorPanel({
   const finishPlacement = (results: AnswerResult[]) => {
     if (results.length === 0) return; // replay Done carries nothing
     markSeen(results.map((r) => r.item.id));
-    const correct = results.filter((r) => r.correct).length;
-    const lv = scoreToCEFR(correct, results.length);
-    setState((prev) => setLevel(commitAnswers(prev, results, today), lv));
-    celebrate(lv);
+    // Band-gated: highest band with ≥2/3 — guess-resistant and forgiving.
+    const report = scorePlacementDetailed(
+      results.map((r) => ({ level: r.item.level })),
+      results.map((r) => r.correct),
+    );
+    setState((prev) => setLevel(commitAnswers(prev, results, today), report.level));
+    celebrate(report.level);
+    if (!report.confident) {
+      try {
+        toast(`Level set to ${report.level} — your band mix was spiky. Retest anytime from Assess.`);
+      } catch {
+        // toast is best-effort
+      }
+    }
     setGateMode("menu");
     setTab("quiz");
   };
@@ -565,6 +652,7 @@ export default function TutorPanel({
   const gradePanelEssay = () => {
     const score = gradeEssay(essayText, essayTopic);
     setEssayResult(score);
+    recordTextErrors(essayText, essayTopic.level);
     setState((prev) =>
       commitAnswers(
         prev,
@@ -709,6 +797,37 @@ export default function TutorPanel({
     if (n <= 0) return;
     setState((prev) => awardXP(prev, n, today));
   };
+  /**
+   * Anti-farming gate for repeatable bonus XP (card +2, match +2 …): each key
+   * pays once per calendar day (rule lives in gateBonusOnce, pure + tested).
+   * Best-effort: if storage is unavailable we still award (never punish study).
+   */
+  const gateBonus = (key: string, n: number): boolean => {
+    let fresh = true;
+    try {
+      const raw = localStorage.getItem("canary-xp-gates");
+      const gates = raw ? (JSON.parse(raw) as BonusGates) : {};
+      const res = gateBonusOnce(gates, today, key);
+      fresh = res.fresh;
+      if (res.fresh) localStorage.setItem("canary-xp-gates", JSON.stringify(res.next));
+    } catch {
+      // storage blocked — award anyway
+    }
+    if (fresh) bonus(n);
+    return fresh;
+  };
+
+  /** Save a card from a non-cards tab and pay the once-a-day +2 XP. */
+  const saveToDeck = (term: string, meaning: string, source: string): boolean => {
+    persistFlash(addCard(flash, term, meaning, source));
+    const paid = gateBonus(`card:${term.toLowerCase()}`, 2);
+    try {
+      toast(paid ? "Card saved 🗂️ +2 XP" : "Card saved 🗂️");
+    } catch {
+      // best-effort
+    }
+    return paid;
+  };
 
   // ---- style lab (AI-powered tone/style feedback) ----
   const [styleText, setStyleText] = useState("");
@@ -754,6 +873,7 @@ export default function TutorPanel({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [essayResult]);
+  const proofMd = () => exportProofSheet(buildProofEvidence(state, folio, loadPronounceStats(), today));
   const downloadMd = (name: string, md: string) => {
     try {
       const blob = new Blob([md], { type: "text/markdown" });
@@ -862,7 +982,7 @@ export default function TutorPanel({
   }, [tab, listenIdx, listenBatchMode, listenRound]);
   const commitListen = (item: ListenItem, correct: boolean) => {
     markSeen([item.id]);
-    setState((prev) => commitAnswers(prev, [{ item, correct }], today));
+    setState((prev) => commitAnswers(prev, [{ item, correct }], today, false));
   };
   const checkListenFill = () => {
     if (!listenItem || listenChecked !== null || !listenTyped.trim()) return;
@@ -882,11 +1002,14 @@ export default function TutorPanel({
     const ok = rate >= 0.5;
     setListenChecked(ok);
     commitListen(listenItem, ok);
-    bonus(ok ? 6 : 2);
+    gateBonus(`shadow:${listenItem.id}`, ok ? 6 : 2);
   };
   const nextListen = () => {
-    if (listenIdx + 1 >= listenItems.length) setListenRound((r) => r + 1);
-    else setListenIdx((i) => i + 1);
+    if (listenIdx + 1 >= listenItems.length) {
+      // A full round (every item answered) is one lesson.
+      setState((prev) => addLesson(prev, today));
+      setListenRound((r) => r + 1);
+    } else setListenIdx((i) => i + 1);
     setListenTyped("");
     setListenChecked(null);
   };
@@ -895,6 +1018,9 @@ export default function TutorPanel({
     if (!idiom || tryState !== null || !tryText.trim()) return;
     setAiAnswer(null); // a new attempt invalidates any previous verdict
     setAiLabel("");
+    // Profile every real attempt (even keyword-miss ones): the error radar
+    // and tomorrow's drills come from the learner's actual sentences.
+    recordTextErrors(tryText, idiom.unlock);
     const scan = scanSentence(tryText, idiom.keywords);
     if (!scan.hasKeywords) {
       setTryState("miss");
@@ -920,6 +1046,7 @@ export default function TutorPanel({
             correct: false,
           }],
           today,
+          false,
         ),
       );
       return;
@@ -941,6 +1068,7 @@ export default function TutorPanel({
           correct: true,
         }],
         today,
+        false,
       ),
     );
     const fun = loadFun();
@@ -1118,14 +1246,14 @@ export default function TutorPanel({
       )}
 
       <div style={{ display: "flex", gap: 6, padding: "10px 12px 0", overflowX: "auto", scrollbarWidth: "thin" }}>
-        {(["quiz", "idiom", "book", "cards", "listen", "dojo", "review", "essay", "style", "folio", "assess", "me"] as PTab[]).map((id) => (
+        {(["quiz", "idiom", "book", "read", "cards", "listen", "dojo", "say", "work", "review", "essay", "style", "folio", "assess", "me"] as PTab[]).map((id) => (
           <button
             key={id}
             className={`sidebar-btn small${tab === id ? " secondary" : ""}`}
             onClick={() => { setTab(id); setGateMode("menu"); setAiAnswer(null); }}
             style={{ flex: "0 0 auto", justifyContent: "center", padding: "8px 10px", fontSize: 13 }}
           >
-            {id === "quiz" ? `⚡ ${L("lnPractice", "Quiz")}` : id === "idiom" ? `😎 ${L("lnIdiomDay", "Idiom")}` : id === "book" ? `📖 Book` : id === "cards" ? `🗂️ Cards${flash.length > 0 ? ` (${flash.length})` : ""}` : id === "listen" ? `👂 Ear` : id === "dojo" ? `💻 ${L("lnDojo", "Code")}` : id === "review" ? `🔁 ${L("lnReviewTab", "Review")} (${reviewItems.length})` : id === "essay" ? `✍️ ${L("lnEssay", "Essay")}` : id === "style" ? `✨ Style` : id === "folio" ? `💼 Folio` : id === "assess" ? `🎯 ${L("lnAssess", "Level")}` : `🏆 ${L("lnMe", "Me")}`}
+            {id === "quiz" ? `⚡ ${L("lnPractice", "Quiz")}` : id === "idiom" ? `😎 ${L("lnIdiomDay", "Idiom")}` : id === "book" ? `📖 Book` : id === "read" ? `📰 Read` : id === "cards" ? `🗂️ Cards${flash.length > 0 ? ` (${flash.length})` : ""}` : id === "listen" ? `👂 Ear` : id === "dojo" ? `💻 ${L("lnDojo", "Code")}` : id === "say" ? `🗣️ Say` : id === "work" ? `🧑‍💼 Work` : id === "review" ? `🔁 ${L("lnReviewTab", "Review")} (${reviewItems.length})` : id === "essay" ? `✍️ ${L("lnEssay", "Essay")}` : id === "style" ? `✨ Style` : id === "folio" ? `💼 Folio` : id === "assess" ? `🎯 ${L("lnAssess", "Level")}` : `🏆 ${L("lnMe", "Me")}`}
           </button>
         ))}
       </div>
@@ -1383,7 +1511,15 @@ export default function TutorPanel({
               <div style={{ fontSize: 40, textAlign: "center" }}>🎁</div>
               <p style={{ textAlign: "center" }}>
                 {L("lnLocked", "Reach {lv} to unlock").replace("{lv}", locked[0]?.unlock ?? "B1")} — {locked.length} {L("lnLockedWhat", "idioms & expressions waiting!")}
-              </p>
+            </p>
+            {unitNow && quizMode !== "exam" && !aiQuiz ? (
+              <div style={{ fontSize: 12, opacity: 0.85, borderLeft: "3px solid var(--green)", paddingLeft: 8 }}>
+                <b>Unit {unitNow.index + 1}/{unitNow.total} · {unitNow.unit.title}</b>{" "}
+                <span style={{ opacity: 0.7 }}>({unitNow.unit.ko})</span>
+                <br />
+                {unitNow.unit.focus} — <i>{unitNow.unit.canDo}</i>
+              </div>
+            ) : null}
               <div style={{ filter: "blur(4px)", userSelect: "none", textAlign: "center", fontSize: 16, fontWeight: 800 }}>
                 break the ice · no cap · spill the tea
               </div>
@@ -1438,7 +1574,7 @@ export default function TutorPanel({
                         <span style={{ fontWeight: 800 }}>"{i.term}"</span>
                         <span style={{ fontSize: 12, opacity: 0.7 }}> · {i.kind} · [{i.unlock}]</span>
                         <br />
-                        <span style={{ fontSize: 13 }}>{i.meaning} ({i.ko})</span>
+                        <span style={{ fontSize: 13 }}>{i.meaning}{i.ko ? ` (${i.ko})` : ""}</span>
                       </button>
                       {bookOpen === i.id ? (
                         <div style={{ fontSize: 13, marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1462,8 +1598,9 @@ export default function TutorPanel({
                               style={{ width: "auto", fontSize: 12 }}
                               onClick={() => {
                                 persistFlash(addCard(flash, i.term, `${i.meaning}${i.ko ? ` (${i.ko})` : ""}`, `phrase:${i.id}`));
+                                gateBonus(`card:${i.term.toLowerCase()}`, 2);
                                 try {
-                                  toast("Card saved 🗂️");
+                                  toast("Card saved 🗂️ +2 XP");
                                 } catch {
                                   // best-effort
                                 }
@@ -1489,6 +1626,37 @@ export default function TutorPanel({
               );
             })()}
           </div>
+        ) : null}
+
+        {tab === "read" ? (
+          <ReadBox
+            level={state.level}
+            cards={flash}
+            onSaveWord={(term, meaning) => saveToDeck(term, meaning, "read")}
+            onFinish={() => gateBonus("read:finish", 3)}
+            onSpeak={speakText}
+          />
+        ) : null}
+
+        {tab === "say" ? (
+          <PronounceBox
+            level={state.level}
+            today={today}
+            onPass={(pairId) => gateBonus(`pron:${pairId}`, 2)}
+            onSpeak={(text, rate) => speakText(text, rate)}
+          />
+        ) : null}
+
+        {tab === "work" ? (
+          <CareerBox
+            level={state.level}
+            today={today}
+            cards={flash}
+            onSaveWord={(term, meaning) => saveToDeck(term, meaning, "work")}
+            onPractice={() => gateBonus("career:interview", 3)}
+            onSendToChat={onSendToChat}
+            onSpeak={speakText}
+          />
         ) : null}
 
         {tab === "cards" ? (
@@ -1526,7 +1694,7 @@ export default function TutorPanel({
                       title={`${w.count}× in your text — add as card (look the meaning up or ask AI)`}
                       onClick={() => {
                         persistFlash(addCard(flash, w.word, "— look up & edit —", "mined:text"));
-                        bonus(2);
+                        gateBonus(`card:${w.word.toLowerCase()}`, 2);
                       }}
                     >
                       + {w.word}{w.count > 1 ? ` ×${w.count}` : ""}
@@ -1548,10 +1716,11 @@ export default function TutorPanel({
                 onChange={(e) => setNewMeaning(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && newTerm.trim() && newMeaning.trim()) {
+                    const t = newTerm.trim().toLowerCase();
                     persistFlash(addCard(flash, newTerm, newMeaning, "custom"));
                     setNewTerm("");
                     setNewMeaning("");
-                    bonus(2);
+                    gateBonus(`card:${t}`, 2);
                   }
                 }}
                 placeholder="Meaning"
@@ -1562,17 +1731,18 @@ export default function TutorPanel({
                 style={{ width: "auto" }}
                 disabled={!newTerm.trim() || !newMeaning.trim()}
                 onClick={() => {
+                  const t = newTerm.trim().toLowerCase();
                   persistFlash(addCard(flash, newTerm, newMeaning, "custom"));
                   setNewTerm("");
                   setNewMeaning("");
-                  bonus(2);
+                  gateBonus(`card:${t}`, 2);
                 }}
               >
                 +
               </button>
             </div>
             {flash.length === 0 ? (
-              <p style={{ fontSize: 13, opacity: 0.75 }}>No cards yet — mine words above, + from the Book 📖, or type your own. Each card earns +2 XP. 🗂️</p>
+              <p style={{ fontSize: 13, opacity: 0.75 }}>No cards yet — mine words above, + from the Book 📖, or type your own. Each new card pays +2 XP (once a day per word). 🗂️</p>
             ) : flashMode === "flip" ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <div style={{ fontSize: 12, opacity: 0.7 }}>{flipIdx + 1} / {flash.length}</div>
@@ -1619,7 +1789,7 @@ export default function TutorPanel({
                 ) : (
                   <>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <span style={{ flex: 1, fontSize: 12, opacity: 0.7 }}>Pick each meaning — +2 XP per correct.</span>
+                      <span style={{ flex: 1, fontSize: 12, opacity: 0.7 }}>Pick each meaning — +2 XP the first time each day.</span>
                       <button className="sidebar-btn small" style={{ width: "auto" }} onClick={() => { setMatchSeed((s) => s + 1); setMatchPicked({}); }}>🎲</button>
                     </div>
                     {buildMatchRound(flash, `${today}|${matchSeed}|${openSalt}`, 5).map((q, qi) => (
@@ -1637,7 +1807,7 @@ export default function TutorPanel({
                                 disabled={done}
                                 onClick={() => {
                                   setMatchPicked((p) => ({ ...p, [qi]: ci }));
-                                  if (ci === q.answerIndex) bonus(2);
+                                  if (ci === q.answerIndex) gateBonus(`match:${q.term.toLowerCase()}`, 2);
                                 }}
                                 style={{
                                   textAlign: "left",
@@ -1669,7 +1839,7 @@ export default function TutorPanel({
                           if (e.key === "Enter" && writeText.trim()) {
                             const ok = gradeWrite(writeText, flash[writeIdx % flash.length].term);
                             setWriteResult(ok);
-                            if (ok) bonus(2);
+                            if (ok) gateBonus(`write:${flash[writeIdx % flash.length].term.toLowerCase()}`, 2);
                           }
                         }}
                         placeholder="Type the term…"
@@ -1681,7 +1851,7 @@ export default function TutorPanel({
                           if (!writeText.trim()) return;
                           const ok = gradeWrite(writeText, flash[writeIdx % flash.length].term);
                           setWriteResult(ok);
-                          if (ok) bonus(2);
+                          if (ok) gateBonus(`write:${flash[writeIdx % flash.length].term.toLowerCase()}`, 2);
                         }}
                       >
                         Check
@@ -1689,7 +1859,7 @@ export default function TutorPanel({
                     </div>
                     {writeResult !== null ? (
                       <div style={{ fontSize: 13, background: "var(--border)", borderRadius: 6, padding: 8 }}>
-                        {writeResult ? "✅ Exactly — +2 XP" : `💪 Answer: "${flash[writeIdx % flash.length].term}"`}
+                        {writeResult ? "✅ Exactly — nice!" : `💪 Answer: "${flash[writeIdx % flash.length].term}"`}
                         <div style={{ marginTop: 6 }}>
                           <button className="sidebar-btn small primary" onClick={() => { setWriteIdx((i) => (i + 1) % flash.length); setWriteText(""); setWriteResult(null); }}>Next →</button>
                         </div>
@@ -1731,7 +1901,7 @@ export default function TutorPanel({
                   <ShadowBox
                     key={listenItem.id}
                     sentence={listenItem.audio}
-                    onSpeak={() => speakText(listenItem.audio)}
+                    onSpeak={(rate) => speakText(listenItem.audio, rate)}
                     onScore={scoreShadow}
                   />
                 ) : (
@@ -1798,7 +1968,7 @@ export default function TutorPanel({
             {reviewItems.length === 0 ? (
               <p style={{ fontSize: 13 }}>✅ {L("lnReviewDone", "Nothing due — come back tomorrow!")}</p>
             ) : (
-              <QuizCard key={`rv-${reviewKey}`} items={reviewItems} cta={L("lnRecord", "Record →")} onDone={finishReview} useIt={{ onAskAI, modelReady, onSendToChat }} />
+              <QuizCard key={`rv-${reviewKey}`} items={reviewItems} cta={L("lnRecord", "Record →")} onDone={finishReview} useIt={{ onAskAI, modelReady, onSendToChat }} srsGrades />
             )}
           </div>
         ) : null}
@@ -1909,7 +2079,7 @@ export default function TutorPanel({
               style={{ width: "100%", boxSizing: "border-box", padding: 10, borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", fontSize: 14, lineHeight: 1.6, resize: "vertical" }}
             />
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              <button className="sidebar-btn small primary" style={{ width: "auto" }} disabled={!styleText.trim()} onClick={() => setStyleChecked(true)}>
+              <button className="sidebar-btn small primary" style={{ width: "auto" }} disabled={!styleText.trim()} onClick={() => { setStyleChecked(true); recordTextErrors(styleText, state.level); }}>
                 🔍 Analyze (free)
               </button>
               <button
@@ -1930,9 +2100,9 @@ export default function TutorPanel({
                 disabled={!styleText.trim()}
                 onClick={() => {
                   persistFolio(addEntry(folio, "polish", styleText.slice(0, 40) + (styleText.length > 40 ? "…" : ""), styleText, `${state.level ?? "?"} · ${path}`));
-                  bonus(3);
+                  const paid = gateBonus("folio:polish", 3);
                   try {
-                    toast("Saved to portfolio 💼 +3 XP");
+                    toast(paid ? "Saved to portfolio 💼 +3 XP" : "Saved to portfolio 💼");
                   } catch {
                     // best-effort
                   }
@@ -1991,6 +2161,7 @@ export default function TutorPanel({
                 </div>
               ))}
             </div>
+            <div style={{ fontSize: 11, opacity: 0.6 }}>Your rivals are practice bots that pace you (they never improve) — your row is the real score. 🤖</div>
             <div style={{ fontSize: 13, fontWeight: 800 }}>💼 Portfolio ({folio.length})</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button
@@ -2015,6 +2186,29 @@ export default function TutorPanel({
                 }}
               >
                 📋 Copy all
+              </button>
+              <button
+                className="sidebar-btn small"
+                style={{ width: "auto", fontSize: 12 }}
+                title="One-page summary of level, streak, accuracy and portfolio — not an official certificate"
+                onClick={() => downloadMd(`english-proof-${today}.md`, proofMd())}
+              >
+                🎓 Proof sheet .md
+              </button>
+              <button
+                className="sidebar-btn small"
+                style={{ width: "auto", fontSize: 12 }}
+                title="Copy the proof sheet to send to a tutor or employer"
+                onClick={() => {
+                  try {
+                    void navigator.clipboard?.writeText(proofMd());
+                    toast("Proof sheet copied 🎓");
+                  } catch {
+                    // clipboard unavailable
+                  }
+                }}
+              >
+                📋 Copy proof
               </button>
               <button
                 className="sidebar-btn small"
@@ -2045,12 +2239,29 @@ export default function TutorPanel({
                       <span style={{ fontSize: 11, opacity: 0.6 }}>{e.at.slice(0, 10)}</span>
                       <button className="sidebar-btn small" style={{ width: "auto", fontSize: 11 }} onClick={() => persistFolio(removeEntry(folio, e.id))}>🗑️</button>
                     </div>
-                    <div style={{ fontSize: 12, opacity: 0.7 }}>{e.kind}{e.meta ? ` · ${e.meta}` : ""}</div>
+                    <div style={{ fontSize: 12, opacity: 0.7 }}>{portfolioKindLabel(e.kind)}{e.meta ? ` · ${e.meta}` : ""}</div>
                     <div style={{ fontSize: 13, marginTop: 4, whiteSpace: "pre-wrap" }}>{e.body.length > 220 ? e.body.slice(0, 220) + "…" : e.body}</div>
                   </div>
                 ))}
               </div>
             )}
+            <details style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
+              <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 800 }}>
+                🎓 Mock IELTS Task 2 (40 min)
+              </summary>
+              <div style={{ marginTop: 8 }}>
+                <IeltsBox
+                  level={state.level}
+                  onSpeak={speakText}
+                  onSave={(title, body, meta) => {
+                    persistFolio(addEntry(folio, "ielts", title, body, meta));
+                    const paid = gateBonus("ielts:submit", 3);
+                    toast(paid ? "IELTS practice saved 🎓 +3 XP" : "IELTS practice saved 🎓");
+                    return paid;
+                  }}
+                />
+              </div>
+            </details>
           </div>
         ) : null}
 
@@ -2109,6 +2320,24 @@ export default function TutorPanel({
               <button className="sidebar-btn small primary" onClick={() => setTab("review")} style={{ textAlign: "center" }}>
                 🔁 {reviewItems.length} due for review →
               </button>
+            ) : null}
+            {errorProfile.recent.length > 0 ? (
+              <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
+                <div style={{ fontWeight: 800, fontSize: 13 }}>🧭 Error radar</div>
+                <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>
+                  Slips caught in your own sentences — repeated ones come back as review drills.
+                </div>
+                {topErrorKinds(errorProfile, 3).map(({ kind, count }) => (
+                  <div key={kind} style={{ fontSize: 13 }}>
+                    • {ERROR_KIND_LABEL[kind]} — ×{count}
+                  </div>
+                ))}
+                {errorProfile.recent[0] ? (
+                  <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
+                    Last: <i>&quot;{errorProfile.recent[0].found}&quot;</i> → {errorProfile.recent[0].fix}
+                  </div>
+                ) : null}
+              </div>
             ) : null}
             <div>
               <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{L("lnPickLevel", "My level:")}</div>

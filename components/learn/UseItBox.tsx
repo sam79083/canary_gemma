@@ -8,7 +8,7 @@ import {
   buildUseItPrompt,
   type PracticeTarget,
 } from "@/lib/learn-useit";
-import { awardXP, dayStr, loadLearn, saveLearn } from "@/lib/learn-store";
+import { awardXP, dayStr, gateBonusOnce, loadLearn, saveLearn, type BonusGates } from "@/lib/learn-store";
 
 export interface UseItBridge {
   onAskAI?: (prompt: string) => Promise<string | null>;
@@ -43,22 +43,37 @@ export default function UseItBox({
   const [chipsOpen, setChipsOpen] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
-  const bonusXp = (n: number) => {
+  /** +2 XP once per calendar day per term — repeat drafts are practice, not payment. */
+  const bonusXp = (): boolean => {
+    let fresh = true;
     try {
-      saveLearn(awardXP(loadLearn(), n, dayStr(new Date())));
+      const today = dayStr(new Date());
+      const raw = localStorage.getItem("canary-xp-gates");
+      const gates = raw ? (JSON.parse(raw) as BonusGates) : {};
+      const res = gateBonusOnce(gates, today, `useit:${term.toLowerCase()}`);
+      fresh = res.fresh;
+      if (res.fresh) localStorage.setItem("canary-xp-gates", JSON.stringify(res.next));
     } catch {
-      // XP is best-effort
+      // storage blocked — award anyway
     }
+    if (fresh) {
+      try {
+        saveLearn(awardXP(loadLearn(), 2, dayStr(new Date())));
+      } catch {
+        // XP is best-effort
+      }
+    }
+    return fresh;
   };
 
   const submitInline = () => {
     if (!text.trim() || busy) return;
     setNote(null);
     if (!bridge.modelReady || !bridge.onAskAI) {
+      const paid = bonusXp();
       setAnswer(
-        "AI isn't ready — but writing it down already counts! +2 XP ✍️ (Start the model for a live verdict.)",
+        `AI isn't ready — but writing it down already counts!${paid ? " +2 XP ✍️" : ""} (Start the model for a live verdict.)`,
       );
-      bonusXp(2);
       return;
     }
     setBusy(true);
@@ -68,7 +83,7 @@ export default function UseItBox({
       .then((out) => {
         if (out && out.trim()) setAnswer(out.trim().slice(0, 1500));
         else setAnswer("AI hiccup — your sentence is saved above; try again ✨");
-        bonusXp(2);
+        bonusXp();
       })
       .catch(() => setAnswer("AI hiccup — your sentence is saved above; try again ✨"))
       .finally(() => setBusy(false));

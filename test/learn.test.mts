@@ -27,7 +27,11 @@ import {
   unlockedFor,
 } from "../lib/learn-idioms.ts";
 import { clearSeen, loadSeen, markSeen } from "../lib/learn-seen.ts";
-import { chooseState, isEmptyState } from "../lib/learn-store.ts";
+import {
+  isEmptyState,
+  mergeLearnState,
+  slimStateForCloud,
+} from "../lib/learn-store.ts";
 import {
   ESSAY_TOPICS,
   buildEssayCoachPrompt,
@@ -37,8 +41,10 @@ import {
   saveEssayAttempt,
 } from "../lib/learn-essay.ts";
 import {
+  addLesson,
   dueWords,
   emptyState,
+  gateBonusOnce,
   leechWords,
   recordAnswers,
   weakestSkill,
@@ -231,31 +237,69 @@ describe("learn-seen", () => {
 });
 
 describe("learn-sync merge", () => {
-  it("picks remote for empty local, newer remote, else local", () => {
+  const day = (n: number) => `2026-10-0${n}`;
+
+  it("merges both devices' days and skills without losing work", () => {
+    const local = emptyState();
+    local.days[day(1)] = { day: day(1), xp: 100, lessons: 3, correct: 8, asked: 10 };
+    local.xp = 100;
+    local.lessons = 3;
+    local.skills.vocab = { asked: 10, correct: 8 };
+    const remote = emptyState();
+    remote.days[day(1)] = { day: day(1), xp: 60, lessons: 2, correct: 5, asked: 8 };
+    remote.days[day(2)] = { day: day(2), xp: 40, lessons: 1, correct: 3, asked: 5 };
+    remote.xp = 100;
+    remote.lessons = 3;
+    remote.skills.vocab = { asked: 8, correct: 5 };
+    remote.skills.listening = { asked: 4, correct: 3 };
+    const m = mergeLearnState(local, remote);
+    // Same-day entry: max wins (no double count), other day kept.
+    assert.equal(m.days[day(1)].xp, 100);
+    assert.equal(m.days[day(2)].xp, 40);
+    assert.equal(m.skills.vocab.asked, 10);
+    assert.equal(m.skills.listening.correct, 3);
+    // Totals never shrink below either side or the merged day sums.
+    assert.ok(m.xp >= 140);
+    assert.ok(m.lessons >= 4);
+  });
+
+  it("keeps the more-reviewed SRS card and higher level", () => {
+    const local = emptyState();
+    local.level = "B2";
+    local.cards["apple"] = { ease: 2.5, interval: 6, due: day(9), fails: 1, passes: 3 };
+    local.cards["pear"] = { ease: 2.1, interval: 1, due: day(2), fails: 3, passes: 1 };
+    const remote = emptyState();
+    remote.level = "B1";
+    // Fewer lifetime reviews → loses, but its fails count still counts (leech).
+    remote.cards["apple"] = { ease: 2.3, interval: 1, due: day(3), fails: 2, passes: 1 };
+    remote.cards["plum"] = { ease: 2.5, interval: 10, due: day(20), fails: 0, passes: 3 };
+    const m = mergeLearnState(local, remote);
+    assert.equal(m.level, "B2");
+    assert.equal(m.cards["apple"].passes, 3, "more-reviewed state kept");
+    assert.equal(m.cards["apple"].fails, 2, "fails merge as max (leech never forgotten)");
+    assert.ok(m.cards["plum"], "remote-only card kept");
+  });
+
+  it("returns remote on empty local and never throws on junk", () => {
     const local = emptyState();
     assert.ok(isEmptyState(local));
-    const progressed = { ...local, xp: 50, lessons: 2 };
-    assert.ok(!isEmptyState(progressed));
-    const remote = {
-      state: { ...local, xp: 999, lessons: 9 },
-      updated_at: "2026-09-29T00:00:00.000Z",
-    };
-    // Empty local adopts remote (new device).
-    assert.equal(chooseState(local, 0, remote).from, "remote");
-    // Progressed local beats older remote.
-    const r1 = chooseState(progressed, Date.parse("2026-09-30T00:00:00.000Z"), remote);
-    assert.equal(r1.from, "local");
-    // Progressed local loses to newer remote.
-    const r2 = chooseState(
-      progressed,
-      Date.parse("2026-09-28T00:00:00.000Z"),
-      { ...remote, updated_at: "2026-09-29T12:00:00.000Z" },
-    );
-    assert.equal(r2.from, "remote");
-    assert.equal(r2.state.xp, 999);
-    // No remote, bad timestamp → local, never throws.
-    assert.equal(chooseState(progressed, 0, null).from, "local");
-    assert.equal(chooseState(progressed, 0, { ...remote, updated_at: "junk" }).from, "local");
+    const remote = emptyState();
+    remote.xp = 500;
+    remote.lessons = 9;
+    assert.equal(mergeLearnState(local, remote).xp, 500);
+    assert.equal(mergeLearnState(local, local).xp, 0);
+  });
+
+  it("slims oversized state for the cloud fallback", () => {
+    const big = emptyState();
+    for (let i = 0; i < 3000; i++) {
+      big.cards[`w${i}`] = { ease: 2.5, interval: 1, due: day((i % 9) + 1), fails: 0, passes: 1 };
+    }
+    big.cards["leech"] = { ease: 1.3, interval: 1, due: day(9), fails: 5, passes: 0 };
+    const slim = slimStateForCloud(big);
+    assert.ok(Object.keys(slim.cards).length <= 2000);
+    assert.ok(slim.cards["leech"], "leeches survive slimming");
+    assert.ok(Object.keys(slim.days).length <= 120);
   });
 });
 
@@ -347,7 +391,8 @@ describe("learn-essay", () => {
   });
 });
 
-describe("learn-srs", () => {  it("pass grows interval, fail resets", () => {
+describe("learn-srs", () => {
+  it("pass grows interval, fail resets and zeroes reps", () => {
     const t = "2026-09-30";
     let c = initCard(t);
     c = reviewCard(c, true, t);
@@ -356,7 +401,26 @@ describe("learn-srs", () => {  it("pass grows interval, fail resets", () => {
     assert.equal(c.interval, 6);
     const failed = reviewCard(c, false, addDays(t, 2));
     assert.equal(failed.interval, 1);
+    assert.equal(failed.passes, 0, "lapse restarts the repetition chain");
     assert.ok(failed.ease < c.ease);
+  });
+  it("hard / good / easy grades move ease like SM-2", () => {
+    const t = "2026-09-30";
+    const base = initCard(t);
+    const hard = reviewCard(base, 1, t);
+    const good = reviewCard(base, 2, t);
+    const easy = reviewCard(base, 3, t);
+    assert.ok(hard.ease < base.ease, "hard lowers ease");
+    assert.equal(good.ease, base.ease, "good holds ease");
+    assert.ok(easy.ease > base.ease, "easy raises ease");
+    assert.ok(easy.interval >= hard.interval);
+    // Booleans stay backward compatible (true = good, false = again).
+    assert.equal(reviewCard(base, true, t).ease, base.ease);
+    assert.ok(reviewCard(base, false, t).ease < hard.ease, "fail costs more ease than hard");
+    // Interval growth uses the post-grade ease and is capped.
+    let big = initCard(t);
+    for (let i = 0; i < 12; i++) big = reviewCard(big, 3, addDays(t, i));
+    assert.ok(big.interval <= 365, `interval ${big.interval} exceeded cap`);
   });
   it("due + leech detection", () => {
     const t = "2026-09-30";
@@ -385,6 +449,59 @@ describe("learn-store", () => {
     assert.equal(s1.xp, 12); // 10 + 2
     assert.equal(s1.lessons, 1);
     assert.equal(s1.days["2026-09-30"].asked, 2);
+  });
+  it("lesson:false records XP + skills but no lesson (per-item commits)", () => {
+    const s0 = emptyState();
+    const item = getPlacementTest()[0];
+    const s1 = recordAnswers(s0, [{ item, correct: true }], "2026-09-30", {
+      lesson: false,
+    });
+    assert.equal(s1.xp, 10);
+    assert.equal(s1.lessons, 0);
+    assert.equal(s1.days["2026-09-30"].lessons, 0);
+    assert.equal(s1.days["2026-09-30"].asked, 1);
+    assert.equal(s1.skills[item.skill].asked, 1, "skills still recorded");
+  });
+  it("addLesson counts a session without XP or skills", () => {
+    const s0 = emptyState();
+    const s1 = addLesson(s0, "2026-09-30");
+    const s2 = addLesson(s1, "2026-09-30");
+    assert.equal(s0.lessons, 0, "no mutation");
+    assert.equal(s0.days["2026-09-30"], undefined);
+    assert.equal(s2.lessons, 2);
+    assert.equal(s2.days["2026-09-30"].lessons, 2);
+    assert.equal(s2.xp, 0);
+  });
+  it("gateBonusOnce pays each key once per day and prunes nothing else", () => {
+    const day = "2026-09-30";
+    const a = gateBonusOnce({}, day, "card:hello");
+    assert.ok(a.fresh, "first tap pays");
+    const b = gateBonusOnce(a.next, day, "card:hello");
+    assert.ok(!b.fresh, "same key same day is gated");
+    assert.equal(b.next, a.next, "gated call returns the same object");
+    const c = gateBonusOnce(b.next, day, "card:world");
+    assert.ok(c.fresh, "different key still pays");
+    const d = gateBonusOnce(c.next, "2026-10-01", "card:hello");
+    assert.ok(d.fresh, "new day resets keys");
+    assert.ok(c.next[day]["card:hello"] && d.next[day]["card:hello"], "older days intact");
+  });
+  it("honors self-rated grades when scheduling SRS cards", () => {
+    const worded = ALL_ITEMS.find((i) => i.word && i.skill === "vocab")!;
+    const easy = recordAnswers(
+      emptyState(),
+      [{ item: worded, correct: true, grade: 3 }],
+      "2026-09-30",
+    );
+    assert.ok(
+      easy.cards[worded.word!].ease > 2.5,
+      "easy should raise ease above the default",
+    );
+    const failed = recordAnswers(
+      emptyState(),
+      [{ item: worded, correct: true, grade: 0 }],
+      "2026-09-30",
+    );
+    assert.equal(failed.cards[worded.word!].fails, 1, "grade 0 counts as a lapse");
   });
   it("weakest skill needs 5+ attempts", () => {
     const s = emptyState();
