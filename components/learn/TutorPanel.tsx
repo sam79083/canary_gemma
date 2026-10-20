@@ -274,9 +274,11 @@ export default function TutorPanel({
   modelStatus = "",
   onAskAI,
   onSendToChat,
+  fullScreen = false,
 }: {
   onClose?: () => void;
   initialTab?: PTab;
+  fullScreen?: boolean;
   modelReady?: boolean;
   modelStatus?: string;
   /** Direct in-panel AI call (same provider). Null = fall back to chat draft. */
@@ -1231,9 +1233,13 @@ export default function TutorPanel({
       role="dialog"
       aria-label="English tutor"
       style={{
-        position: "fixed", top: 0, right: 0, bottom: 0, width: "min(400px, 94vw)",
+        position: fullScreen ? "absolute" : "fixed",
+        top: 0, right: 0, bottom: 0,
+        width: fullScreen ? "auto" : "min(400px, 94vw)",
+        left: fullScreen ? 0 : undefined,
         zIndex: 1500, background: "var(--bg)", color: "var(--text)",
-        borderLeft: "1px solid var(--border)", boxShadow: "-12px 0 32px rgba(0,0,0,0.18)",
+        borderLeft: fullScreen ? "none" : "1px solid var(--border)",
+        boxShadow: fullScreen ? "none" : "-12px 0 32px rgba(0,0,0,0.18)",
         display: "flex", flexDirection: "column",
       }}
     >

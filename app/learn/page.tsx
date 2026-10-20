@@ -57,12 +57,13 @@ export default function LearnPage() {
       </div>
       <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
         <div style={{ position: "absolute", inset: 0 }}>
-          <TutorPanel
-            initialTab={tab}
-            modelReady={model.ready}
-            modelStatus={model.status}
-            onAskAI={askAI}
-          />
+              <TutorPanel
+                initialTab={tab}
+                modelReady={model.ready}
+                modelStatus={model.status}
+                onAskAI={askAI}
+                fullScreen
+              />
         </div>
       </div>
       <style>{`
