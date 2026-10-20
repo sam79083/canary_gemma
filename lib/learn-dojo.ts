@@ -41,10 +41,10 @@ export const DOJO_LESSONS: DojoLesson[] = [
     icon: "🧱",
     lang: "react",
     brief: [
-      "Django view: takes a request, returns HTML. React component: takes props, returns JSX. Same job, no server round-trip.",
-      "{name} is Django's {{ name }} — an expression slot. const is just a local variable.",
-      "YOUR TURN: give name your own value, then ▶ Run.",
-    ].join("\n"),
+      "A React component is a function that returns HTML (JSX). Think of it like a template that runs in the browser.",
+      "{name} is a placeholder: we put a JavaScript value inside braces { } and React shows it on screen.",
+      "YOUR TURN: replace ??? with your own name, then click ▶ Run.",
+    ].join("\\n"),
     starter: [
       "const name = \"???\";",
       "",
@@ -72,9 +72,9 @@ export const DOJO_LESSONS: DojoLesson[] = [
     icon: "📦",
     lang: "react",
     brief: [
-      "Django: {% include \"card.html\" with user=u %}. React: <Card user={u} />. Props are the context object, per use.",
-      "Destructuring ({ user }) unwraps it on arrival — like **kwargs with names you choose.",
-      "YOUR TURN: add yourself as a third card, then ▶ Run.",
+      "Props are inputs to a component. You pass data from a parent to a child, like function arguments.",
+      "<Card user={u} /> sends the 'user' object to Card. Inside Card, ({ user }) reads it.",
+      "YOUR TURN: add a third <Card /> with your own name, then click ▶ Run.",
     ].join("\n"),
     starter: [
       "function Card({ user }) {",
@@ -119,9 +119,9 @@ export const DOJO_LESSONS: DojoLesson[] = [
     icon: "🔄",
     lang: "react",
     brief: [
-      "Django re-renders per request, so assignment is enough. React renders once — then only a setter call redraws.",
-      "The starter has THE classic backend-brain bug: count = count + 1 runs, but the screen never changes.",
-      "YOUR TURN: replace the assignment with the setter, then ▶ Run and click.",
+      "In React, changing a variable does NOT update the screen. You must use a 'setter' function to tell React to redraw.",
+      "The starter has a common bug: count = count + 1 changes the number, but the screen stays the same.",
+      "YOUR TURN: replace the assignment with setCount(count + 1), then click ▶ Run and click the button.",
     ].join("\n"),
     starter: [
       "function App() {",
@@ -163,9 +163,9 @@ export const DOJO_LESSONS: DojoLesson[] = [
     icon: "📋",
     lang: "react",
     brief: [
-      "Backend: loop a queryset in the template. React: map() the array into elements — JS, not template tags.",
-      "key={food} is the primary key: a stable identity so React updates rows cheaply instead of re-rendering all.",
-      "YOUR TURN: add your own food to the array, then ▶ Run.",
+      "To show a list, use .map() to turn each item into an HTML element.",
+      "key={food} gives each row a unique name so React can update only what changed.",
+      "YOUR TURN: add your own food to the array, then click ▶ Run.",
     ].join("\n"),
     starter: [
       "function App() {",
@@ -205,9 +205,9 @@ export const DOJO_LESSONS: DojoLesson[] = [
     icon: "⚙️",
     lang: "react",
     brief: [
-      "useEffect(fn, []) = 'run once on mount' (think @PostConstruct / ready()). The returned function is the destructor.",
-      "The starter's clock ticks but never cleans up — remount it and two timers fight. Classic leak.",
-      "YOUR TURN: add the cleanup line, then ▶ Run.",
+      "useEffect runs code after the component appears on screen. With [] it runs only once.",
+      "The starter starts a timer but never stops it. That causes a memory leak.",
+      "YOUR TURN: add 'return () => clearInterval(id);' to clean up, then click ▶ Run.",
     ].join("\n"),
     starter: [
       "function Clock() {",
@@ -251,9 +251,9 @@ export const DOJO_LESSONS: DojoLesson[] = [
     icon: "🏷️",
     lang: "ts",
     brief: [
-      "Java DTO: shape of data, enforced by compiler. TS interface: same thing, erased at build — zero runtime cost.",
-      "The starter's label lies: coffees is a string, but Mina ordered 3 (a number). tsc would refuse to compile this app.",
-      "YOUR TURN: fix the label to number, then ▶ Run.",
+      "An interface describes the shape of data. TypeScript checks it while you code, then removes it when running.",
+      "The starter says coffees is text, but Mina ordered 3 (a number). TypeScript would catch this error.",
+      "YOUR TURN: change 'string' to 'number', then click ▶ Run.",
     ].join("\n"),
     starter: [
       "interface User {",
@@ -297,9 +297,9 @@ export const DOJO_LESSONS: DojoLesson[] = [
     icon: "🧬",
     lang: "ts",
     brief: [
-      "Java generics: List<String>. TS: useState<string | null> — memory holding text, or nothing yet.",
-      "After if (user === null) return …, TypeScript NARROWS the type: below that line user is string. Like instanceof, but flow-based.",
-      "YOUR TURN: press ▶ Run, click Log in, then change the starter name to yours.",
+      "useState<string | null> means this variable holds text OR nothing (null) at first.",
+      "After 'if (user === null) return', TypeScript knows user is text below that line. This is called 'narrowing'.",
+      "YOUR TURN: click ▶ Run, click Log in, then change the name to yours.",
     ].join("\n"),
     starter: [
       "function Profile() {",
@@ -341,9 +341,9 @@ export const DOJO_LESSONS: DojoLesson[] = [
     icon: "🗂️",
     lang: "next",
     brief: [
-      "Django/Spring: URLs live in a route table. Next.js: the FILE PATH is the URL — there is no urls.py.",
-      "app/settings/page.tsx → /settings. app/api/hello/route.ts exporting POST() → POST /api/hello. [id] folders are path params.",
-      "YOUR TURN: type both file paths into the answers below, then ▶ Run to echo them.",
+      "In Next.js, the file path IS the URL. No route table needed.",
+      "app/settings/page.tsx becomes /settings. app/api/hello/route.ts with POST() becomes POST /api/hello. Folders named [id] are path parameters.",
+      "YOUR TURN: type both file paths below, then click ▶ Run.",
     ].join("\n"),
     starter: [
       "function App() {",
