@@ -56,13 +56,14 @@ import {
   saveTargets,
   type PracticeTarget,
 } from "@/lib/learn-useit";
+import { addCard, loadCards, saveCards } from "@/lib/learn-flash";
 import {
   buildDemoScript,
   buildRoleWrapUp,
   checkGoals,
   createCustomScene,
   extractCorrectedPhrases,
-  loadCustomScenes,
+  extractVocab,  loadCustomScenes,
   loadRoleDone,
   loadRoleplay,
   resolveScenario,
@@ -274,6 +275,10 @@ export default function Chat({
     const sc = resolveScenario(id, customs ?? customScenes);
     setRoleId(sc ? sc.id : null);
     setRoleDone(loadRoleDone(sc ? sc.id : null));
+    setWrapUpOpen(false);
+    setWrapUpScene(null);
+    setWrapUpPhrases([]);
+    setWrapUpNextId(null);
     try {
       saveRoleplay(sc ? sc.id : null);
     } catch {
@@ -1673,6 +1678,13 @@ export default function Chat({
           void handleSend(text);
         }}
       />
+      {practiceOn && resolveScenario(roleId, customScenes) ? (
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "6px 0" }}>
+          <button className="editor-btn" onClick={() => endRoleplayScene()} disabled={streaming}>
+            ⏹ End scene
+          </button>
+        </div>
+      ) : null}
       {readerIdx !== null && messages[readerIdx] ? (
         <ReaderOverlay
           text={messages[readerIdx].content}
@@ -1816,6 +1828,9 @@ export default function Chat({
             <div style={{ fontSize: 13, margin: "8px 0", opacity: 0.85 }}>
               {wrapUpScene.tip}
             </div>
+            <div style={{ fontSize: 13, margin: "4px 0", opacity: 0.85 }}>
+              {"Difficulty: " + "★".repeat(wrapUpScene.difficulty ?? 2) + "☆".repeat(Math.max(0, 5 - (wrapUpScene.difficulty ?? 2)))}
+            </div>
             {wrapUpPhrases.length > 0 ? (
               <div style={{ margin: "10px 0" }}>
                 <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Add to vocab notes:</div>
@@ -1825,11 +1840,11 @@ export default function Chat({
                       key={p}
                       className="task-chip"
                       onClick={() => {
-                        setTargets((prev) => {
-                          const next = addTarget(prev, p);
-                          try { saveTargets(next); } catch {}
-                          return next;
-                        });
+                        try {
+                          const next = addCard(loadCards(), p, "roleplay vocab", "roleplay");
+                          saveCards(next);
+                          toast(`Saved "${p}" to vocab notes`);
+                        } catch {}
                       }}
                     >
                       {"+ " + p}

@@ -511,18 +511,21 @@ export interface RoleplayReply {
   reply: string;
   /** One-tap suggestions parsed from the "Try saying" layer. */
   examples: string[];
+  /** Vocab/idioms collected from the "Vocab" layer. */
+  vocab: string[];
   /** True when a Reply marker was found — safe for the UI to restyle. */
   layered: boolean;
 }
 
-type LayerKind = "fix" | "reply" | "say";
+type LayerKind = "fix" | "reply" | "say" | "vocab";
 
 const LAYER_MARKER =
-  /(💡|▶️|💬)\s*(?:fix|correction|reply|response|you can say|try saying)?\s*[:\-—]?\s*|(fix|correction|reply|response|you can say|try saying)\s*[:\-—]\s*/gi;
+  /(💡|▶️|💬|📚)\s*(?:fix|correction|reply|response|you can say|try saying|vocab|vocabulary)?\s*[:\-—]?\s*|(fix|correction|reply|response|you can say|try saying|vocab|vocabulary)\s*[:\-—]\s*/gi;
 
 function markerKind(match: string): LayerKind {
   if (match.includes("💡") || /fix|correction/i.test(match)) return "fix";
   if (match.includes("▶️") || /reply|response/i.test(match)) return "reply";
+  if (match.includes("📚") || /vocab/i.test(match)) return "vocab";
   return "say";
 }
 
@@ -544,7 +547,7 @@ function parseExampleList(body: string): string[] {
   return uniq.slice(0, 3);
 }
 
-const EMPTY_REPLY: RoleplayReply = { fix: null, reply: "", examples: [], layered: false };
+const EMPTY_REPLY: RoleplayReply = { fix: null, reply: "", examples: [], vocab: [], layered: false };
 
 /**
  * Split a roleplay reply into its labeled layers. Tolerant by design: the
@@ -564,7 +567,7 @@ export function parseRoleplayReply(text: string): RoleplayReply {
   while ((m = re.exec(src)) !== null) marks.push({ kind: markerKind(m[0]), start: m.index, end: m.index + m[0].length });
   if (marks.length === 0 || !marks.some((x) => x.kind === "reply")) return plain;
 
-  const sections: Record<LayerKind, string> = { fix: "", reply: "", say: "" };
+  const sections: Record<LayerKind, string> = { fix: "", reply: "", say: "", vocab: "" };
   const seen = new Set<LayerKind>();
   for (let i = 0; i < marks.length; i++) {
     const body = src.slice(marks[i].end, i + 1 < marks.length ? marks[i + 1].start : src.length).trim();
@@ -582,9 +585,10 @@ export function parseRoleplayReply(text: string): RoleplayReply {
   return {
     fix: sections.fix || null,
     reply: sections.reply,
-    examples: parseExampleList(sections.say),
-    layered: true,
-  };
+     examples: parseExampleList(sections.say),
+     vocab: parseExampleList(sections.vocab),
+     layered: true,
+   };
 }
 
 /** Normalize a reply to the prompted shape, layers separated by blank lines. */
@@ -594,6 +598,7 @@ export function formatRoleplayReply(text: string): string {
   const out: string[] = [];
   if (rp.fix) out.push(`💡 Fix\n${rp.fix}`);
   out.push(`▶️ Reply\n${rp.reply}`);
+  if (rp.vocab.length) out.push(`📚 Vocab\n${rp.vocab.map((e) => `"${e}"`).join("\n")}`);
   if (rp.examples.length) out.push(`💬 Try saying\n${rp.examples.map((e) => `"${e}"`).join("\n")}`);
   return out.join("\n\n");
 }
@@ -608,7 +613,7 @@ export function extractExamples(text: string): string[] {
   if (parsed.layered) return parsed.examples;
   const m = /(?:💬\s*(?:you can say|try saying)?|you can say|try saying)\s*[:\-—]?\s*([\s\S]*)/i.exec(text || "");
   if (!m) return [];
-  return parseExampleList(m[1].split(/\n\s*(?:💡|▶️|💬)/)[0]);
+   return parseExampleList(m[1].split(/\n\s*(?:💡|▶️|💬|📚)/)[0]);
 }
 
 function norm(s: string): string {
@@ -668,10 +673,11 @@ export function roleplayLine(sc: Scenario, level: CEFR | null, replyLang: string
     `Scene: ${sc.setting}`,
     `The learner is ${level ?? "A1/A2"} level: keep YOUR lines to 1–3 short sentences, simple words.`,
     "One step at a time — never dump three questions at once. Never lecture about vocabulary or grammar; the scene always comes first.",
-    "Format your reply as up to THREE sections, separated by ONE BLANK LINE. Put the section label on its own line, then its content below it. Never put two sections on the same line; omit a section entirely instead of printing an empty label.",
+    "Format your reply as up to FOUR sections, separated by ONE BLANK LINE. Put the section label on its own line, then its content below it. Never put two sections on the same line; omit a section entirely instead of printing an empty label.",
     "Section 1 — `💡 Fix` (only when the learner's sentence has a mistake or sounds unnatural): ONE short correction, e.g.\n💡 Fix\n(More natural: \"I'd like an iced americano, please.\")",
     "Section 2 — `▶️ Reply` (always present): your in-character scene reply.",
-    "Section 3 — `💬 Try saying` (only when the learner stalls or seems stuck): two short example replies they can copy, one per line, each in quotes, e.g.\n💬 Try saying\n\"Yes, please.\"\n\"No, that's everything.\"",
+    "Section 3 — `📚 Vocab` (only when useful): 2-3 words/idioms from the scene, one per line, each in quotes, e.g.\n📚 Vocab\n\"iced americano\"\n\"I'd like\"",
+    "Section 4 — `💬 Try saying` (only when the learner stalls or seems stuck): two short example replies they can copy, one per line, each in quotes, e.g.\n💬 Try saying\n\"Yes, please.\"\n\"No, that's everything.\"",
     `Reply mostly in ${replyLang}, but keep the scene in English. Under 100 words.`,
     "Never output an identity disclaimer (\"I am Gemma…\") unprompted — just play the scene.",
     "--- End Roleplay ---",
@@ -680,17 +686,26 @@ export function roleplayLine(sc: Scenario, level: CEFR | null, replyLang: string
 }
 
 
+export function extractVocab(text: string): string[] {
+  const parsed = parseRoleplayReply(text);
+  if (parsed.layered) return parsed.vocab;
+  const m = /(?:📚\s*(?:vocab|vocabulary)?|vocab(?:ulary)?)\s*[:\-—]?\s*([\s\S]*)/i.exec(text || "");
+  if (!m) return [];
+  return parseExampleList(m[1].split(/\n\s*(?:💡|▶️|💬|📚)/)[0]);
+}
+
 export function extractCorrectedPhrases(texts: string[]): string[] {
   const out: string[] = [];
   for (const t of texts || []) {
     const parsed = parseRoleplayReply(t);
+    const vocab = parsed.vocab || [];
     const fix = parsed.fix || "";
     const matches = fix.match(/"([^"]{3,80})"/g) || [];
-    for (const m of matches) {
-      const p = m.slice(1, -1).trim();
+    const candidates = vocab.length > 0 ? vocab : matches.map((m) => m.slice(1, -1).trim());
+    for (const p of candidates) {
       if (p && !out.some((x) => x.toLowerCase() === p.toLowerCase())) out.push(p);
     }
-    if (matches.length === 0) {
+    if (vocab.length === 0 && matches.length === 0) {
       const mn = /more natural\s*[:\-]?\s*(.+)/i.exec(fix);
       if (mn) {
         const p = mn[1].trim().replace(/^["']+|["'.,!?;]+$/g, "").trim();

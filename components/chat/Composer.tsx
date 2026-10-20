@@ -271,16 +271,6 @@ export default function Composer({
                 {g.done ? "✓ " : "○ "}{g.label}
               </span>
             ))}
-            {roleId && onEndScene ? (
-              <button
-                className="task-chip"
-                onClick={() => onEndScene()}
-                disabled={streaming}
-                title="End the current scene and show the assessment card"
-              >
-                ⏹ End scene
-              </button>
-            ) : null}
           </div>
           {sceneOpen ? (
             <div className="task-row">

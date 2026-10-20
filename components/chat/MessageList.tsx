@@ -386,11 +386,17 @@ export default function MessageList({
                       <span>{rpLayers.fix}</span>
                     </div>
                   ) : null}
-                  <div
-                    className="content md"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(rpLayers.reply, t("mdCopy")) }}
-                  />
-                </>
+                   <div
+                     className="content md"
+                     dangerouslySetInnerHTML={{ __html: renderMarkdown(rpLayers.reply, t("mdCopy")) }}
+                   />
+                   {rpLayers.vocab && rpLayers.vocab.length > 0 ? (
+                     <div className="rp-fix" style={{ marginTop: 4 }}>
+                       <span className="rp-fix-label">📚 Vocab</span>
+                       <span>{rpLayers.vocab.map((v) => `"${v}"`).join(" · ")}</span>
+                     </div>
+                   ) : null}
+                 </>
               ) : (
                 <div
                   className="content md"
