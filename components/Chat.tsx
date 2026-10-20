@@ -188,8 +188,14 @@ export default function Chat({
 }: Props) {
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState<string | null>(null);
-  const [agentMode, setAgentMode] = useState(true);
-  const [planMode, setPlanMode] = useState(false);
+  const [agentMode, setAgentMode] = useState<boolean>(() => {
+    try { return typeof localStorage !== "undefined" ? localStorage.getItem("canary-agent-mode") !== "0" : true; }
+    catch { return true; }
+  });
+  const [planMode, setPlanMode] = useState<boolean>(() => {
+    try { return typeof localStorage !== "undefined" && localStorage.getItem("canary-plan-mode") === "1"; }
+    catch { return false; }
+  });
   const [tokens, setTokens] = useState(0);
   /** Approved plan text consumed once by the next agent turn. */
   const planContextRef = useRef<string | null>(null);
@@ -231,6 +237,16 @@ export default function Chat({
   const [wrapUpOpen, setWrapUpOpen] = useState(false);
   const [wrapUpScene, setWrapUpScene] = useState<ReturnType<typeof resolveScenario>>(null);
   const [wrapUpPhrases, setWrapUpPhrases] = useState<string[]>([]);
+  const [wrapUpNextId, setWrapUpNextId] = useState<string | null>(null);
+  useEffect(() => {
+    try { localStorage.setItem("canary-agent-mode", agentMode ? "1" : "0"); } catch {}
+  }, [agentMode]);
+  useEffect(() => {
+    try { localStorage.setItem("canary-plan-mode", planMode ? "1" : "0"); } catch {}
+  }, [planMode]);
+  useEffect(() => {
+    try { localStorage.setItem("canary-practice-on", practiceOn ? "1" : "0"); } catch {}
+  }, [practiceOn]);
   // ---- Roleplay scenario (structured practice inside Practice mode) ----
   // User-created scenes live in localStorage; merged with built-ins wherever listed.
   const [customScenes, setCustomScenes] = useState<CustomScene[]>(() => {
@@ -268,6 +284,19 @@ export default function Chat({
       persistChat();
     }
   }, [pushMessage, persistChat, customScenes]);
+  const pickNextScenarioId = useCallback((currentId: string | null, customs: CustomScene[]) => {
+    const pool = [...SCENARIOS, ...customs.map(toScenario)].filter((s) => s.id !== currentId);
+    if (pool.length === 0) return null;
+    return pool[Math.floor(Math.random() * pool.length)].id;
+  }, []);
+  const endRoleplayScene = useCallback(() => {
+    const sc = resolveScenario(roleId, customScenes);
+    if (!sc) return;
+    setWrapUpScene(sc);
+    setWrapUpPhrases(extractCorrectedPhrases(messages.map((m) => m.content)));
+    setWrapUpNextId(pickNextScenarioId(sc.id, customScenes));
+    setWrapUpOpen(true);
+  }, [roleId, customScenes, messages, pickNextScenarioId]);
   const setPractice = useCallback((on: boolean) => {
     setPracticeOn(on);
     try {
@@ -720,24 +749,26 @@ export default function Chat({
           notes.push(`"${fresh.map((f) => f.term).join('", "')}"`);
         }
       }
-      const sc = resolveScenario(roleId, customScenes);
-      if (sc) {
-        const hits = checkGoals(prompt, sc.goals);
-        const freshIdx = hits
-          .map((h, i) => (h ? i : -1))
-          .filter((i) => i >= 0 && !roleDone[i]);
-        if (freshIdx.length > 0) {
-          setRoleDone((prev) => prev.map((d, i) => d || hits[i]));
-          gained += 3 * freshIdx.length;
-          notes.push(freshIdx.map((i) => sc.goals[i].label).join(", "));
-          // Custom scenes may carry no goals: nothing to clear, no wrap-up.
-          if (sc.goals.length > 0 && hits.every(Boolean)) {
-            notes.push("🏆 Roleplay cleared!");
-            // First turn where ALL goals stand: queue the wrap-up recap.
-            // It goes out after the model's reply below, never before it.
-            if (!roleDone.every(Boolean)) roleClearPendingRef.current = sc.id;
-          }
-        }
+         const sc = resolveScenario(roleId, customScenes);
+         if (sc) {
+           const hits = checkGoals(prompt, sc.goals);
+           const freshIdx = hits
+             .map((h, i) => (h ? i : -1))
+             .filter((i) => i >= 0 && !roleDone[i]);
+           const endIntent = /\b(goodbye|good bye|bye|that'?s all|end scene|we'?re done|thanks?,? bye)\b/i.test(prompt);
+           if (freshIdx.length > 0 || endIntent) {
+             if (freshIdx.length > 0) {
+               setRoleDone((prev) => prev.map((d, i) => d || hits[i]));
+               gained += 3 * freshIdx.length;
+               notes.push(freshIdx.map((i) => sc.goals[i].label).join(", "));
+             }
+             // Custom scenes may carry no goals: nothing to clear, no wrap-up.
+             if (sc.goals.length > 0 && (hits.every(Boolean) || endIntent)) {
+               notes.push(endIntent && !hits.every(Boolean) ? "Scene ended" : "🏆 Roleplay cleared!");
+               // Queue the wrap-up recap after the model's reply.
+               if (!roleDone.every(Boolean) || endIntent) roleClearPendingRef.current = sc.id;
+             }
+           }
       }
       if (gained > 0) {
         try {
@@ -968,13 +999,14 @@ export default function Chat({
             const clearedId = roleClearPendingRef.current;
             roleClearPendingRef.current = null;
             const csc = resolveScenario(clearedId, customScenes);
-            if (csc && clearedId === roleId) {
-              pushMessage("assistant", buildRoleWrapUp(csc));
-              const phrases = extractCorrectedPhrases(messages.map((m) => m.content));
-              setWrapUpScene(csc);
-              setWrapUpPhrases(phrases);
-              setWrapUpOpen(true);
-            }
+             if (csc && clearedId === roleId) {
+               pushMessage("assistant", buildRoleWrapUp(csc));
+               const phrases = extractCorrectedPhrases(messages.map((m) => m.content));
+               setWrapUpScene(csc);
+               setWrapUpPhrases(phrases);
+               setWrapUpNextId(pickNextScenarioId(csc.id, customScenes));
+               setWrapUpOpen(true);
+             }
           }
           persistChat();
         }
@@ -1762,6 +1794,7 @@ export default function Chat({
         onRemoveTarget={dropTarget}
         roleId={roleId}
         onPickScenario={pickScenario}
+        onEndScene={endRoleplayScene}
         scenarios={[...SCENARIOS, ...customScenes.map(toScenario)]}
         onAddCustom={addCustom}
         onDeleteCustom={deleteCustom}
@@ -1805,7 +1838,18 @@ export default function Chat({
                 </div>
               </div>
             ) : null}
-            <div className="review-actions" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+            <div className="review-actions" style={{ justifyContent: "flex-end", marginTop: 12, flexWrap: "wrap", gap: 6 }}>
+              {wrapUpNextId ? (
+                <button
+                  className="editor-btn"
+                  onClick={() => {
+                    setWrapUpOpen(false);
+                    pickScenario(wrapUpNextId, customScenes);
+                  }}
+                >
+                  Try next: {resolveScenario(wrapUpNextId, customScenes)?.icon} {resolveScenario(wrapUpNextId, customScenes)?.name}
+                </button>
+              ) : null}
               <button className="editor-btn" onClick={() => setWrapUpOpen(false)}>Continue</button>
               <button
                 className="editor-btn primary"

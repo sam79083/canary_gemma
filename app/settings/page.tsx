@@ -7,6 +7,7 @@ import PersonaSection from "@/components/settings/PersonaSection";
 import ProviderSection from "@/components/settings/ProviderSection";
 import AccountSection from "@/components/settings/AccountSection";
 import VoiceSection from "@/components/settings/VoiceSection";
+import ChatModeSection from "@/components/settings/ChatModeSection";
 
 /**
  * Settings, whole page. Every section reads/writes the same stores the
@@ -27,6 +28,7 @@ export default function SettingsPage() {
       <AppearanceSection />
       <PersonaSection />
       <VoiceSection />
+      <ChatModeSection />
       <ProviderSection />
       <AccountSection />
     </div>

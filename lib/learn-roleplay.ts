@@ -23,6 +23,8 @@ export interface Scenario {
   goals: RoleGoal[];
   /** One-sentence takeaway shown in the wrap-up message when the scene clears. */
   tip: string;
+  /** Difficulty 1–5 (stars). */
+  difficulty?: number;
 }
 
 // NOTE: settings are phrased as "Role: ..." (never a leading "You are a …").
@@ -37,6 +39,7 @@ export const SCENARIOS: Scenario[] = [
     setting: "Role: friendly cafe barista taking the customer's order step by step.",
     opener: "Hi there! Welcome to Coco Cafe. What can I get for you today?",
     tip: "In cafes, lead with 'I'd like…' or 'Can I get…' — then size, then temperature: 'a tall iced americano'.",
+    difficulty: 1,
     goals: [
       {
         label: "Order a drink",
@@ -57,6 +60,7 @@ export const SCENARIOS: Scenario[] = [
     setting: "Role: kind job interviewer for a part-time cafe job, asking one question at a time.",
     opener: "Thanks for coming in! First — tell me a little about yourself.",
     tip: "Start answers with 'I' + a verb — 'I worked…', 'I learned…'. Short and confident beats long and vague.",
+    difficulty: 3,
     goals: [
       // "m" catches "I'm …" (normalized to "i m"); bare "am" never appears in it.
       { label: "Introduce yourself", keywords: ["name", "called", "am", "m", "my", "from", "student", "work", "live"] },
@@ -75,6 +79,7 @@ export const SCENARIOS: Scenario[] = [
     setting: "Role: patient airport information desk clerk helping a lost, slightly stressed traveler.",
     opener: "Hello! How can I help you today?",
     tip: "Question word first, then the place: 'Where is Gate 12?' beats 'Gate 12 where?' every time.",
+    difficulty: 2,
     goals: [
       {
         label: "Say where you go",
@@ -99,6 +104,7 @@ export const SCENARIOS: Scenario[] = [
     setting: "Role: warm hotel receptionist checking the guest in, one step at a time.",
     opener: "Good evening! Welcome to Hotel Coco. Do you have a reservation?",
     tip: "Keep one sentence ready: 'I have a reservation under [name].' It solves half of check-in.",
+    difficulty: 2,
     goals: [
       { label: "Give your name", keywords: ["name", "reservation", "book", "confirm", "confirmation", "under", "stay"] },
       // "wi-fi" could never match (normalized to "wi fi"), so match both halves.
@@ -117,6 +123,7 @@ export const SCENARIOS: Scenario[] = [
     setting: "Role: friendly classmate chatting lightly before class, asking about the learner too.",
     opener: "Hey! How was your weekend?",
     tip: "'Because' is your best friend — one reason turns a 3-word answer into real conversation.",
+    difficulty: 1,
     goals: [
       { label: "Answer + reason (because)", keywords: ["because", "cuz", "cos", "since"] },
       { label: "Ask back", keywords: ["?"] },
@@ -136,6 +143,7 @@ export const SCENARIOS: Scenario[] = [
     setting: "Role: gentle clinic doctor asking about the patient's symptoms one at a time.",
     opener: "Hello, come in. What seems to be the problem today?",
     tip: "Say 'since Monday', not 'from Monday' — duration ('for three days') or start point ('since Monday') is what clinics chart.",
+    difficulty: 2,
     goals: [
       {
         label: "Describe the symptom",
@@ -160,6 +168,7 @@ export const SCENARIOS: Scenario[] = [
     setting: "Role: friendly restaurant server taking a dine-in order, handling one request at a time.",
     opener: "Good evening! Table for how many?",
     tip: "Put 'no' or 'without' right before the item ('no cheese, please') — and allergies always as 'I'm allergic to…', never just 'no'.",
+    difficulty: 2,
     goals: [
       {
         label: "Order food",
@@ -189,6 +198,7 @@ export const SCENARIOS: Scenario[] = [
     setting: "Role: friendly taxi driver confirming the destination and route, one thing at a time.",
     opener: "Hello! Where to?",
     tip: "Place first, landmark second: 'Myeongdong — the main street entrance.' Drivers navigate by landmarks, not addresses.",
+    difficulty: 2,
     goals: [
       {
         label: "Say the destination",
@@ -216,6 +226,7 @@ export const SCENARIOS: Scenario[] = [
     setting: "Role: polite receptionist taking a phone booking, asking for one detail at a time.",
     opener: "Good morning, Happy Clinic. How can I help you?",
     tip: "Day + time in one breath — 'Friday morning', 'tomorrow at 3' — then spell your name. That order prevents most callbacks.",
+    difficulty: 2,
     goals: [
       {
         label: "Say what you need",
@@ -242,6 +253,7 @@ export const SCENARIOS: Scenario[] = [
     setting: "Role: helpful store clerk handling a return or exchange, one step at a time.",
     opener: "Hi! What can I do for you today?",
     tip: "Facts first, ask second: 'I bought this yesterday' + receipt, then 'Can I exchange it?' — the order makes 'yes' easy.",
+    difficulty: 2,
     goals: [
       {
         label: "Explain the problem",
@@ -317,6 +329,7 @@ export function toScenario(c: CustomScene): Scenario {
     opener: c.opener,
     goals: c.goals.map((label) => ({ label, keywords: keywordsFromLabel(label) })),
     tip: CUSTOM_TIP,
+    difficulty: 2,
   };
 }
 

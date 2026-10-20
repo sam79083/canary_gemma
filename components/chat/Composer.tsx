@@ -70,6 +70,7 @@ export default function Composer({
   onRemoveTarget,
   roleId,
   onPickScenario,
+  onEndScene,
   roleGoals,
   scenarios,
   onAddCustom,
@@ -119,6 +120,7 @@ export default function Composer({
   onRemoveTarget: (term: string) => void;
   roleId: string | null;
   onPickScenario: (id: string | null) => void;
+  onEndScene?: () => void;
   roleGoals: { label: string; done: boolean }[];
   /** Built-in + user-created scenes (Chat merges them). */
   scenarios: Scenario[];
@@ -269,6 +271,16 @@ export default function Composer({
                 {g.done ? "✓ " : "○ "}{g.label}
               </span>
             ))}
+            {roleId && onEndScene ? (
+              <button
+                className="task-chip"
+                onClick={() => onEndScene()}
+                disabled={streaming}
+                title="End the current scene and show the assessment card"
+              >
+                ⏹ End scene
+              </button>
+            ) : null}
           </div>
           {sceneOpen ? (
             <div className="task-row">
@@ -283,7 +295,7 @@ export default function Composer({
                 <option value="">🎭 Free chat</option>
                 {scenarios.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.icon} {s.name}
+                    {s.icon} {s.name} {"★".repeat(s.difficulty ?? 2)}
                   </option>
                 ))}
               </select>
@@ -447,7 +459,7 @@ export default function Composer({
                 title={`${s.name}: ${s.opener}`}
                 style={roleId === s.id ? { opacity: 0.6 } : undefined}
               >
-                {s.icon} {s.name}
+                {s.icon} {s.name} <span style={{ opacity: 0.7 }}>{"★".repeat(s.difficulty ?? 2)}</span>
               </button>
             ))}
             <button
@@ -611,46 +623,15 @@ export default function Composer({
           </div>
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-        <label
-          title={t("chAgentHint")}
-          style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center", cursor: "pointer" }}
+        <button
+          className="task-chip"
+          onClick={() => setPracticeOn(!practiceOn)}
+          disabled={streaming}
+          title="Toggle roleplay/practice scoring"
+          style={practiceOn ? { background: "var(--green)", color: "#fff" } : undefined}
         >
-          <input
-            type="checkbox"
-            checked={agentMode}
-            onChange={(e) => setAgentMode(e.target.checked)}
-            disabled={streaming}
-          />
-            {t("chAgentLabel")}
-          </label>
-          <label
-            title={t("plHint")}
-            style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center", cursor: "pointer" }}
-          >
-            <input
-              type="checkbox"
-              checked={planMode}
-              onChange={(e) => {
-                const on = e.target.checked;
-                setPlanMode(on);
-                if (on) setAgentMode(true);
-              }}
-              disabled={streaming}
-            />
-            {t("plMode")}
-          </label>
-          <label
-            title="English roleplay: the AI plays a scene partner (barista, interviewer…) and scores your goals with XP"
-            style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center", cursor: "pointer" }}
-          >
-            <input
-              type="checkbox"
-              checked={practiceOn}
-              onChange={(e) => setPracticeOn(e.target.checked)}
-              disabled={streaming}
-            />
-            🎭 Roleplay
-          </label>
+          🎭 Roleplay {practiceOn ? "ON" : "OFF"}
+        </button>
         {!workspaceConnected && workspaceSupported ? (
           <span style={{ fontSize: 12, opacity: 0.7 }}>{t("chAgentHint")}</span>
         ) : null}
