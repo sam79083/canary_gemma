@@ -47,38 +47,25 @@ export default function LearnPage() {
   );
 
   return (
-    <div style={{ display: "flex", justifyContent: "center", padding: 16 }}>
-      <div style={{ width: "min(480px, 100%)", display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <Link href="/" className="sidebar-btn small" style={{ width: "auto" }}>
-            ← Shrink
-          </Link>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>{model.ready ? model.status : "AI starting…"}</span>
-        </div>
-        <div
-          style={{
-            position: "relative",
-            border: "1px solid var(--border)",
-            borderRadius: 12,
-            overflow: "hidden",
-            height: "min(82vh, 900px)",
-          }}
-        >
-          {/* Reuse the panel inline: override fixed positioning via wrapper. */}
-          <div style={{ position: "absolute", inset: 0 }}>
-            <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-              <TutorPanel
-                initialTab={tab}
-                modelReady={model.ready}
-                modelStatus={model.status}
-                onAskAI={askAI}
-              />
-            </div>
-          </div>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--text)" }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 16px", borderBottom: "1px solid var(--border)" }}>
+        <Link href="/" className="sidebar-btn small" style={{ width: "auto" }}>
+          ← Shrink
+        </Link>
+        <span style={{ fontWeight: 800 }}>English Study</span>
+        <span style={{ fontSize: 12, opacity: 0.7 }}>{model.ready ? model.status : "AI starting…"}</span>
+      </div>
+      <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+        <div style={{ position: "absolute", inset: 0 }}>
+          <TutorPanel
+            initialTab={tab}
+            modelReady={model.ready}
+            modelStatus={model.status}
+            onAskAI={askAI}
+          />
         </div>
       </div>
       <style>{`
-        /* Inline mode: panel fills the card instead of sliding over. */
         div [role="dialog"][aria-label="English tutor"] {
           position: absolute !important;
           inset: 0 !important;
