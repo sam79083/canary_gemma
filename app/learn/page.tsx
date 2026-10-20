@@ -51,7 +51,7 @@ export default function LearnPage() {
       <div style={{ width: "min(480px, 100%)", display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Link href="/" className="sidebar-btn small" style={{ width: "auto" }}>
-            ← Chat
+            ← Shrink
           </Link>
           <span style={{ fontSize: 12, opacity: 0.7 }}>{model.ready ? model.status : "AI starting…"}</span>
         </div>

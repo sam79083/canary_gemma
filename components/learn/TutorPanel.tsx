@@ -1246,6 +1246,7 @@ export default function TutorPanel({
             {state.level ? `${L("lnLevelIs", "Level")} ${state.level} · ⚡${state.xp} XP` : greet}
           </div>
         </div>
+        <a className="sidebar-btn small" href={`/learn?tab=${tab}`} style={{ width: "auto" }} title="Open full screen">⤢</a>
         <button className="sidebar-btn small" onClick={onClose} style={{ width: "auto", display: onClose ? undefined : "none" }} title="Close">✕</button>
       </div>
 
