@@ -168,7 +168,8 @@ const VALID_TABS: PTab[] = ["quiz", "idiom", "book", "read", "cards", "listen", 
 /** Self-explanatory tab groups — each collapses to keep newbies focused. */
 const TAB_GROUPS: { label: string; icon: string; tabs: PTab[] }[] = [
   { label: "Learn", icon: "📘", tabs: ["quiz", "idiom", "book", "read", "cards", "listen"] },
-  { label: "Speak", icon: "🗣️", tabs: ["say", "dojo", "work"] },
+  { label: "Speak", icon: "🗣️", tabs: ["say", "work"] },
+  { label: "Code", icon: "💻", tabs: ["dojo"] },
   { label: "Write", icon: "✍️", tabs: ["essay", "style"] },
   { label: "Progress", icon: "📊", tabs: ["review", "folio", "assess", "me"] },
 ];
