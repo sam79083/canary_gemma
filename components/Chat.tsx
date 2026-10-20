@@ -239,6 +239,7 @@ export default function Chat({
   const [wrapUpScene, setWrapUpScene] = useState<ReturnType<typeof resolveScenario>>(null);
   const [wrapUpPhrases, setWrapUpPhrases] = useState<string[]>([]);
   const [wrapUpNextId, setWrapUpNextId] = useState<string | null>(null);
+  const [sceneStartIdx, setSceneStartIdx] = useState<number>(0);
   useEffect(() => {
     try { localStorage.setItem("canary-agent-mode", agentMode ? "1" : "0"); } catch {}
   }, [agentMode]);
@@ -285,10 +286,13 @@ export default function Chat({
       // best-effort
     }
     if (sc) {
+      setSceneStartIdx(messages.length);
       pushMessage("assistant", `${sc.icon} ${sc.opener}`);
       persistChat();
+    } else {
+      setSceneStartIdx(messages.length);
     }
-  }, [pushMessage, persistChat, customScenes]);
+  }, [pushMessage, persistChat, customScenes, messages]);
   const pickNextScenarioId = useCallback((currentId: string | null, customs: CustomScene[]) => {
     const pool = [...SCENARIOS, ...customs.map(toScenario)].filter((s) => s.id !== currentId);
     if (pool.length === 0) return null;
@@ -297,11 +301,12 @@ export default function Chat({
   const endRoleplayScene = useCallback(() => {
     const sc = resolveScenario(roleId, customScenes);
     if (!sc) return;
+    const scoped = messages.slice(sceneStartIdx);
     setWrapUpScene(sc);
-    setWrapUpPhrases(extractCorrectedPhrases(messages.map((m) => m.content)));
+    setWrapUpPhrases(extractCorrectedPhrases(scoped.map((m) => m.content)));
     setWrapUpNextId(pickNextScenarioId(sc.id, customScenes));
     setWrapUpOpen(true);
-  }, [roleId, customScenes, messages, pickNextScenarioId]);
+  }, [roleId, customScenes, messages, sceneStartIdx, pickNextScenarioId]);
   const setPractice = useCallback((on: boolean) => {
     setPracticeOn(on);
     try {
@@ -1006,7 +1011,8 @@ export default function Chat({
             const csc = resolveScenario(clearedId, customScenes);
              if (csc && clearedId === roleId) {
                pushMessage("assistant", buildRoleWrapUp(csc));
-               const phrases = extractCorrectedPhrases(messages.map((m) => m.content));
+               const scoped = messages.slice(sceneStartIdx);
+               const phrases = extractCorrectedPhrases(scoped.map((m) => m.content));
                setWrapUpScene(csc);
                setWrapUpPhrases(phrases);
                setWrapUpNextId(pickNextScenarioId(csc.id, customScenes));
@@ -1416,7 +1422,7 @@ export default function Chat({
       persistChat();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionRef, busyRef, input, messages, setInput, pushMessage, persistChat, setModelStatus, agentMode, workspace, reviewChange, provider, ensureVision, t, lang, practiceOn, roleId, targets, roleDone, customScenes]);
+   }, [sessionRef, busyRef, input, messages, setInput, pushMessage, persistChat, setModelStatus, agentMode, workspace, reviewChange, provider, ensureVision, t, lang, practiceOn, roleId, targets, roleDone, customScenes, sceneStartIdx]);
 
   /**
    * Voice loop step 1 — a finished assistant turn: read it aloud.
