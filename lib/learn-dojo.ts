@@ -22,6 +22,8 @@ export interface DojoLesson {
   id: string;
   title: string;
   icon: string;
+  /** Language track: ts | react | next. */
+  lang: "ts" | "react" | "next";
   /** Short teaching text (\n for line breaks). No HTML. */
   brief: string;
   starter: string;
@@ -37,6 +39,7 @@ export const DOJO_LESSONS: DojoLesson[] = [
     id: "views",
     title: "Views that return HTML",
     icon: "🧱",
+    lang: "react",
     brief: [
       "Django view: takes a request, returns HTML. React component: takes props, returns JSX. Same job, no server round-trip.",
       "{name} is Django's {{ name }} — an expression slot. const is just a local variable.",
@@ -66,7 +69,8 @@ export const DOJO_LESSONS: DojoLesson[] = [
   {
     id: "props",
     title: "Props are template context",
-    icon: "🎁",
+    icon: "📦",
+    lang: "react",
     brief: [
       "Django: {% include \"card.html\" with user=u %}. React: <Card user={u} />. Props are the context object, per use.",
       "Destructuring ({ user }) unwraps it on arrival — like **kwargs with names you choose.",
@@ -112,7 +116,8 @@ export const DOJO_LESSONS: DojoLesson[] = [
   {
     id: "state",
     title: "Assignment lies; setters redraw",
-    icon: "🔘",
+    icon: "🔄",
+    lang: "react",
     brief: [
       "Django re-renders per request, so assignment is enough. React renders once — then only a setter call redraws.",
       "The starter has THE classic backend-brain bug: count = count + 1 runs, but the screen never changes.",
@@ -155,7 +160,8 @@ export const DOJO_LESSONS: DojoLesson[] = [
   {
     id: "lists",
     title: "Querysets become map()",
-    icon: "📝",
+    icon: "📋",
+    lang: "react",
     brief: [
       "Backend: loop a queryset in the template. React: map() the array into elements — JS, not template tags.",
       "key={food} is the primary key: a stable identity so React updates rows cheaply instead of re-rendering all.",
@@ -196,7 +202,8 @@ export const DOJO_LESSONS: DojoLesson[] = [
   {
     id: "effects",
     title: "Effects are lifecycle hooks",
-    icon: "⏱️",
+    icon: "⚙️",
+    lang: "react",
     brief: [
       "useEffect(fn, []) = 'run once on mount' (think @PostConstruct / ready()). The returned function is the destructor.",
       "The starter's clock ticks but never cleans up — remount it and two timers fight. Classic leak.",
@@ -242,6 +249,7 @@ export const DOJO_LESSONS: DojoLesson[] = [
     id: "types",
     title: "Interfaces are DTOs",
     icon: "🏷️",
+    lang: "ts",
     brief: [
       "Java DTO: shape of data, enforced by compiler. TS interface: same thing, erased at build — zero runtime cost.",
       "The starter's label lies: coffees is a string, but Mina ordered 3 (a number). tsc would refuse to compile this app.",
@@ -286,7 +294,8 @@ export const DOJO_LESSONS: DojoLesson[] = [
   {
     id: "generics",
     title: "useState<T> and the null dance",
-    icon: "🎭",
+    icon: "🧬",
+    lang: "ts",
     brief: [
       "Java generics: List<String>. TS: useState<string | null> — memory holding text, or nothing yet.",
       "After if (user === null) return …, TypeScript NARROWS the type: below that line user is string. Like instanceof, but flow-based.",
@@ -329,7 +338,8 @@ export const DOJO_LESSONS: DojoLesson[] = [
   {
     id: "routing",
     title: "Files are URLs",
-    icon: "🗺️",
+    icon: "🗂️",
+    lang: "next",
     brief: [
       "Django/Spring: URLs live in a route table. Next.js: the FILE PATH is the URL — there is no urls.py.",
       "app/settings/page.tsx → /settings. app/api/hello/route.ts exporting POST() → POST /api/hello. [id] folders are path params.",

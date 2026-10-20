@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { buildPreviewDoc } from "@/lib/dojo-run";
 import {
   buildDojoHandoff,
@@ -28,6 +28,7 @@ export default function DojoPanel({
 }) {
   const first = DOJO_LESSONS[0];
   const [lessonId, setLessonId] = useState<string>(first.id);
+  const [langFilter, setLangFilter] = useState<"all" | "ts" | "react" | "next">("all");
   const lesson = lessonById(lessonId) ?? first;
   const [code, setCode] = useState<string>(first.starter);
   const [done, setDone] = useState<boolean[]>(() => loadDojoDone(first.id, first.checks.length));
@@ -42,6 +43,11 @@ export default function DojoPanel({
     setDone(loadDojoDone(l.id, l.checks.length));
     setDoc(buildPreviewDoc(l.starter));
   };
+
+  useEffect(() => {
+    const t = setTimeout(() => setDoc(buildPreviewDoc(code)), 400);
+    return () => clearTimeout(t);
+  }, [code]);
 
   const run = () => {
     setDoc(buildPreviewDoc(code));
@@ -72,8 +78,20 @@ export default function DojoPanel({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {(["all", "ts", "react", "next"] as const).map((lg) => (
+          <button
+            key={lg}
+            className="task-chip"
+            onClick={() => setLangFilter(lg)}
+            style={langFilter === lg ? { background: "var(--green)", color: "#fff" } : undefined}
+          >
+            {lg === "all" ? "All" : lg === "ts" ? "TS" : lg === "react" ? "React" : "Next"}
+          </button>
+        ))}
+      </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {DOJO_LESSONS.map((l) => (
+        {DOJO_LESSONS.filter((l) => langFilter === "all" || l.lang === langFilter).map((l) => (
           <button
             key={l.id}
             className="task-chip"
