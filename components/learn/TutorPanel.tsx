@@ -6,8 +6,11 @@ import { toast } from "sonner";
 import Confetti from "@/components/Confetti";
 import QuizCard from "@/components/learn/QuizCard";
 import DojoPanel from "@/components/learn/DojoPanel";
+import PersonalVocabManager from "@/components/learn/PersonalVocabManager";
 import { useLanguage } from "@/hooks/useLanguage";
 import { useAuth } from "@/hooks/useAuth";
+import { useLearnCloudSync } from "@/hooks/useLearnCloudSync";
+import { upsertPersonalVocab } from "@/lib/personal-vocab";
 import {
   fetchRemote,
   mergeLearnState,
@@ -324,6 +327,13 @@ export default function TutorPanel({
    */
   const [bulkIdioms, setBulkIdioms] = useState<Idiom[]>([]);
   const [bulkWords, setBulkWords] = useState<Record<CEFR, string[]> | null>(null);
+
+  // Cloud sync (only for signed-in members)
+  const userId = auth.user?.id ?? null;
+  useLearnCloudSync(state, setState);
+
+  // Personal vocab manager
+  const [vocabOpen, setVocabOpen] = useState(false);
 
   // Esc closes the panel (slide-over mode only — /learn fullscreen keeps Esc
   // free for form inputs, so it closes only via the header button).
@@ -1272,6 +1282,7 @@ export default function TutorPanel({
             {state.level ? `${L("lnLevelIs", "Level")} ${state.level} · ⚡${state.xp} XP` : greet}
           </div>
         </div>
+        <button className="sidebar-btn small" onClick={() => setVocabOpen(true)} style={{ width: "auto" }} title={L("lnVocabManager", "내 단어장")}>📚</button>
         <a className="sidebar-btn small" href={`/learn?tab=${tab}`} style={{ width: "auto" }} title={L("lnOpenFull", "Open full screen")}>⤢</a>
         <button className="sidebar-btn small" onClick={onClose} style={{ width: "auto", display: onClose ? undefined : "none" }} title={L("lnClose", "Close")}>✕</button>
       </div>
@@ -1704,6 +1715,27 @@ export default function TutorPanel({
                               }}
                             >
                               {L("lnPlusCard", "🗂️ +Card")}
+                            </button>
+                            <button
+                              className="sidebar-btn small"
+                              style={{ width: "auto", fontSize: 12 }}
+                              onClick={() => {
+                                upsertPersonalVocab(userId ?? "", {
+                                  term: i.term,
+                                  meaning: i.meaning,
+                                  example: i.example,
+                                  tags: ["book"],
+                                  source: "book",
+                                  difficulty: 2,
+                                });
+                                try {
+                                  toast(L("lnVocabSaved", "Saved to 내 단어장 📚"));
+                                } catch {
+                                  // best-effort
+                                }
+                              }}
+                            >
+                              {L("lnAddToVocab", "📚 +Vocab")}
                             </button>
                           </span>
                           <UseItBox
@@ -2581,6 +2613,7 @@ export default function TutorPanel({
       </div>
       </>
     )}
+      <PersonalVocabManager open={vocabOpen} onClose={() => setVocabOpen(false)} />
     </div>
   );
 }
