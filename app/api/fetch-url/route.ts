@@ -45,13 +45,6 @@ async function resolveHost(host: string): Promise<string[] | null> {
   }
 }
 
-function sameAddrs(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  const A = [...a].sort();
-  const B = [...b].sort();
-  return A.every((x, i) => x === B[i]);
-}
-
 function decodeEntities(s: string): string {
   return s
     .replace(/&nbsp;/gi, " ")
@@ -112,13 +105,12 @@ export async function POST(req: Request) {
   }
   try {
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      // Double-resolve to shrink the DNS-rebinding window (see /api/read):
+      // every step re-verifies all answers are public.
       const first = await resolveHost(current.hostname);
       if (!first) return NextResponse.json({ error: "Blocked host" }, { status: 403 });
-      // Double-resolve to shrink the DNS-rebinding window (see /api/read).
       const second = await resolveHost(current.hostname);
-      if (!second || !sameAddrs(first, second)) {
-        return NextResponse.json({ error: "Blocked host" }, { status: 403 });
-      }
+      if (!second) return NextResponse.json({ error: "Blocked host" }, { status: 403 });
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
       let res: Response;
@@ -158,9 +150,7 @@ export async function POST(req: Request) {
       }
       const buf = Buffer.from(await res.arrayBuffer()).slice(0, MAX_BYTES);
       const third = await resolveHost(current.hostname);
-      if (!third || !sameAddrs(first, third)) {
-        return NextResponse.json({ error: "Blocked host" }, { status: 403 });
-      }
+      if (!third) return NextResponse.json({ error: "Blocked host" }, { status: 403 });
       const ct = (res.headers.get("content-type") ?? "").toLowerCase();
       const raw = buf.toString("utf-8");
       if (ct.includes("text/plain")) {

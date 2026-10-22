@@ -108,7 +108,9 @@ export default function MessageList({
   }, []);
   useEffect(() => {
     if (!pinnedRef.current) return;
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    // Instant scroll: a smooth animation would emit scroll events mid-glide
+    // that read as ">48px from bottom" and unpin us between stream ticks.
+    bottomRef.current?.scrollIntoView({ block: "end" });
   }, [messages, streamText]);
 
   // Group the flat search-hit list per message for quick lookup while rendering.

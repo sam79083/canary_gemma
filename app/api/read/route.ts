@@ -34,6 +34,12 @@ function allow(ip: string, now = Date.now()): boolean {
 /**
  * Resolve a hostname to its public addresses, or null when the host is
  * private/unresolvable. Literal IPs are passed through.
+ *
+ * The private-list check IS the SSRF gate; we do NOT compare address sets
+ * across resolutions — CDNs legitimately rotate their A-records between
+ * calls, and a strict equality test would reject good pages. Re-resolving
+ * before and after the fetch simply re-verifies "all public" against any
+ * DNS-rebinding swap.
  */
 async function resolvePublic(hostname: string): Promise<string[] | null> {
   if (isPrivateHost(hostname)) return null;
@@ -47,14 +53,6 @@ async function resolvePublic(hostname: string): Promise<string[] | null> {
   } catch {
     return null;
   }
-}
-
-/** Address-set comparison that ignores DNS round-robin ordering. */
-function sameAddrs(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  const A = [...a].sort();
-  const B = [...b].sort();
-  return A.every((x, i) => x === B[i]);
 }
 
 function decodeBody(buf: Uint8Array, contentType: string): string {
@@ -77,11 +75,10 @@ async function fetchPage(start: URL): Promise<FetchResult> {
     if (!first) return { ok: false, error: "bad-url", status: 400 };
     // Double-resolve: DNS rebinding works by swapping the answer between
     // our check and the real fetch's own lookup. Re-resolving immediately
-    // before the fetch and again after the body arrives keeps the address
-    // set stable across the whole request, or the page is dropped.
+    // before the fetch and again after the body arrives re-verifies that
+    // every answer is public, or the page is dropped.
     const second = await resolvePublic(current.hostname);
-    if (!second || !sameAddrs(first, second))
-      return { ok: false, error: "bad-url", status: 400 };
+    if (!second) return { ok: false, error: "bad-url", status: 400 };
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
     try {
@@ -135,8 +132,7 @@ async function fetchPage(start: URL): Promise<FetchResult> {
       }
       const raw = decodeBody(merged, type);
       const third = await resolvePublic(current.hostname);
-      if (!third || !sameAddrs(first, third))
-        return { ok: false, error: "bad-url", status: 400 };
+      if (!third) return { ok: false, error: "bad-url", status: 400 };
       const html = type.includes("text/plain")
         ? `<html><head><title>${current.hostname}</title></head><body><p>${raw
             .replace(/&/g, "&amp;")

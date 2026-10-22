@@ -31,12 +31,13 @@ export async function POST(req: Request) {
   if (_inflight.has(ip)) return NextResponse.json({ error: "busy" }, { status: 429 });
   if (_inflight.size >= MAX_GLOBAL) return NextResponse.json({ error: "busy" }, { status: 429 });
   _inflight.add(ip);
-  const remaining = await trialUse(req, "hf", (await getMember()) !== null);
-  if (remaining < 0) {
-    _inflight.delete(ip);
-    return NextResponse.json({ error: "trial-over" }, { status: 429 });
-  }
   try {
+    // Budget is charged only now, and the slot is released in finally —
+    // even if trialUse or getMember throws (DB hiccup), the IP is never
+    // stuck with a leaked "busy" slot.
+    const remaining = await trialUse(req, "hf", (await getMember()) !== null);
+    if (remaining < 0)
+      return NextResponse.json({ error: "trial-over" }, { status: 429 });
     const res = await fetch(
       `https://router.huggingface.co/hf-inference/models/${HF_IMAGE_MODEL}`,
       {

@@ -231,6 +231,10 @@ export default function Chat({
       setPlanMode(localStorage.getItem("canary-plan-mode") === "1");
       setPracticeOn(localStorage.getItem("canary-practice-on") === "1");
       setTargets(loadTargets());
+      setCustomScenes(loadCustomScenes());
+      const rid = loadRoleplay();
+      setRoleId(rid);
+      setRoleDone(loadRoleDone(rid));
     } catch {}
   }, []);
   useEffect(() => {
@@ -243,28 +247,12 @@ export default function Chat({
     try { localStorage.setItem("canary-practice-on", practiceOn ? "1" : "0"); } catch {}
   }, [practiceOn]);
   // ---- Roleplay scenario (structured practice inside Practice mode) ----
-  // User-created scenes live in localStorage; merged with built-ins wherever listed.
-  const [customScenes, setCustomScenes] = useState<CustomScene[]>(() => {
-    try {
-      return loadCustomScenes();
-    } catch {
-      return [];
-    }
-  });
-  const [roleId, setRoleId] = useState<string | null>(() => {
-    try {
-      return loadRoleplay();
-    } catch {
-      return null;
-    }
-  });
-  const [roleDone, setRoleDone] = useState<boolean[]>(() => {
-    try {
-      return loadRoleDone(loadRoleplay());
-    } catch {
-      return [false, false, false];
-    }
-  });
+  // User-created scenes live in localStorage; merged with built-ins wherever
+  // listed. Stored values load in the hydration effect (see above) — lazy
+  // useState initializers would diverge server vs first client render.
+  const [customScenes, setCustomScenes] = useState<CustomScene[]>([]);
+  const [roleId, setRoleId] = useState<string | null>(null);
+  const [roleDone, setRoleDone] = useState<boolean[]>([false, false, false]);
   const pickScenario = useCallback((id: string | null, customs?: CustomScene[]) => {
     const sc = resolveScenario(id, customs ?? customScenes);
     setRoleId(sc ? sc.id : null);
@@ -1823,7 +1811,9 @@ export default function Chat({
             className="review-card"
             style={{ maxWidth: 420 }}
             tabIndex={-1}
-            ref={(el) => el?.focus()}
+            // autoFocus focuses on mount only; an inline ref callback would
+            // re-steal focus on every parent re-render (e.g. while streaming).
+            autoFocus
             onKeyDown={(e) => {
               if (e.key === "Escape") setWrapUpOpen(false);
             }}

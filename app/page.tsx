@@ -2224,7 +2224,8 @@ export default function Home() {
           aria-modal="true"
           aria-label={viewImage.name}
           tabIndex={-1}
-          ref={(el) => el?.focus()}
+          // autoFocus.focus() fires once on mount, never on parent re-renders.
+          autoFocus
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               URL.revokeObjectURL(viewImage.url);
