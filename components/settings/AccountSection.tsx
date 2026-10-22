@@ -17,7 +17,7 @@ export default function AccountSection() {
       {auth.user ? (
         <>
           <div className="workspace-hint" style={{ color: "#2e7d32", fontWeight: 600 }}>
-            {t("lgMember", { user: auth.user })}
+            {t("lgMember", { user: auth.user?.email ?? "" })}
           </div>
           <button
             className="sidebar-btn small"

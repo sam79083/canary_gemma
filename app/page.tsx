@@ -1927,7 +1927,7 @@ export default function Home() {
                   {member ? (
                     <>
                       <DropdownMenu.Label className="menu-label">
-                        {t("lgMember", { user: auth.user ?? "" })}
+                        {t("lgMember", { user: auth.user?.email ?? "" })}
                       </DropdownMenu.Label>
                       <DropdownMenu.Item
                         className="menu-item"
@@ -2132,7 +2132,7 @@ export default function Home() {
         t={t}
       />
 
-      <CommandPalette
+<CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         sessions={sessionList}
@@ -2142,7 +2142,7 @@ export default function Home() {
         onSaveChat={() => void handleSaveChatAsFile()}
         canSave={messages.length > 0}
         loggedIn={member}
-        user={auth.user}
+        user={auth.user?.email ?? null}
         onLoginClick={() => setLoginOpen(true)}
         onLogoutClick={handleLogout}
         searchContents={searchSessionContents}

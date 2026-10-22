@@ -167,7 +167,7 @@ export default function ProviderSection() {
         <>
           {member && !model.geminiKey ? (
             <div className="workspace-hint" style={{ color: "#2e7d32", fontWeight: 600 }}>
-              {t("lgMember", { user: auth.user ?? "" })}
+              {t("lgMember", { user: auth.user?.email ?? "" })}
             </div>
           ) : null}
           <input
@@ -265,7 +265,7 @@ export default function ProviderSection() {
         <div className="workspace-name">🖼️ SD 3.5 Medium (HD)</div>
         {member && !hfKey ? (
           <div className="workspace-hint" style={{ color: "#2e7d32", fontWeight: 600 }}>
-            {t("lgMember", { user: auth.user ?? "" })}
+            {t("lgMember", { user: auth.user?.email ?? "" })}
           </div>
         ) : null}
         <input

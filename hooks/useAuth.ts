@@ -5,21 +5,21 @@ import { supabaseBrowser } from "@/supabase/client";
 
 /** Supabase member session. Null = visitor. user is the account email. */
 export function useAuth() {
-  const [user, setUser] = useState<string | null>(null);
+  const [user, setUser] = useState<{ id: string; email: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async (): Promise<string | null> => {
+  const refresh = useCallback(async (): Promise<{ id: string; email: string } | null> => {
     try {
       const sb = supabaseBrowser();
       if (!sb) return null;
       const {
         data: { user: u },
       } = await sb.auth.getUser();
-      const email = u?.email ?? null;
-      setUser(email);
-      return email;
+      const userObj = u ? { id: u.id, email: u.email ?? "" } : null;
+      setUser(userObj);
+      return userObj;
     } catch {
       return null;
     } finally {
@@ -32,7 +32,8 @@ export function useAuth() {
     const sb = supabaseBrowser();
     if (!sb) return;
     const { data: sub } = sb.auth.onAuthStateChange((_ev, session) => {
-      setUser(session?.user?.email ?? null);
+      const userObj = session?.user ? { id: session.user.id, email: session.user.email ?? "" } : null;
+      setUser(userObj);
       setLoading(false);
     });
     return () => sub.subscription.unsubscribe();
@@ -50,11 +51,10 @@ export function useAuth() {
           password: pw,
         });
         if (err) {
-          // 11th member hits the DB cap trigger ("member-full").
           setError(/member-full/i.test(err.message) ? "member-full" : err.message);
           return false;
         }
-        setUser(data.user?.email ?? email.trim());
+        setUser(data.user ? { id: data.user.id, email: data.user.email ?? email.trim() } : null);
         return true;
       } catch (e) {
         setError(e instanceof Error ? e.message : "Login failed");
@@ -82,7 +82,7 @@ export function useAuth() {
           return false;
         }
         // With email confirmation off, session exists immediately.
-        setUser(data.user?.email ?? (data.session ? email.trim() : null));
+        setUser(data.user ? { id: data.user.id, email: data.user.email ?? email.trim() } : (data.session ? { id: data.session.user.id, email: email.trim() } : null));
         return true;
       } catch (e) {
         setError(e instanceof Error ? e.message : "Signup failed");
