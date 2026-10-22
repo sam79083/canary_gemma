@@ -91,7 +91,7 @@ const vocabItems = items as PersonalVocab[];
             </select>
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button type="button" onClick={() => { resetForm(); setEditing(null); }} style={styles.btnSecondary}>Cancel</button>
+            <button type="button" onClick={() => { resetForm(); setEditing(null); onClose(); }} style={styles.btnSecondary}>Cancel</button>
             <button type="submit" style={styles.btnPrimary}>{editing ? "Update" : "Add"}</button>
           </div>
         </form>
