@@ -26,6 +26,13 @@ export async function POST(req: Request) {
   }
   if (!Array.isArray(contents) || contents.length === 0)
     return NextResponse.json({ error: "Empty contents" }, { status: 400 });
+  try {
+    const sz = JSON.stringify(contents).length;
+    if (sz > 50_000)
+      return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+  } catch {
+    return NextResponse.json({ error: "Bad contents" }, { status: 400 });
+  }
   const remaining = await trialUse(req, "gemini", (await getMember()) !== null);
   if (remaining < 0)
     return NextResponse.json({ error: "trial-over" }, { status: 429 });

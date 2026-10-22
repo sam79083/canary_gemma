@@ -1,7 +1,18 @@
 import { NextResponse } from "next/server";
 
 // GET /api/search?q=... — SerpAPI Google proxy (key stays server-side)
+const _rl = new Map<string, { n: number; t: number }>();
 export async function GET(req: Request) {
+  const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "local";
+  const now = Date.now();
+  const rec = _rl.get(ip);
+  if (rec && now - rec.t < 60_000) {
+    if (rec.n >= 10)
+      return NextResponse.json({ error: "Rate limited", results: [] }, { status: 429 });
+    rec.n++;
+  } else {
+    _rl.set(ip, { n: 1, t: now });
+  }
   const { searchParams } = new URL(req.url);
   const query = (searchParams.get("q") ?? "").trim();
   if (!query)

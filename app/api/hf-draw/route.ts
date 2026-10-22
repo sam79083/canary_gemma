@@ -7,6 +7,7 @@ import { trialUse } from "@/lib/trial";
 // The token never leaves the server: the browser sends only the prompt.
 // 501 = no server key configured (client falls back to the user's own key).
 // 429 {error:"trial-over"} = visitor budget spent (members bypass it).
+let _busy = false;
 export async function POST(req: Request) {
   // Trim: dashboard env boxes love trailing newlines; an untrimmed
   // token fails auth with no visible cause.
@@ -23,6 +24,8 @@ export async function POST(req: Request) {
   const remaining = await trialUse(req, "hf", (await getMember()) !== null);
   if (remaining < 0)
     return NextResponse.json({ error: "trial-over" }, { status: 429 });
+  if (_busy) return NextResponse.json({ error: "busy" }, { status: 429 });
+  _busy = true;
   try {
     const res = await fetch(
       `https://router.huggingface.co/hf-inference/models/${HF_IMAGE_MODEL}`,
@@ -68,5 +71,7 @@ export async function POST(req: Request) {
       { error: e instanceof Error ? e.message : "Draw failed" },
       { status: 502 },
     );
+  } finally {
+    _busy = false;
   }
 }
