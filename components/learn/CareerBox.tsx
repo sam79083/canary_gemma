@@ -9,6 +9,7 @@ import {
 } from "@/lib/learn-career";
 import type { CEFR } from "@/lib/learn-bank";
 import type { FlashCard } from "@/lib/learn-flash";
+import { useLanguage } from "@/hooks/useLanguage";
 
 const TRACK_KEY = "canary-career-track";
 
@@ -47,6 +48,15 @@ export default function CareerBox({
   onSendToChat?: (text: string) => void;
   onSpeak: (text: string, rate?: number) => void;
 }) {
+  const { t } = useLanguage();
+  const L = (key: string, fallback: string) => {
+    try {
+      const s = t(key);
+      return s === key ? fallback : s;
+    } catch {
+      return fallback;
+    }
+  };
   const [trackId, setTrackId] = useState(loadTrackId);
   const [deal, setDeal] = useState(0);
   const [open, setOpen] = useState<string | null>(null);
@@ -107,7 +117,7 @@ export default function CareerBox({
         💡 {track.tip}
       </div>
 
-      <div style={{ fontSize: 13, fontWeight: 800, marginTop: 2 }}>🗣️ Phrases this team uses</div>
+      <div style={{ fontSize: 13, fontWeight: 800, marginTop: 2 }}>{L("lnTeamPhrases", "🗣️ Phrases this team uses")}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {track.phrases.map((p) => {
           const saved = known.has(p.en.toLowerCase()) || !!savedNow[p.en.toLowerCase()];
@@ -126,7 +136,7 @@ export default function CareerBox({
                   className="sidebar-btn small"
                   style={{ width: "auto", fontSize: 11 }}
                   onClick={() => onSpeak(p.en)}
-                  title="Hear the phrase"
+                  title={L("lnHearPhrase", "Hear the phrase")}
                 >
                   🔊
                 </button>
@@ -134,7 +144,7 @@ export default function CareerBox({
                   className="sidebar-btn small"
                   style={{ width: "auto", fontSize: 11 }}
                   onClick={() => onSpeak(p.en, 0.7)}
-                  title="Slow model"
+                  title={L("lnSlowModel", "Slow model")}
                 >
                   🐢
                 </button>
@@ -144,7 +154,7 @@ export default function CareerBox({
                   disabled={saved}
                   onClick={() => savePhrase(p.en, p.ko, p.when)}
                 >
-                  {saved ? "✓ Saved" : "🗂️ +Card"}
+                  {saved ? L("lnSaved", "✓ Saved") : L("lnPlusCard2", "🗂️ +Card")}
                 </button>
               </div>
             </div>
@@ -153,7 +163,7 @@ export default function CareerBox({
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
-        <span style={{ fontSize: 13, fontWeight: 800 }}>💬 Interview practice</span>
+        <span style={{ fontSize: 13, fontWeight: 800 }}>{L("lnInterviewPractice", "💬 Interview practice")}</span>
         <span style={{ flex: 1 }} />
         <button
           className="sidebar-btn small"
@@ -164,7 +174,7 @@ export default function CareerBox({
             setSentQ(null);
           }}
         >
-          Deal another set
+          {L("lnDealAnother", "Deal another set")}
         </button>
       </div>
 
@@ -184,15 +194,15 @@ export default function CareerBox({
                   className="sidebar-btn small"
                   style={{ width: "auto", fontSize: 11 }}
                   onClick={() => setOpen(isOpen ? null : q.q)}
-                  title="STAR-style answer outline"
+                  title={L("lnStarOutline", "STAR-style answer outline")}
                 >
-                  {isOpen ? "▾ Hide skeleton" : "🧭 Answer skeleton"}
+                  {isOpen ? L("lnHideSkeleton", "▾ Hide skeleton") : L("lnAnswerSkeleton", "🧭 Answer skeleton")}
                 </button>
                 <button
                   className="sidebar-btn small"
                   style={{ width: "auto", fontSize: 11 }}
                   onClick={() => onSpeak(q.q)}
-                  title="Hear the question"
+                  title={L("lnHearQuestion", "Hear the question")}
                 >
                   🔊
                 </button>
@@ -205,19 +215,19 @@ export default function CareerBox({
                       onPractice();
                       setSentQ(q.q);
                     }}
-                    title="Send this question to the main chat"
+                    title={L("lnSendToChat", "Send this question to the main chat")}
                   >
-                    💬 Practice in chat
+                    💬 {L("lnPracticeChat", "Practice in chat")}
                   </button>
                 ) : (
                   <span style={{ fontSize: 11, opacity: 0.65, alignSelf: "center" }}>
-                    Open Chat to rehearse this.
+                    {L("lnOpenChatRehearse", "Open Chat to rehearse this.")}
                   </span>
                 )}
               </div>
               {sent ? (
                 <div style={{ fontSize: 11, opacity: 0.75, marginTop: 4 }}>
-                  Sent to Chat — answer out loud, then ask for one improvement.
+                  {L("lnSentChat", "Sent to Chat — answer out loud, then ask for one improvement.")}
                 </div>
               ) : null}
               {isOpen ? (
@@ -233,8 +243,7 @@ export default function CareerBox({
       </div>
 
       <p style={{ margin: 0, fontSize: 11, opacity: 0.6 }}>
-        Questions are dealt at your level ({level ?? "A1"}) and one band up. The skeleton
-        is a starting point — fill it with your own story, then say it out loud.
+        {t("lnCareerFooter", { level: level ?? "A1" })}
       </p>
     </div>
   );

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { contentWords, wordHitRate } from "@/lib/learn-listen";
 import { useAudioRecorder } from "@/components/learn/useAudioRecorder";
+import { useLanguage } from "@/hooks/useLanguage";
 
 interface SpeechResultEvent {
   results: ArrayLike<ArrayLike<{ transcript: string }>>;
@@ -37,6 +38,15 @@ export default function ShadowBox({
   onSpeak: (rate?: number) => void;
   onScore: (rate: number, transcript: string) => void;
 }) {
+  const { t } = useLanguage();
+  const L = (key: string, fallback: string) => {
+    try {
+      const s = t(key);
+      return s === key ? fallback : s;
+    } catch {
+      return fallback;
+    }
+  };
   const [speechOK, setSpeechOK] = useState(false);
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState("");
@@ -134,11 +144,11 @@ export default function ShadowBox({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <button className="sidebar-btn small" onClick={() => onSpeak()} style={{ width: "auto" }} title="Hear it first">
-          🔊 Listen
+        <button className="sidebar-btn small" onClick={() => onSpeak()} style={{ width: "auto" }} title={L("lnHearFirst", "Hear it first")}>
+          🔊 {L("lnListen", "Listen")}
         </button>
-        <button className="sidebar-btn small" onClick={() => onSpeak(0.7)} style={{ width: "auto" }} title="Slow model">
-          🐢 Slow
+        <button className="sidebar-btn small" onClick={() => onSpeak(0.7)} style={{ width: "auto" }} title={L("lnSlowModel", "Slow model")}>
+          🐢 {L("lnSlow", "Slow")}
         </button>
         {recorder.supported ? (
           <button
@@ -148,9 +158,9 @@ export default function ShadowBox({
               else void recorder.start();
             }}
             style={{ flex: 1 }}
-            title="Record your take (stays on your device)"
+            title={L("lnRecordTake", "Record your take (stays on your device)")}
           >
-            {recorder.recording ? `⏺ ${secs} — tap to stop` : "🎙️ Record my take"}
+            {recorder.recording ? `${L("lnRecording", "⏺")} ${secs} — ${L("lnTapStop", "tap to stop")}` : L("lnRecordMyTake", "🎙️ Record my take")}
           </button>
         ) : null}
         <button
@@ -158,9 +168,9 @@ export default function ShadowBox({
           onClick={toggleScore}
           disabled={!speechOK}
           style={{ flex: 1 }}
-          title={speechOK ? "Repeat the sentence into your mic" : "Auto-scoring needs desktop Chrome"}
+          title={speechOK ? L("lnRepeatMic", "Repeat the sentence into your mic") : L("lnAutoScoreChrome", "Auto-scoring needs desktop Chrome")}
         >
-          {listening ? "⏺ Listening… tap to stop" : "🎤 Score it"}
+          {listening ? L("lnListening", "⏺ Listening… tap to stop") : L("lnScoreIt", "🎤 Score it")}
         </button>
       </div>
 
@@ -168,14 +178,14 @@ export default function ShadowBox({
 
       {recorder.url ? (
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <button className="sidebar-btn small" onClick={playMine} style={{ width: "auto", fontSize: 12 }} title="Play your recording">
-            ▶️ Hear me
+          <button className="sidebar-btn small" onClick={playMine} style={{ width: "auto", fontSize: 12 }} title={L("lnPlayRecording", "Play your recording")}>
+            ▶️ {L("lnHearMe", "Hear me")}
           </button>
-          <button className="sidebar-btn small" onClick={() => recorder.clear()} style={{ width: "auto", fontSize: 12 }} title="Retake">
-            🗑️ Retake
+          <button className="sidebar-btn small" onClick={() => recorder.clear()} style={{ width: "auto", fontSize: 12 }} title={L("lnRetake", "Retake")}>
+            🗑️ {L("lnRetakeBtn", "Retake")}
           </button>
           <span style={{ fontSize: 12, opacity: 0.7 }}>
-            Compare: 🐢 model, then your take — {recorder.seconds}s clip, never uploaded.
+            {L("lnCompareModel", "Compare: 🐢 model, then your take — " + recorder.seconds + "s clip, never uploaded.")}
           </span>
           <audio ref={audioRef} src={recorder.url} preload="auto" style={{ display: "none" }} />
         </div>
@@ -183,22 +193,21 @@ export default function ShadowBox({
 
       {!recorder.supported ? (
         <div style={{ fontSize: 12, opacity: 0.7 }}>
-          Recording needs a modern browser — {speechOK ? "scoring still works here." : "dictation still works everywhere."}
+          {L("lnRecNeedModern", "Recording needs a modern browser — " + (speechOK ? L("lnScoreWorks", "scoring still works here.") : L("lnDictateWorks", "dictation still works everywhere.")))}
         </div>
       ) : null}
       {!speechOK ? (
-        <div style={{ fontSize: 12, opacity: 0.7 }}>Auto-scoring (word hits) needs desktop Chrome — record &amp; compare works everywhere.</div>
+        <div style={{ fontSize: 12, opacity: 0.7 }}>L("lnAutoScoreChromeNote", "Auto-scoring (word hits) needs desktop Chrome — record & compare works everywhere.")</div>
       ) : null}
 
       {transcript ? (
         <div style={{ fontSize: 13, background: "var(--border)", borderRadius: 6, padding: 8 }}>
           <div style={{ opacity: 0.8 }}>
-            Heard: <i>&quot;{transcript}&quot;</i>
-          </div>
+            {t("lnHeard", { t: transcript })}</div>
           {rate !== null ? (
             <div style={{ fontWeight: 800, marginTop: 2 }}>
               {rate >= 0.8 ? "🌟 " : rate >= 0.5 ? "💪 " : "🍀 "}
-              {Math.round(rate * 100)}% of key words ({want} to catch)
+              {t("lnKeyWords", { pct: Math.round(rate * 100), want })}
             </div>
           ) : null}
         </div>

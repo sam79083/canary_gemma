@@ -5,9 +5,7 @@ import { gradeChoice, gradeFill, type BankItem } from "@/lib/learn-bank";
 import type { AnswerResult, CardGrade } from "@/lib/learn-store";
 import type { UseItBridge } from "./UseItBox";
 import UseItBox from "./UseItBox";
-
-const PRAISE = ["Nice! 🔥", "Brilliant! ✨", "You got it! 🎉", "Smooth! 😎", "Exactly! 💯"];
-const NUDGE = ["So close! 💪", "Almost — next one! 🍀", "Good try — peek below 👇"];
+import { useLanguage } from "@/hooks/useLanguage";
 
 /** Use-it-now for answered vocab questions (no spoilers: only after check).
  * Derives term/meaning from the item itself: word key + correct choice. */
@@ -47,7 +45,16 @@ export default function QuizCard({
   /** Review mode: after a correct answer, let the learner self-rate
    *  Hard/Good/Easy (feeds the SM-2 scheduler). Wrong answers are "again". */
   srsGrades?: boolean;
-}) {
+  }) {
+  const { t } = useLanguage();
+  const L = (key: string, fallback: string) => {
+    try {
+      const s = t(key);
+      return s === key ? fallback : s;
+    } catch {
+      return fallback;
+    }
+  };
   const [idx, setIdx] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
   const [typed, setTyped] = useState("");
@@ -79,14 +86,14 @@ export default function QuizCard({
     setGradeState(2);
   }, [idx]);
 
-  if (items.length === 0) return <p>No questions.</p>;
+  if (items.length === 0) return <p>{L("lnNoQuestions", "No questions.")}</p>;
   if (done) {
     const correct = results.filter((r) => r.correct).length;
     const perfect = correct === results.length && results.length > 0;
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <p style={{ fontSize: 16, fontWeight: 700 }}>
-          {perfect ? "🌟 PERFECT! " : correct >= results.length / 2 ? "🎉 Well done! " : "💪 Good effort! "}✅ {correct} / {results.length} · +
+          {perfect ? t("lnPerfect") : correct >= results.length / 2 ? t("lnWellDone") : t("lnGoodEffort")} ✅ {correct} / {results.length} · +
           {results.reduce((a, r) => a + (r.correct ? 10 : 2), 0)} XP
         </p>
         <button data-testid="quiz-done" className="sidebar-btn primary" onClick={() => {
@@ -101,7 +108,7 @@ export default function QuizCard({
           {cta}
         </button>
         <button className="sidebar-btn small" onClick={() => { setIdx(0); setResults([]); }}>
-          ↻ Retry
+          ↻ {L("lnRetry", "Retry")}
         </button>
       </div>
     );
@@ -145,9 +152,9 @@ export default function QuizCard({
             className="sidebar-btn small"
             style={{ width: "auto", fontSize: 12 }}
             onClick={() => setHintOpen((v) => !v)}
-            title="Show a hint (no XP penalty)"
+            title={L("lnHintTitle", "Show a hint (no XP penalty)")}
           >
-            {hintOpen ? `💡 ${item.hint}` : "💡 Hint?"}
+            {hintOpen ? `💡 ${item.hint}` : L("lnHintQ", "💡 Hint?")}
           </button>
         </div>
       ) : null}
@@ -181,30 +188,30 @@ export default function QuizCard({
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") checkFill(); }}
-            placeholder="Type the missing word…"
+            placeholder={L("lnTypeMissing", "Type the missing word…")}
             disabled={checked !== null}
             // 16px stops iOS auto-zoom on focus.
             style={{ flex: 1, minWidth: 0, padding: "10px 12px", fontSize: 16, borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
           />
           <button data-testid="quiz-check" className="sidebar-btn small" onClick={checkFill} disabled={checked !== null}>
-            Check
+            {L("lnCheck", "Check")}
           </button>
         </div>
       )}
       {checked !== null ? (
         <div style={{ fontSize: 13, background: "var(--border)", borderRadius: 6, padding: 8 }}>
-          {checked ? PRAISE[idx % PRAISE.length] : NUDGE[idx % NUDGE.length]} — {item.explain}
+          {checked ? t("lnPraise" + (1 + (idx % 5))) : t("lnNudge" + (1 + (idx % 3)))} — {item.explain}
           {srsGrades && checked ? (
             <div style={{ marginTop: 8 }}>
               <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>
-                How did that feel? (sets the next review)
+                {L("lnSrsQ", "How did that feel? (sets the next review)")}
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {(
                   [
-                    [1, "😅 Hard"],
-                    [2, "🙂 Good"],
-                    [3, "⚡ Easy"],
+                    [1, t("lnSrsHard")],
+                    [2, t("lnSrsGood")],
+                    [3, t("lnSrsEasy")],
                   ] as const
                 ).map(([g, label]) => (
                   <button
@@ -222,7 +229,7 @@ export default function QuizCard({
           ) : null}
           <div style={{ marginTop: 8 }}>
             <button data-testid="quiz-next" className="sidebar-btn small primary" onClick={() => setIdx((v) => v + 1)}>
-              {idx + 1 === items.length ? "See result →" : "Next →"}
+              {idx + 1 === items.length ? L("lnSeeResult", "See result →") : L("lnNextBtn", "Next →")}
             </button>
           </div>
         </div>

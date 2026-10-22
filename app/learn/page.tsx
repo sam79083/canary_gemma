@@ -67,7 +67,7 @@ export default function LearnPage() {
         </div>
       </div>
       <style>{`
-        div [role="dialog"][aria-label="English tutor"] {
+        div[role="dialog"][data-tutor="true"] {
           position: absolute !important;
           inset: 0 !important;
           width: auto !important;

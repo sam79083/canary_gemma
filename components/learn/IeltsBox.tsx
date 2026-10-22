@@ -10,6 +10,7 @@ import {
   type IeltsEstimate,
 } from "@/lib/learn-ielts";
 import type { CEFR } from "@/lib/learn-bank";
+import { useLanguage } from "@/hooks/useLanguage";
 
 const DRAFT_KEY = "canary-ielts-draft-v1";
 const EXAM_SECONDS = 40 * 60;
@@ -52,6 +53,15 @@ export default function IeltsBox({
   onSave: (title: string, body: string, meta: string) => boolean;
   onSpeak: (text: string, rate?: number) => void;
 }) {
+  const { t } = useLanguage();
+  const L = (key: string, fallback: string) => {
+    try {
+      const s = t(key);
+      return s === key ? fallback : s;
+    } catch {
+      return fallback;
+    }
+  };
   const initial = useRef<Draft | null>(null);
   if (initial.current === null) initial.current = loadDraft();
   const [taskId, setTaskId] = useState(initial.current.taskId);
@@ -122,7 +132,7 @@ export default function IeltsBox({
             style={{ width: "auto", fontSize: 11 }}
             onClick={() => onSpeak(task.prompt)}
           >
-            🔊 Hear prompt
+            🔊 {L("lnHearPrompt", "Hear prompt")}
           </button>
           {startedAt === null ? (
             <button
@@ -135,7 +145,7 @@ export default function IeltsBox({
                 setSaved(false);
               }}
             >
-              ⏱️ Start 40-min timer
+              ⏱️ {L("lnStartTimer", "Start 40-min timer")}
             </button>
           ) : (
             <>
@@ -147,7 +157,7 @@ export default function IeltsBox({
                   color: timeUp ? "#e05252" : remaining < 5 * 60 ? "#d68a00" : "inherit",
                 }}
               >
-                {timeUp ? "⏰ Time's up" : `⏱️ ${mmss(remaining)} left`}
+                {timeUp ? L("lnTimeUp", "⏰ Time's up") : t("lnTimeLeft", { t: mmss(remaining) })}
               </span>
               <button
                 className="sidebar-btn small"
@@ -157,7 +167,7 @@ export default function IeltsBox({
                   setEstimate(null);
                 }}
               >
-                ↺ Reset timer
+                ↺ {L("lnResetTimer", "Reset timer")}
               </button>
             </>
           )}
@@ -170,7 +180,7 @@ export default function IeltsBox({
           setText(e.target.value);
           setSaved(false);
         }}
-        placeholder="Write your answer here. Plan for 3–4 paragraphs: position → reason → counter-argument → conclusion…"
+        placeholder={L("lnIeltsPlaceholder", "Write your answer here. Plan for 3–4 paragraphs: position → reason → counter-argument → conclusion…")}
         rows={12}
         style={{
           width: "100%",
@@ -188,18 +198,18 @@ export default function IeltsBox({
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontSize: 12, opacity: 0.75 }}>
-          {words} word{words === 1 ? "" : "s"}
-          {words > 0 && words < 250 ? ` · ${250 - words} to target` : words >= 250 ? " · target reached ✓" : ""}
+          {t("lnWordCount", { w: words })}
+          {words > 0 && words < 250 ? ` · ${250 - words} ${L("lnToTarget", "to target")}` : words >= 250 ? ` · ${L("lnTargetReached", "target reached ✓")}` : ""}
         </span>
         <span style={{ flex: 1 }} />
         <button
           className="sidebar-btn small"
           style={{ width: "auto", fontSize: 12 }}
           disabled={words < 40}
-          title={words < 40 ? "Write at least 40 words first" : "Estimate from text stats"}
+          title={words < 40 ? L("lnWriteFirst", "Write at least 40 words first") : L("lnEstimateStats", "Estimate from text stats")}
           onClick={runEstimate}
         >
-          📊 Estimate band
+          📊 {L("lnEstimateBand", "Estimate band")}
         </button>
         <button
           className="sidebar-btn small primary"
@@ -216,22 +226,22 @@ export default function IeltsBox({
             setSaved(true);
           }}
         >
-          {saved ? "✓ Saved to portfolio" : "💼 Save to portfolio"}
+          {saved ? L("lnSavedPortfolio", "✓ Saved to portfolio") : L("lnSavePortfolio", "💼 Save to portfolio")}
         </button>
       </div>
       <div style={{ fontSize: 11, opacity: 0.6 }}>
-        Draft auto-saves in this browser. Saving to the portfolio pays +3 XP once a day.
+        {L("lnDraftNote", "Draft auto-saves in this browser. Saving to the portfolio pays +3 XP once a day.")}
       </div>
 
       {estimate ? (
         <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
             <span style={{ fontSize: 26, fontWeight: 900, color: "var(--green)" }}>{estimate.band.toFixed(1)}</span>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>practice band</span>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>{L("lnPracticeBand", "practice band")}</span>
             <span style={{ flex: 1 }} />
             <span style={{ fontSize: 11, opacity: 0.6 }}>
-              {estimate.words} words · {estimate.paragraphs} paragraph{estimate.paragraphs === 1 ? "" : "s"} ·{" "}
-              {estimate.errors} pattern{estimate.errors === 1 ? "" : "s"} flagged
+              {t("lnWordsPara", { w: estimate.words, p: estimate.paragraphs })} ·{" "}
+              {t("lnPatternsFlagged", { e: estimate.errors })}
             </span>
           </div>
           <div style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>{estimate.verdict}</div>
@@ -257,20 +267,19 @@ export default function IeltsBox({
             ))}
           </div>
           <p style={{ margin: "10px 0 0", fontSize: 11, opacity: 0.6 }}>
-            Practice estimate from length, structure, vocabulary variety and common error patterns — not an
-            examiner. Save it to your portfolio and ask a tutor (or Chat) for human feedback.
+            {L("lnEstimateDisclaimer", "Practice estimate from length, structure, vocabulary variety and common error patterns — not an examiner. Save it to your portfolio and ask a tutor (or Chat) for human feedback.")}
           </p>
         </div>
       ) : null}
 
       <details style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
-        <summary style={{ cursor: "pointer", fontSize: 12, fontWeight: 800 }}>💡 How to score higher</summary>
+        <summary style={{ cursor: "pointer", fontSize: 12, fontWeight: 800 }}>{L("lnHowScore", "💡 How to score higher")}</summary>
         <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12, lineHeight: 1.5 }}>
           {task.tips.map((t) => (
             <li key={t}>{t}</li>
           ))}
-          <li>Answer the exact question — a memorized essay loses Task Response marks.</li>
-          <li>One idea per paragraph, with a concrete example, beats a list of opinions.</li>
+          <li>{L("lnExactAnswer", "Answer the exact question — a memorized essay loses Task Response marks.")}</li>
+          <li>{L("lnOneIdea", "One idea per paragraph, with a concrete example, beats a list of opinions.")}</li>
         </ul>
         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
           <button
@@ -279,7 +288,7 @@ export default function IeltsBox({
             onClick={() => onSpeak(text)}
             disabled={!text.trim()}
           >
-            🔊 Hear my essay
+            🔊 {L("lnHearEssay", "Hear my essay")}
           </button>
         </div>
       </details>

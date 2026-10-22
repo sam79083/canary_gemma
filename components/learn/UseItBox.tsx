@@ -9,6 +9,7 @@ import {
   type PracticeTarget,
 } from "@/lib/learn-useit";
 import { awardXP, dayStr, gateBonusOnce, loadLearn, saveLearn, type BonusGates } from "@/lib/learn-store";
+import { useLanguage } from "@/hooks/useLanguage";
 
 export interface UseItBridge {
   onAskAI?: (prompt: string) => Promise<string | null>;
@@ -37,6 +38,15 @@ export default function UseItBox({
   compact?: boolean;
   bridge: UseItBridge;
 }) {
+  const { t } = useLanguage();
+  const L = (key: string, fallback: string) => {
+    try {
+      const s = t(key);
+      return s === key ? fallback : s;
+    } catch {
+      return fallback;
+    }
+  };
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [answer, setAnswer] = useState<string | null>(null);
@@ -72,7 +82,7 @@ export default function UseItBox({
     if (!bridge.modelReady || !bridge.onAskAI) {
       const paid = bonusXp();
       setAnswer(
-        `AI isn't ready — but writing it down already counts!${paid ? " +2 XP ✍️" : ""} (Start the model for a live verdict.)`,
+        t("lnUseItNoAi", { xp: paid ? " +2 XP ✍️" : "" })
       );
       return;
     }
@@ -85,7 +95,7 @@ export default function UseItBox({
         else setAnswer("AI hiccup — your sentence is saved above; try again ✨");
         bonusXp();
       })
-      .catch(() => setAnswer("AI hiccup — your sentence is saved above; try again ✨"))
+      .catch(() => setAnswer(L("lnAiHiccup", "AI hiccup — your sentence is saved above; try again ✨")))
       .finally(() => setBusy(false));
   };
 
@@ -101,7 +111,7 @@ export default function UseItBox({
     } catch {
       // ignore
     }
-    setNote("Saved — open Chat and it lands in your composer 💬");
+    setNote(L("lnSavedToComposer", "Saved — open Chat and it lands in your composer 💬"));
   };
 
   const insertChip = (chip: string) => {
@@ -111,7 +121,7 @@ export default function UseItBox({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ fontSize: compact ? 12 : 13, fontWeight: 700 }}>
-        🗣️ Use <i>"{term}"</i> right now:
+        🗣️ {L("lnUseNow", "Use")} <i>"{term}"</i> {L("lnRightNow", "right now:")} 
       </div>
       <div style={{ display: "flex", gap: 6 }}>
         <input
@@ -124,20 +134,20 @@ export default function UseItBox({
           onKeyDown={(e) => {
             if (e.key === "Enter") submitInline();
           }}
-          placeholder={placeholder ?? `e.g. I used "${term}" when…`}
+          placeholder={placeholder ?? L("lnExamplePh", `e.g. I used "${term}" when…`)}
           style={{
             flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 6,
             border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)",
           }}
         />
         <button className="sidebar-btn small" onClick={submitInline} disabled={busy || !text.trim()}>
-          {busy ? "…" : "Go!"}
+          {busy ? "…" : L("lnGo", "Go!")}
         </button>
         <button
           className="sidebar-btn small"
           onClick={sendToChat}
           style={{ width: "auto" }}
-          title={bridge.onSendToChat ? "Continue in main chat" : "Save for main chat"}
+          title={bridge.onSendToChat ? L("lnContinueChat", "Continue in main chat") : L("lnSaveChat", "Save for main chat")}
         >
           💬
         </button>
@@ -145,7 +155,7 @@ export default function UseItBox({
           className="sidebar-btn small"
           onClick={() => setChipsOpen((v) => !v)}
           style={{ width: "auto" }}
-          title="Sentence starters"
+          title={L("lnStartersTitle", "Sentence starters")}
         >
           🧩
         </button>
@@ -156,7 +166,7 @@ export default function UseItBox({
             className="sidebar-btn small"
             style={{ width: "auto", fontSize: 12 }}
             onClick={() => insertChip(`"${term}"`)}
-            title="Insert the target expression"
+            title={L("lnInsertTarget", "Insert the target expression")}
           >
             ＋"{term.length > 18 ? term.slice(0, 18) + "…" : term}"
           </button>

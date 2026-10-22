@@ -16,6 +16,7 @@ import {
 } from "@/lib/learn-pronounce";
 import { useAudioRecorder } from "@/components/learn/useAudioRecorder";
 import type { CEFR } from "@/lib/learn-bank";
+import { useLanguage } from "@/hooks/useLanguage";
 
 interface SpeechResultEvent {
   results: ArrayLike<ArrayLike<{ transcript: string }>>;
@@ -49,6 +50,15 @@ export default function PronounceBox({
   onPass: (pairId: string) => boolean;
   onSpeak: (text: string, rate?: number) => void;
 }) {
+  const { t } = useLanguage();
+  const L = (key: string, fallback: string) => {
+    try {
+      const s = t(key);
+      return s === key ? fallback : s;
+    } catch {
+      return fallback;
+    }
+  };
   const [pair, setPair] = useState<MinimalPair>(() => pickPair(`${today}|${level}`, level));
   const [turn, setTurn] = useState(0);
   const [target, setTarget] = useState<PairChoice>("a");
@@ -159,8 +169,7 @@ export default function PronounceBox({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <p style={{ margin: 0, fontSize: 13, opacity: 0.85 }}>
-        Train the sounds Korean speakers mix up. Listen, copy, and let the browser check
-        which word it heard. No audio leaves your device.
+        {L("lnPronIntro", "Train the sounds Korean speakers mix up. Listen, copy, and let the browser check which word it heard. No audio leaves your device.")}
       </p>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
@@ -172,7 +181,7 @@ export default function PronounceBox({
           Accuracy {pairAccuracy(stat)}% ({stat?.ok ?? 0}/{stat?.total ?? 0})
         </span>
         <button className="sidebar-btn small" style={{ width: "auto", fontSize: 12 }} onClick={nextPair}>
-          Next pair →
+          {L("lnNextPair", "Next pair →")}
         </button>
       </div>
 
@@ -199,7 +208,7 @@ export default function PronounceBox({
                   className="sidebar-btn small"
                   style={{ width: "auto", fontSize: 12 }}
                   onClick={() => onSpeak(word)}
-                  title="Hear the word"
+                  title={L("lnHearWord", "Hear the word")}
                 >
                   🔊
                 </button>
@@ -207,7 +216,7 @@ export default function PronounceBox({
                   className="sidebar-btn small"
                   style={{ width: "auto", fontSize: 11 }}
                   onClick={() => onSpeak(word, 0.65)}
-                  title="Hear it slowly"
+                  title={L("lnHearSlow", "Hear it slowly")}
                 >
                   🐢
                 </button>
@@ -222,7 +231,7 @@ export default function PronounceBox({
       </div>
 
       <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-        <div style={{ fontSize: 12, fontWeight: 800 }}>🎯 Which one will you say?</div>
+        <div style={{ fontSize: 12, fontWeight: 800 }}>{L("lnWhichSay", "🎯 Which one will you say?")}</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {(["a", "b"] as const).map((side) => {
             const word = side === "a" ? pair.a : pair.b;
@@ -250,11 +259,11 @@ export default function PronounceBox({
             style={{ flex: 1 }}
             title={
               speechOK
-                ? `Say "${targetWord}" into your mic`
-                : "Auto-scoring needs desktop Chrome — recording still works"
+                ? t("lnSayMic", { w: targetWord })
+                : L("lnAutoScoreChromeRec", "Auto-scoring needs desktop Chrome — recording still works")
             }
           >
-            {listening ? "🎤 Listening… tap to stop" : `🎤 Score “${targetWord}”`}
+            {listening ? L("lnListening", "🎤 Listening… tap to stop") : t("lnScoreWord", { w: targetWord })}
           </button>
           {recorder.supported ? (
             <button
@@ -274,17 +283,16 @@ export default function PronounceBox({
                 }
               }}
               style={{ flex: 1 }}
-              title="Record your take (stays on your device)"
+              title={L("lnRecordTake", "Record your take (stays on your device)")}
             >
-              {recorder.recording ? `⏺ ${secs} — tap to stop` : "🎙️ Record & compare"}
+              {recorder.recording ? `${L("lnRecording", "⏺")} ${secs} — ${L("lnTapStop", "tap to stop")}` : L("lnRecordCompare", "🎙️ Record & compare")}
             </button>
           ) : null}
         </div>
 
         {!speechOK ? (
           <div style={{ fontSize: 11, opacity: 0.7 }}>
-            Auto-scoring needs desktop Chrome. You can still record, listen back, and
-            compare with the model.
+            {L("lnAutoScoreChromeNote2", "Auto-scoring needs desktop Chrome. You can still record, listen back, and compare with the model.")}
           </div>
         ) : null}
         {recorder.error ? <div style={{ fontSize: 12, opacity: 0.85 }}>⚠️ {recorder.error}</div> : null}
@@ -305,14 +313,14 @@ export default function PronounceBox({
                 }
               }}
             >
-              ▶️ Hear me
+              ▶️ {L("lnHearMe", "Hear me")}
             </button>
             <button
               className="sidebar-btn small"
               style={{ width: "auto", fontSize: 11 }}
               onClick={() => recorder.clear()}
             >
-              🗑️ Retake
+              🗑️ {L("lnRetakeBtn2", "Retake")}
             </button>
             <audio data-pron-mine src={recorder.url} controls style={{ height: 28, maxWidth: "100%" }} />
           </div>
@@ -322,17 +330,15 @@ export default function PronounceBox({
           <div style={{ fontSize: 13, lineHeight: 1.5 }}>
             {result.score === 1 ? (
               <span>
-                ✅ Heard “{result.heardWord}” — that&apos;s the target. {xpMsg}
+                ✅ {t("lnHeardTarget", { w: result.heardWord })} {xpMsg}
               </span>
             ) : result.score === 0 ? (
               <span>
-                ⚠️ Heard “{result.heardWord}” — that&apos;s the other word. Listen once
-                more and retry.
+                ⚠️ {t("lnHeardOther", { w: result.heardWord })}
               </span>
             ) : (
               <span>
-                🤔 Heard: “{result.heard || "(nothing)"}”. Try a little slower and
-                clearer.
+                🤔 {t("lnHeardUnclear", { h: result.heard || "(nothing)" })}
               </span>
             )}
           </div>
@@ -343,7 +349,7 @@ export default function PronounceBox({
         💡 {pair.tip}
       </div>
       <div style={{ fontSize: 11, opacity: 0.6 }}>
-        {MINIMAL_PAIRS.length} pairs in this track — accuracy saves on this device.
+        {t("lnPairCount", { n: MINIMAL_PAIRS.length })}
       </div>
     </div>
   );

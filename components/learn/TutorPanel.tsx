@@ -166,29 +166,29 @@ type FlashMode = "flip" | "match" | "write";
 const VALID_TABS: PTab[] = ["quiz", "idiom", "book", "read", "cards", "listen", "dojo", "say", "work", "review", "essay", "style", "folio", "assess", "me"];
 
 /** Self-explanatory tab groups — each collapses to keep newbies focused. */
-const TAB_GROUPS: { label: string; icon: string; tabs: PTab[] }[] = [
-  { label: "Learn", icon: "📘", tabs: ["quiz", "idiom", "book", "read", "cards", "listen"] },
-  { label: "Speak", icon: "🗣️", tabs: ["say", "work"] },
-  { label: "Code", icon: "💻", tabs: ["dojo"] },
-  { label: "Write", icon: "✍️", tabs: ["essay", "style"] },
-  { label: "Progress", icon: "📊", tabs: ["review", "folio", "assess", "me"] },
+const TAB_GROUPS: { k: string; label: string; icon: string; tabs: PTab[] }[] = [
+  { k: "lnGroupLearn", label: "Learn", icon: "📘", tabs: ["quiz", "idiom", "book", "read", "cards", "listen"] },
+  { k: "lnGroupSpeak", label: "Speak", icon: "🗣️", tabs: ["say", "work"] },
+  { k: "lnGroupCode", label: "Code", icon: "💻", tabs: ["dojo"] },
+  { k: "lnGroupWrite", label: "Write", icon: "✍️", tabs: ["essay", "style"] },
+  { k: "lnGroupProgress", label: "Progress", icon: "📊", tabs: ["review", "folio", "assess", "me"] },
 ];
 
 function tabLabel(id: PTab, L: (k: string, f: string) => string, flashLen: number, reviewLen: number): string {
   switch (id) {
     case "quiz": return `⚡ ${L("lnPractice", "Quiz")}`;
     case "idiom": return `😎 ${L("lnIdiomDay", "Idiom")}`;
-    case "book": return "📖 Book";
-    case "read": return "📰 Read";
-    case "cards": return `🗂️ Cards${flashLen > 0 ? ` (${flashLen})` : ""}`;
-    case "listen": return "👂 Ear";
+    case "book": return `📖 ${L("lnTabBook", "Book")}`;
+    case "read": return `📰 ${L("lnTabRead", "Read")}`;
+    case "cards": return `🗂️ ${L("lnTabCards", "Cards")}${flashLen > 0 ? ` (${flashLen})` : ""}`;
+    case "listen": return `👂 ${L("lnTabEar", "Ear")}`;
     case "dojo": return `💻 ${L("lnDojo", "Code")}`;
-    case "say": return "🗣️ Say";
-    case "work": return "🧑‍💼 Work";
+    case "say": return `🗣️ ${L("lnTabSay", "Say")}`;
+    case "work": return `🧑‍💼 ${L("lnTabWork", "Work")}`;
     case "review": return `🔁 ${L("lnReviewTab", "Review")} (${reviewLen})`;
     case "essay": return `✍️ ${L("lnEssay", "Essay")}`;
-    case "style": return "✨ Style";
-    case "folio": return "💼 Folio";
+    case "style": return `✨ ${L("lnTabStyle", "Style")}`;
+    case "folio": return `💼 ${L("lnTabFolio", "Folio")}`;
     case "assess": return `🎯 ${L("lnAssess", "Level")}`;
     case "me": return `🏆 ${L("lnMe", "Me")}`;
   }
@@ -227,12 +227,14 @@ const GREETS = [
   "Psst… today's idiom is a good one. 😏",
   "Let's make English fun today! 🎈",
 ];
+const GREET_KEYS = ["lnGreet1", "lnGreet2", "lnGreet3", "lnGreet4"];
 
 const WIN_LINES = [
   "Naah, you sound like a native! 🔥",
   "YES! That's exactly how natives use it! 🎉",
   "Smooth! Put that one in your pocket. 😎",
 ];
+const WIN_KEYS = ["lnWin1", "lnWin2", "lnWin3"];
 
 const FUN_KEY = "canary-learn-fun";
 
@@ -363,7 +365,8 @@ export default function TutorPanel({
   const [tryIssues, setTryIssues] = useState<string[]>([]);
   const [tryChips, setTryChips] = useState(false);
   const today = useMemo(() => dayStr(new Date()), []);
-  const greet = useMemo(() => GREETS[hashStr(today) % GREETS.length], [today]);
+  const greetIdx = useMemo(() => hashStr(today) % GREETS.length, [today]);
+  const greet = L(GREET_KEYS[greetIdx], GREETS[greetIdx]);
 
   useEffect(() => {
     const s = loadLearn();
@@ -664,7 +667,7 @@ export default function TutorPanel({
     celebrate(report.level);
     if (!report.confident) {
       try {
-        toast(`Level set to ${report.level} — your band mix was spiky. Retest anytime from Assess.`);
+        toast(t("lnPostLevelToast", { lv: report.level }));
       } catch {
         // toast is best-effort
       }
@@ -871,7 +874,7 @@ export default function TutorPanel({
     persistFlash(addCard(flash, term, meaning, source));
     const paid = gateBonus(`card:${term.toLowerCase()}`, 2);
     try {
-      toast(paid ? "Card saved 🗂️ +2 XP" : "Card saved 🗂️");
+      toast(paid ? t("lnCardSavedXp") : t("lnCardSaved"));
     } catch {
       // best-effort
     }
@@ -945,8 +948,8 @@ export default function TutorPanel({
       draftFallback?.();
       setAiAnswer(
         modelReady
-          ? "Draft saved — open chat and press Enter for AI coaching 💬"
-          : `AI isn't ready yet (${modelStatus || "starting…"}). Draft saved — open chat once the model is ready 💬`,
+          ? t("lnDraftSaved")
+          : t("lnAiNotReadyYet", { status: modelStatus || "starting…" }),
       );
       return;
     }
@@ -956,11 +959,11 @@ export default function TutorPanel({
       if (out && out.trim()) setAiAnswer(out.trim().slice(0, 2000));
       else {
         draftFallback?.();
-        setAiAnswer("Draft saved — open chat and press Enter 💬");
+        setAiAnswer(t("lnDraftSavedEnter"));
       }
     } catch {
       draftFallback?.();
-      setAiAnswer("AI hiccup — draft saved to chat instead 💬");
+      setAiAnswer(t("lnAiHiccupDraft"));
     } finally {
       setAiBusy(false);
     }
@@ -972,12 +975,12 @@ export default function TutorPanel({
     if (aiBusy) return;
     setAiQuiz(null);
     if (!modelReady || !onAskAI) {
-      setAiFreshMsg("AI isn't ready — start the model, then try ✨");
+      setAiFreshMsg(t("lnAiFreshNotReady"));
       return;
     }
     const lv = state.level ?? "A1";
     setAiBusy(true);
-    setAiFreshMsg("Asking AI for 5 fresh questions…");
+    setAiFreshMsg(t("lnAiFreshAsking"));
     void onAskAI(buildFreshSetPrompt(lv, path, loadSeen().slice(0, 12)))
       .then((out) => {
         const items = out ? parseAiItems(out, lv) : [];
@@ -986,10 +989,10 @@ export default function TutorPanel({
           setAiQuiz(items);
           setAiFreshMsg(null);
         } else {
-          setAiFreshMsg("AI rambled instead of JSON — try again ✨");
+          setAiFreshMsg(t("lnAiFreshBad"));
         }
       })
-      .catch(() => setAiFreshMsg("AI hiccup — try again ✨"))
+      .catch(() => setAiFreshMsg(t("lnAiHiccup")))
       .finally(() => setAiBusy(false));
   };
 
@@ -1155,14 +1158,14 @@ export default function TutorPanel({
     }
     try {
       localStorage.setItem(USEIT_DRAFT_KEY, msg);
-      toast("Saved — open Chat and it lands in your composer 💬");
+      toast(t("lnSavedToComposer"));
     } catch {
       // best-effort
     }
   };
 
   const regBadge =
-    idiom?.register === "work-safe" ? "💼 work-safe" : idiom?.register === "casual" ? "🎉 casual" : "🙂 neutral";
+    idiom?.register === "work-safe" ? t("lnRegWork") : idiom?.register === "casual" ? t("lnRegCasual") : t("lnRegNeutral");
 
   const showGate = hydrated && !state.level;
 
@@ -1184,7 +1187,7 @@ export default function TutorPanel({
         ))}
       </div>
       <div style={{ fontSize: 11, opacity: 0.65 }}>
-        A1 입문 · A2 초급 · B1 중급 · B2 중고급 · C1 고급 · C2 최상급
+        {L("lnLevelsLine", "A1 beginner · A2 elementary · B1 intermediate · B2 upper-intermediate · C1 advanced · C2 mastery")}
       </div>
       {gateMode === "menu" ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1238,7 +1241,7 @@ export default function TutorPanel({
       {gateMode === "test" ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <QuizCard key={`a-${quizKey}`} items={placement} cta={L("lnSaveLevel", "Save my level →")} onDone={finishPlacement} />
-          <button className="sidebar-btn small" onClick={() => setGateMode("menu")} style={{ width: "auto", alignSelf: "flex-start" }}>← Back</button>
+          <button className="sidebar-btn small" onClick={() => setGateMode("menu")} style={{ width: "auto", alignSelf: "flex-start" }}>{L("lnBack", "← Back")}</button>
         </div>
       ) : null}
     </div>
@@ -1247,7 +1250,8 @@ export default function TutorPanel({
   return (
     <div
       role="dialog"
-      aria-label="English tutor"
+      data-tutor="true"
+      aria-label={L("lnStudyTitle", "English study")}
       style={{
         position: fullScreen ? "absolute" : "fixed",
         top: 0, right: 0, bottom: 0,
@@ -1268,8 +1272,8 @@ export default function TutorPanel({
             {state.level ? `${L("lnLevelIs", "Level")} ${state.level} · ⚡${state.xp} XP` : greet}
           </div>
         </div>
-        <a className="sidebar-btn small" href={`/learn?tab=${tab}`} style={{ width: "auto" }} title="Open full screen">⤢</a>
-        <button className="sidebar-btn small" onClick={onClose} style={{ width: "auto", display: onClose ? undefined : "none" }} title="Close">✕</button>
+        <a className="sidebar-btn small" href={`/learn?tab=${tab}`} style={{ width: "auto" }} title={L("lnOpenFull", "Open full screen")}>⤢</a>
+        <button className="sidebar-btn small" onClick={onClose} style={{ width: "auto", display: onClose ? undefined : "none" }} title={L("lnClose", "Close")}>✕</button>
       </div>
 
       {showGate ? (
@@ -1302,12 +1306,12 @@ export default function TutorPanel({
       <div style={{ padding: "10px 12px 0", display: "flex", flexDirection: "column", gap: 4 }}>
         {TAB_GROUPS.map((g) => {
           const isActiveGroup = g.tabs.includes(tab);
-          const isCollapsed = !isActiveGroup && collapsedGroups[g.label] !== false;
+          const isCollapsed = !isActiveGroup && collapsedGroups[g.k] !== false;
           return (
-            <div key={g.label}>
+            <div key={g.k}>
               <button
                 className="sidebar-btn small"
-                onClick={() => setCollapsedGroups((prev) => ({ ...prev, [g.label]: !isCollapsed }))}
+                onClick={() => setCollapsedGroups((prev) => ({ ...prev, [g.k]: !isCollapsed }))}
                 style={{
                   width: "100%",
                   justifyContent: "flex-start",
@@ -1317,7 +1321,7 @@ export default function TutorPanel({
                   padding: "6px 10px",
                 }}
               >
-                {g.icon} {g.label} {isCollapsed ? "▸" : "▾"}
+                {g.icon} {L(g.k, g.label)} {isCollapsed ? "▸" : "▾"}
               </button>
               {!isCollapsed ? (
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap", padding: "4px 0 0 12px" }}>
@@ -1343,7 +1347,7 @@ export default function TutorPanel({
           <>
             {reviewItems.length > 0 ? (
               <button className="sidebar-btn small" onClick={() => setTab("review")} style={{ textAlign: "center" }}>
-                🔁 {reviewItems.length} word{reviewItems.length === 1 ? " is" : "s are"} due — review first?
+                {t("lnDueBanner", { n: reviewItems.length })}
               </button>
             ) : null}
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
@@ -1353,35 +1357,45 @@ export default function TutorPanel({
                   className={`sidebar-btn small${quizMode === m && !aiQuiz ? " secondary" : ""}`}
                   onClick={() => { setQuizMode(m); setAiQuiz(null); setAiFreshMsg(null); }}
                   style={{ width: "auto", fontSize: 12 }}
-                  title={m === "quick" ? "5 at-level" : m === "full" ? "Full 10 (warm-up + reach)" : m === "exam" ? "Exam reading passages" : "Never-ending fresh questions"}
+                  title={m === "quick" ? L("lnQmTitleQuick", "5 at-level") : m === "full" ? L("lnQmTitleFull", "Full 10 (warm-up + reach)") : m === "exam" ? L("lnQmTitleExam", "Exam reading passages") : L("lnQmTitleEndless", "Never-ending fresh questions")}
                 >
-                  {m === "quick" ? "⚡ Quick 5" : m === "full" ? "📚 Full 10" : m === "exam" ? "🏆 Exam" : "🔁 Endless"}
+                  {m === "quick" ? L("lnQmQuick", "⚡ Quick 5") : m === "full" ? L("lnQmFull", "📚 Full 10") : m === "exam" ? L("lnQmExam", "🏆 Exam") : L("lnQmEndless", "🔁 Endless")}
                 </button>
               ))}
               <span style={{ flex: 1 }} />
-              <button className="sidebar-btn small" onClick={() => { setQuizKey((k) => k + 1); setAiQuiz(null); }} style={{ width: "auto" }} title="Deal a fresh set">
+              <button className="sidebar-btn small" onClick={() => { setQuizKey((k) => k + 1); setAiQuiz(null); }} style={{ width: "auto" }} title={L("lnDealFresh", "Deal a fresh set")}>
                 🎲
               </button>
             </div>
             <p style={{ fontSize: 12, opacity: 0.75, margin: 0 }}>
-              {aiQuiz ? `✨ AI-made set (${aiQuiz.length} questions) — same XP, zero repeats.` : quizMode === "quick" ? "5 fresh ones every visit — same XP as the full lesson." : quizMode === "full" ? "Full lesson: 3 warm-up + 5 at-level + 2 stretch." : quizMode === "exam" ? ((state.level ?? "A1") === "C1" || (state.level ?? "A1") === "C2" ? "Exam arena: TOEIC / TOEFL / IELTS-style reading." : `Reading at your level (${examItems.length} passages) — reach C1 for the exam arena.`) : `🔁 Endless: fresh from ~${poolTotal.toLocaleString()} questions at ${state.level ?? "A1"} (bank + generated + spelling + phrases) — seen ones stay out.`}
+              {aiQuiz
+                ? t("lnAiMade", { n: aiQuiz.length })
+                : quizMode === "quick"
+                  ? L("lnQuickHint", "5 fresh ones every visit — same XP as the full lesson.")
+                  : quizMode === "full"
+                    ? L("lnFullHint", "Full lesson: 3 warm-up + 5 at-level + 2 stretch.")
+                    : quizMode === "exam"
+                      ? ((state.level ?? "A1") === "C1" || (state.level ?? "A1") === "C2"
+                          ? L("lnExamArena", "Exam arena: TOEIC / TOEFL / IELTS-style reading.")
+                          : t("lnExamPath", { n: examItems.length }))
+                      : t("lnEndlessHint", { n: poolTotal.toLocaleString(), lv: state.level ?? "A1" })}
             </p>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button
                 className="sidebar-btn small"
                 style={{ width: "auto", fontSize: 12 }}
                 disabled={aiBusy}
-                title={modelReady ? "Ask the AI for 5 brand-new questions" : "Start the AI model first"}
+                title={modelReady ? L("lnAiFreshTitle", "Ask the AI for 5 brand-new questions") : L("lnStartModelTitle", "Start the AI model first")}
                 onClick={makeAiFreshSet}
               >
-                {aiBusy ? "…" : "✨ AI Fresh 5"}
+                {aiBusy ? "…" : L("lnAiFresh5", "✨ AI Fresh 5")}
               </button>
               {(["auto", "en", "ko"] as ChoiceMode[]).map((m) => (
                 <button
                   key={m}
                   className={`sidebar-btn small${choiceMode === m ? " secondary" : ""}`}
                   style={{ width: "auto", fontSize: 12 }}
-                  title={m === "auto" ? "KO choices at A1/A2, English definitions at B1+" : m === "en" ? "Always English-definition choices" : "Always Korean choices"}
+                  title={m === "auto" ? L("lnCmTitleAuto", "KO choices at A1/A2, English definitions at B1+") : m === "en" ? L("lnCmTitleEn", "Always English-definition choices") : L("lnCmTitleKo", "Always Korean choices")}
                   onClick={() => {
                     setChoiceModeState(m);
                     try {
@@ -1393,12 +1407,12 @@ export default function TutorPanel({
                     setQuizKey((k) => k + 1);
                   }}
                 >
-                  {m === "auto" ? "🌐 Auto" : m === "en" ? "🇬🇧 EN" : "🇰🇷 KO"}
+                  {m === "auto" ? L("lnCmAuto", "🌐 Auto") : m === "en" ? "🇬🇧 EN" : "🇰🇷 KO"}
                 </button>
               ))}
               {aiQuiz ? (
                 <button className="sidebar-btn small" style={{ width: "auto", fontSize: 12 }} onClick={() => setAiQuiz(null)}>
-                  ← Back to bank sets
+                  {L("lnBackBank", "← Back to bank sets")}
                 </button>
               ) : null}
             </div>
@@ -1414,21 +1428,21 @@ export default function TutorPanel({
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.7 }}>
                 <span style={{ flex: 1 }}>{L("lnIdiomDay", "Idiom of the day")} · {today}</span>
-                <button className="sidebar-btn small" onClick={shuffleIdiom} style={{ width: "auto" }} title="Another one!">
+                <button className="sidebar-btn small" onClick={shuffleIdiom} style={{ width: "auto" }} title={L("lnIdiomDice", "Another one!")}>
                   🎲
                 </button>
               </div>
               <div style={{ fontSize: 22, fontWeight: 900, display: "flex", gap: 8, alignItems: "center" }}>
                 <span style={{ flex: 1 }}>"{idiom.term}"</span>
-                <button className="sidebar-btn small" onClick={() => speakText(`${idiom.term}. ${idiom.example}`)} style={{ width: "auto" }} title="Listen 🔊">🔊</button>
+                <button className="sidebar-btn small" onClick={() => speakText(`${idiom.term}. ${idiom.example}`)} style={{ width: "auto" }} title={L("lnListen", "Listen")}>🔊</button>
                 <button
                   className="sidebar-btn small"
-                  title="Copy"
+                  title={L("lnCopy", "Copy")}
                   style={{ width: "auto" }}
                   onClick={() => {
                     try {
                       void navigator.clipboard?.writeText(`${idiom.term} = ${idiom.meaning} — "${idiom.example}"`);
-                      toast("Copied 📋");
+                      toast(t("lnCopied"));
                     } catch {
                       // clipboard unavailable
                     }
@@ -1439,7 +1453,7 @@ export default function TutorPanel({
               </div>
               <div style={{ display: "flex", gap: 6, fontSize: 12 }}>
                 <span style={{ border: "1px solid var(--border)", borderRadius: 20, padding: "2px 10px" }}>
-                  {idiom.kind === "slang" ? "😎 slang" : idiom.kind === "expression" ? "💬 expression" : "📖 idiom"}
+                  {idiom.kind === "slang" ? L("lnKindSlang", "😎 slang") : idiom.kind === "expression" ? L("lnKindExpression", "💬 expression") : L("lnKindIdiom", "📖 idiom")}
                 </span>
                 <span style={{ border: "1px solid var(--border)", borderRadius: 20, padding: "2px 10px" }}>{regBadge}</span>
               </div>
@@ -1470,17 +1484,17 @@ export default function TutorPanel({
                   {idiom.note ? <div style={{ marginTop: 4 }}>🎓 {idiom.note}</div> : null}
                   <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
                     <button className="sidebar-btn small" style={{ width: "auto", fontSize: 12 }} disabled={aiBusy} onClick={() => void askAiDirect("Explain", idiomAiPrompt("explain", idiom))}>
-                      {aiBusy && aiLabel === "Explain" ? "…" : "🤖 Explain A2"}
+                      {aiBusy && aiLabel === "Explain" ? "…" : L("lnExplainA2", "🤖 Explain A2")}
                     </button>
                     <button className="sidebar-btn small" style={{ width: "auto", fontSize: 12 }} disabled={aiBusy} onClick={() => void askAiDirect("Examples", idiomAiPrompt("examples", idiom))}>
-                      {aiBusy && aiLabel === "Examples" ? "…" : "✨ 3 examples"}
+                      {aiBusy && aiLabel === "Examples" ? "…" : L("lnThreeExamples", "✨ 3 examples")}
                     </button>
                     <button className="sidebar-btn small" style={{ width: "auto", fontSize: 12 }} disabled={aiBusy} onClick={() => void askAiDirect("Quiz", idiomAiPrompt("quiz", idiom))}>
-                      {aiBusy && aiLabel === "Quiz" ? "…" : "❓ Quiz me"}
+                      {aiBusy && aiLabel === "Quiz" ? "…" : L("lnQuizMe", "❓ Quiz me")}
                     </button>
                   </div>
                   {!modelReady ? (
-                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>AI off ({modelStatus || "not ready"}) — answers fall back to chat draft 💬</div>
+                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>{t("lnAiOffFallback", { status: modelStatus || "not ready" })}</div>
                   ) : null}
                   {aiAnswer ? (
                     <div style={{ marginTop: 6, whiteSpace: "pre-wrap", background: "var(--bg)", borderRadius: 6, padding: 8 }}>
@@ -1497,19 +1511,19 @@ export default function TutorPanel({
                   value={tryText}
                   onChange={(e) => { setTryText(e.target.value); setTryState(null); setTryIssues([]); }}
                   onKeyDown={(e) => { if (e.key === "Enter") submitTry(); }}
-                  placeholder="e.g. Our trip cost an arm and a leg…"
+                  placeholder={L("lnTryPlaceholder", "e.g. Our trip cost an arm and a leg…")}
                   disabled={tryState !== null}
                   style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
                 />
                 <button className="sidebar-btn small" onClick={submitTry} disabled={tryState !== null || !tryText.trim()}>
-                  Go!
+                  {L("lnGo", "Go!")}
                 </button>
                 <button
                   className="sidebar-btn small"
                   onClick={() => setTryChips((v) => !v)}
                   disabled={tryState !== null}
                   style={{ width: "auto" }}
-                  title="Sentence starters"
+                  title={L("lnStartersTitle", "Sentence starters")}
                 >
                   🧩
                 </button>
@@ -1538,29 +1552,32 @@ export default function TutorPanel({
               {tryState !== null ? (
                 <div style={{ fontSize: 13, background: "var(--border)", borderRadius: 6, padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
                   {tryState === "good" ? (
-                    <div>{WIN_LINES[tryText.length % WIN_LINES.length]} +10 XP</div>
+                    <div>{(() => {
+                      const wi = tryText.length % WIN_LINES.length;
+                      return `${L(WIN_KEYS[wi], WIN_LINES[wi])} +10 XP`;
+                    })()}</div>
                   ) : tryState === "fix" ? (
                     <>
-                      <div>🛠️ Almost! Coco spotted {tryIssues.length > 1 ? "these" : "this"}:</div>
+                      <div>{L("lnAlmostIssues", "🛠️ So close! Coco spotted:")}</div>
                       {tryIssues.map((iss, i) => (
                         <div key={i}>• {iss}</div>
                       ))}
-                      <div style={{ opacity: 0.85 }}>Compare with native: <i>"{idiom.example}"</i></div>
+                      <div style={{ opacity: 0.85 }}>{L("lnCompareNative", "Compare with native:")} <i>"{idiom.example}"</i></div>
                     </>
                   ) : (
-                    <div>🦜 Hmm — use "{idiom.term}" exactly as written, then hit Go!</div>
+                    <div>{t("lnTryMiss", { term: idiom.term })}</div>
                   )}
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     {tryState !== "good" ? (
-                      <button className="sidebar-btn small" onClick={() => { setTryState(null); setTryIssues([]); }} style={{ width: "auto" }}>↻ Try again</button>
+                      <button className="sidebar-btn small" onClick={() => { setTryState(null); setTryIssues([]); }} style={{ width: "auto" }}>{L("lnTryAgain", "↻ Try again")}</button>
                     ) : null}
                     <button
                       className="sidebar-btn small primary"
                       style={{ width: "auto", textAlign: "center" }}
                       onClick={sendIdiomToChat}
-                      title={onSendToChat ? "Continue with this sentence in main chat" : "Save for main chat"}
+                      title={onSendToChat ? L("lnContinueChat", "Continue with this sentence in main chat") : L("lnSaveChat", "Save for main chat")}
                     >
-                      💬 Use in chat →
+                      {L("lnUseInChat", "💬 Use in chat →")}
                     </button>
                     <button
                       className="sidebar-btn small"
@@ -1572,11 +1589,11 @@ export default function TutorPanel({
                         askAiAboutSentence,
                       )}
                     >
-                      {aiBusy && aiLabel === "Verdict" ? "…" : modelReady ? "🤖 AI verdict — in panel" : "💬 Save to chat →"}
+                      {aiBusy && aiLabel === "Verdict" ? "…" : modelReady ? L("lnAiVerdict", "🤖 AI verdict — in panel") : L("lnSaveToChat", "💬 Save to chat →")}
                     </button>
                     {!modelReady && tryText.trim() ? (
                       <Link href="/" onClick={askAiAboutSentence} className="sidebar-btn small" style={{ width: "auto", textAlign: "center" }}>
-                        Open in chat
+                        {L("lnOpenInChat", "Open in chat")}
                       </Link>
                     ) : null}
                   </div>
@@ -1594,7 +1611,7 @@ export default function TutorPanel({
             </p>
             {unitNow && quizMode !== "exam" && !aiQuiz ? (
               <div style={{ fontSize: 12, opacity: 0.85, borderLeft: "3px solid var(--green)", paddingLeft: 8 }}>
-                <b>Unit {unitNow.index + 1}/{unitNow.total} · {unitNow.unit.title}</b>{" "}
+                <b>{L("lnUnit", "Unit")} {unitNow.index + 1}/{unitNow.total} · {unitNow.unit.title}</b>{" "}
                 <span style={{ opacity: 0.7 }}>({unitNow.unit.ko})</span>
                 <br />
                 {unitNow.unit.focus} — <i>{unitNow.unit.canDo}</i>
@@ -1615,7 +1632,7 @@ export default function TutorPanel({
             <input
               value={bookQuery}
               onChange={(e) => setBookQuery(e.target.value)}
-              placeholder="Search phrases… (e.g. cap, cake, luck)"
+              placeholder={L("lnBookSearch", "Search phrases… (e.g. cap, cake, luck)")}
               style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
             />
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1626,7 +1643,7 @@ export default function TutorPanel({
                   onClick={() => setBookFilter(f)}
                   style={{ width: "auto", fontSize: 12 }}
                 >
-                  {f === "all" ? `All (${unlocked.length})` : f === "work-safe" ? "💼 work-safe" : f === "casual" ? "🎉 casual" : "🙂 neutral"}
+                  {f === "all" ? `${L("lnAllWord", "All")} (${unlocked.length})` : f === "work-safe" ? t("lnRegWork") : f === "casual" ? t("lnRegCasual") : t("lnRegNeutral")}
                 </button>
               ))}
             </div>
@@ -1641,10 +1658,10 @@ export default function TutorPanel({
                 path,
               );
               if (list.length === 0)
-                return <p style={{ fontSize: 13, opacity: 0.75 }}>No matches — try another word, or level up to unlock more 🎁</p>;
+                return <p style={{ fontSize: 13, opacity: 0.75 }}>{L("lnNoMatches", "No matches — try another word, or level up to unlock more 🎁")}</p>;
               return (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div style={{ fontSize: 12, opacity: 0.7 }}>{list.length} phrases</div>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>{t("lnNPhrases", { n: list.length })}</div>
                   {list.slice(0, 30).map((i) => (
                     <div key={i.id} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
                       <button
@@ -1665,13 +1682,13 @@ export default function TutorPanel({
                           })()}
                           {i.caution ? <span>⚠️ {i.caution}</span> : null}
                           <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                            <button className="sidebar-btn small" style={{ width: "auto", fontSize: 12 }} onClick={() => speakText(i.example ? `${i.term}. ${i.example}` : `${i.term} means ${i.meaning}`)}>🔊 Listen</button>
+                            <button className="sidebar-btn small" style={{ width: "auto", fontSize: 12 }} onClick={() => speakText(i.example ? `${i.term}. ${i.example}` : `${i.term} means ${i.meaning}`)}>🔊 {L("lnListen", "Listen")}</button>
                             <button
                               className="sidebar-btn small"
                               style={{ width: "auto", fontSize: 12 }}
                               onClick={() => { setShownId(i.id); setTab("idiom"); setRevealed(true); setAiAnswer(null); setAiLabel(""); }}
                             >
-                              ✍️ Practice →
+                              {L("lnPracticeTab", "✍️ Practice →")}
                             </button>
                             <button
                               className="sidebar-btn small"
@@ -1680,13 +1697,13 @@ export default function TutorPanel({
                                 persistFlash(addCard(flash, i.term, `${i.meaning}${i.ko ? ` (${i.ko})` : ""}`, `phrase:${i.id}`));
                                 gateBonus(`card:${i.term.toLowerCase()}`, 2);
                                 try {
-                                  toast("Card saved 🗂️ +2 XP");
+                                  toast(t("lnCardSavedXp"));
                                 } catch {
                                   // best-effort
                                 }
                               }}
                             >
-                              🗂️ +Card
+                              {L("lnPlusCard", "🗂️ +Card")}
                             </button>
                           </span>
                           <UseItBox
@@ -1701,7 +1718,7 @@ export default function TutorPanel({
                       ) : null}
                     </div>
                   ))}
-                  {list.length > 30 ? <div style={{ fontSize: 12, opacity: 0.7 }}>Showing 30 — refine your search 🔍</div> : null}
+                  {list.length > 30 ? <div style={{ fontSize: 12, opacity: 0.7 }}>{t("lnShowingMore", { n: 30 })}</div> : null}
                 </div>
               );
             })()}
@@ -1749,18 +1766,18 @@ export default function TutorPanel({
                   onClick={() => setFlashMode(m)}
                   style={{ width: "auto", fontSize: 12 }}
                 >
-                  {m === "flip" ? "🔄 Flip" : m === "match" ? "🧩 Match" : "✍️ Write"}
+                  {m === "flip" ? L("lnModeFlip", "🔄 Flip") : m === "match" ? L("lnModeMatch", "🧩 Match") : L("lnModeWrite", "✍️ Write")}
                 </button>
               ))}
             </div>
             {/* Vocabulary builder: mine words from your own files/text */}
             <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ fontSize: 13, fontWeight: 800 }}>⛏️ Vocabulary builder — from YOUR files</div>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Paste a paragraph or file excerpt. We mine the meaty words — tap + to make cards.</div>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>{L("lnVocabBuilder", "⛏️ Vocabulary builder — from YOUR files")}</div>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>{L("lnVocabHint", "Paste a paragraph or file excerpt. We mine the meaty words — tap + to make cards.")}</div>
               <textarea
                 value={pasteText}
                 onChange={(e) => setPasteText(e.target.value)}
-                placeholder="Paste article / essay / notes excerpt here…"
+                placeholder={L("lnPasteExcerpt", "Paste article / essay / notes excerpt here…")}
                 rows={3}
                 style={{ width: "100%", boxSizing: "border-box", padding: 8, borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", fontSize: 13, resize: "vertical" }}
               />
@@ -1771,9 +1788,9 @@ export default function TutorPanel({
                       key={w.word}
                       className="sidebar-btn small"
                       style={{ width: "auto", fontSize: 12 }}
-                      title={`${w.count}× in your text — add as card (look the meaning up or ask AI)`}
+                      title={t("lnMinedTitle", { n: w.count })}
                       onClick={() => {
-                        persistFlash(addCard(flash, w.word, "— look up & edit —", "mined:text"));
+                        persistFlash(addCard(flash, w.word, L("lnLookupEdit", "— look up & edit —"), "mined:text"));
                         gateBonus(`card:${w.word.toLowerCase()}`, 2);
                       }}
                     >
@@ -1788,7 +1805,7 @@ export default function TutorPanel({
               <input
                 value={newTerm}
                 onChange={(e) => setNewTerm(e.target.value)}
-                placeholder="Term (e.g. meticulous)"
+                placeholder={L("lnTermPh", "Term (e.g. meticulous)")}
                 style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
               />
               <input
@@ -1803,7 +1820,7 @@ export default function TutorPanel({
                     gateBonus(`card:${t}`, 2);
                   }
                 }}
-                placeholder="Meaning"
+                placeholder={L("lnMeaningPh", "Meaning")}
                 style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
               />
               <button
@@ -1822,7 +1839,7 @@ export default function TutorPanel({
               </button>
             </div>
             {flash.length === 0 ? (
-              <p style={{ fontSize: 13, opacity: 0.75 }}>No cards yet — mine words above, + from the Book 📖, or type your own. Each new card pays +2 XP (once a day per word). 🗂️</p>
+              <p style={{ fontSize: 13, opacity: 0.75 }}>{L("lnNoCards", "No cards yet — mine words above, + from the Book 📖, or type your own. Each new card pays +2 XP (once a day per word). 🗂️")}</p>
             ) : flashMode === "flip" ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <div style={{ fontSize: 12, opacity: 0.7 }}>{flipIdx + 1} / {flash.length}</div>
@@ -1830,16 +1847,16 @@ export default function TutorPanel({
                   onClick={() => setFlipped((v) => !v)}
                   style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 20, background: "var(--bg)", color: "var(--text)", cursor: "pointer", minHeight: 120 }}
                 >
-                  <div style={{ fontSize: 11, opacity: 0.6 }}>{flipped ? "meaning — tap to flip back" : "term — tap to reveal"}</div>
+                  <div style={{ fontSize: 11, opacity: 0.6 }}>{flipped ? L("lnMeaningHint", "meaning — tap to flip back") : L("lnTermHint", "term — tap to reveal")}</div>
                   <div style={{ fontSize: 22, fontWeight: 900, marginTop: 4 }}>
                     {flipped ? flash[flipIdx % flash.length].meaning : flash[flipIdx % flash.length].term}
                   </div>
                   {!flipped && flash[flipIdx % flash.length].source ? (
-                    <div style={{ fontSize: 11, opacity: 0.6, marginTop: 4 }}>from {flash[flipIdx % flash.length].source}</div>
+                    <div style={{ fontSize: 11, opacity: 0.6, marginTop: 4 }}>{L("lnFrom", "from")} {flash[flipIdx % flash.length].source}</div>
                   ) : null}
                 </button>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button className="sidebar-btn small" style={{ flex: 1 }} onClick={() => { setFlipIdx((i) => (i + 1) % flash.length); setFlipped(false); }}>Next →</button>
+                  <button className="sidebar-btn small" style={{ flex: 1 }} onClick={() => { setFlipIdx((i) => (i + 1) % flash.length); setFlipped(false); }}>{L("lnNextBtn", "Next →")}</button>
                   <button className="sidebar-btn small" style={{ width: "auto" }} onClick={() => speakText(`${flash[flipIdx % flash.length].term}. ${flash[flipIdx % flash.length].meaning}`)}>🔊</button>
                   <button
                     className="sidebar-btn small"
@@ -1865,11 +1882,11 @@ export default function TutorPanel({
             ) : flashMode === "match" ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {flash.length < 2 ? (
-                  <p style={{ fontSize: 13, opacity: 0.75 }}>Add 2+ cards to play Match 🧩</p>
+                  <p style={{ fontSize: 13, opacity: 0.75 }}>{L("lnNeedCards", "Add 2+ cards to play Match 🧩")}</p>
                 ) : (
                   <>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <span style={{ flex: 1, fontSize: 12, opacity: 0.7 }}>Pick each meaning — +2 XP the first time each day.</span>
+                      <span style={{ flex: 1, fontSize: 12, opacity: 0.7 }}>{L("lnMatchHint", "Pick each meaning — +2 XP the first time each day.")}</span>
                       <button className="sidebar-btn small" style={{ width: "auto" }} onClick={() => { setMatchSeed((s) => s + 1); setMatchPicked({}); }}>🎲</button>
                     </div>
                     {buildMatchRound(flash, `${today}|${matchSeed}|${openSalt}`, 5).map((q, qi) => (
@@ -1909,7 +1926,7 @@ export default function TutorPanel({
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {flash.length === 0 ? null : (
                   <>
-                    <div style={{ fontSize: 12, opacity: 0.7 }}>Card {writeIdx + 1} / {flash.length} — type the TERM for:</div>
+                    <div style={{ fontSize: 12, opacity: 0.7 }}>{t("lnWriteFor", { i: writeIdx + 1, n: flash.length })}</div>
                     <div style={{ fontSize: 17, fontWeight: 800 }}>{flash[writeIdx % flash.length].meaning}</div>
                     <div style={{ display: "flex", gap: 6 }}>
                       <input
@@ -1922,7 +1939,7 @@ export default function TutorPanel({
                             if (ok) gateBonus(`write:${flash[writeIdx % flash.length].term.toLowerCase()}`, 2);
                           }
                         }}
-                        placeholder="Type the term…"
+                        placeholder={L("lnTypeTerm", "Type the term…")}
                         style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
                       />
                       <button
@@ -1934,14 +1951,14 @@ export default function TutorPanel({
                           if (ok) gateBonus(`write:${flash[writeIdx % flash.length].term.toLowerCase()}`, 2);
                         }}
                       >
-                        Check
+                        {L("lnCheck", "Check")}
                       </button>
                     </div>
                     {writeResult !== null ? (
                       <div style={{ fontSize: 13, background: "var(--border)", borderRadius: 6, padding: 8 }}>
-                        {writeResult ? "✅ Exactly — nice!" : `💪 Answer: "${flash[writeIdx % flash.length].term}"`}
+                        {writeResult ? L("lnWriteExact", "✅ Exactly — nice!") : t("lnWriteAnswer", { a: flash[writeIdx % flash.length].term })}
                         <div style={{ marginTop: 6 }}>
-                          <button className="sidebar-btn small primary" onClick={() => { setWriteIdx((i) => (i + 1) % flash.length); setWriteText(""); setWriteResult(null); }}>Next →</button>
+                          <button className="sidebar-btn small primary" onClick={() => { setWriteIdx((i) => (i + 1) % flash.length); setWriteText(""); setWriteResult(null); }}>{L("lnNextBtn", "Next →")}</button>
                         </div>
                       </div>
                     ) : null}
@@ -1962,16 +1979,16 @@ export default function TutorPanel({
                   onClick={() => setListenMode(m)}
                   style={{ width: "auto", fontSize: 12 }}
                 >
-                  {m === "dictate-word" ? "✍️ Words" : m === "dictate-sent" ? "📝 Sentences" : m === "comprehend" ? "🧠 Quiz" : "🗣️ Shadow"}
+                  {m === "dictate-word" ? L("lnListenWords", "✍️ Words") : m === "dictate-sent" ? L("lnListenSent", "📝 Sentences") : m === "comprehend" ? L("lnListenQuiz", "🧠 Quiz") : L("lnListenShadow", "🗣️ Shadow")}
                 </button>
               ))}
               <span style={{ flex: 1 }} />
-              <button className="sidebar-btn small" onClick={() => setListenRound((r) => r + 1)} style={{ width: "auto" }} title="Fresh set">
+              <button className="sidebar-btn small" onClick={() => setListenRound((r) => r + 1)} style={{ width: "auto" }} title={L("lnFreshSet", "Fresh set")}>
                 🎲
               </button>
             </div>
             {!listenItem ? (
-              <p style={{ fontSize: 13, opacity: 0.75 }}>No clips — try another mode.</p>
+              <p style={{ fontSize: 13, opacity: 0.75 }}>{L("lnNoClips", "No clips — try another mode.")}</p>
             ) : (
               <>
                 <div style={{ fontSize: 12, opacity: 0.7 }}>
@@ -1991,7 +2008,7 @@ export default function TutorPanel({
                       onClick={() => speakText(listenItem.audio)}
                       style={{ padding: "14px", fontSize: 15 }}
                     >
-                      🔊 Play it{listenMode === "comprehend" ? " — then answer" : " — type what you hear"}
+                      {listenMode === "comprehend" ? `${L("lnPlayIt", "🔊 Play it")} ${L("lnPlayThenAnswer", "— then answer")}` : `${L("lnPlayIt", "🔊 Play it")} ${L("lnPlayType", "— type what you hear")}`}
                     </button>
                     {listenItem.kind === "choice" ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -2016,12 +2033,12 @@ export default function TutorPanel({
                           value={listenTyped}
                           onChange={(e) => { setListenTyped(e.target.value); setListenChecked(null); }}
                           onKeyDown={(e) => { if (e.key === "Enter") checkListenFill(); }}
-                          placeholder="Type what you heard…"
+                          placeholder={L("lnTypeHeard", "Type what you heard…")}
                           disabled={listenChecked !== null}
                           style={{ flex: 1, minWidth: 0, padding: "10px 12px", fontSize: 16, borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)" }}
                         />
                         <button className="sidebar-btn small" onClick={checkListenFill} disabled={listenChecked !== null || !listenTyped.trim()}>
-                          Check
+                          {L("lnCheck", "Check")}
                         </button>
                       </div>
                     )}
@@ -2029,11 +2046,11 @@ export default function TutorPanel({
                 )}
                 {listenChecked !== null && listenMode !== "shadow" ? (
                   <div style={{ fontSize: 13, background: "var(--border)", borderRadius: 6, padding: 8 }}>
-                    {listenChecked ? "🌟 Nailed it! +10 XP" : `💪 Answer: "${listenItem.audio}" (+2 XP for trying)`}
+                    {listenChecked ? t("lnListenWin") : t("lnListenTry", { a: listenItem.audio })}
                   </div>
                 ) : null}
                 <button className="sidebar-btn small primary" onClick={nextListen}>
-                  {listenIdx + 1 >= listenItems.length ? "New set 🎲" : "Next →"}
+                  {listenIdx + 1 >= listenItems.length ? L("lnNewSet", "New set 🎲") : L("lnNextBtn", "Next →")}
                 </button>
               </>
             )}
@@ -2043,7 +2060,7 @@ export default function TutorPanel({
         {tab === "review" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <p style={{ fontSize: 12, opacity: 0.75, margin: 0 }}>
-              Words you missed come back here. Fail 3× = 🐛 leech.
+              {L("lnReviewIntro", "Words you missed come back here. Fail 3× = 🐛 leech.")}
             </p>
             {reviewItems.length === 0 ? (
               <p style={{ fontSize: 13 }}>✅ {L("lnReviewDone", "Nothing due — come back tomorrow!")}</p>
@@ -2065,21 +2082,21 @@ export default function TutorPanel({
                   <option key={t.id} value={t.id}>[{t.level}] {t.topic.slice(0, 40)}…</option>
                 ))}
               </select>
-              <button className="sidebar-btn small" onClick={shuffleTopic} style={{ width: "auto" }} title="Random topic">🎲</button>
+              <button className="sidebar-btn small" onClick={shuffleTopic} style={{ width: "auto" }} title={L("lnRandomTopic", "Random topic")}>🎲</button>
             </div>
             <div style={{ fontSize: 14, fontWeight: 800 }}>"{essayTopic.topic}"</div>
-            <div style={{ fontSize: 12, opacity: 0.7 }}>💡 {essayTopic.hint} · {essayTopic.minWords}–{essayTopic.maxWords} words · {essayTopic.passMark ?? 80}+ pass</div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>💡 {essayTopic.hint} · {essayTopic.minWords}–{essayTopic.maxWords} {L("lnWordsUnit", "words")} · {L("lnPassAt", "pass")} {essayTopic.passMark ?? 80}+</div>
             <textarea
               value={essayText}
               onChange={(e) => { setEssayText(e.target.value); setEssayResult(null); }}
-              placeholder="Write here… (blank line = new paragraph)"
+              placeholder={L("lnEssayPh", "Write here… (blank line = new paragraph)")}
               rows={6}
               style={{ width: "100%", boxSizing: "border-box", padding: 10, borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", fontSize: 14, lineHeight: 1.6, resize: "vertical" }}
             />
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, opacity: 0.75 }}>{essayWords} words</span>
+              <span style={{ fontSize: 12, opacity: 0.75 }}>{essayWords} {L("lnWordsUnit", "words")}</span>
               <button className="sidebar-btn small primary" onClick={gradePanelEssay} disabled={essayWords === 0} style={{ width: "auto" }}>
-                📝 Grade
+                📝 {L("lnGrade", "Grade")}
               </button>
               {essayResult ? (
                 <>
@@ -2093,11 +2110,11 @@ export default function TutorPanel({
                       sendEssayToChat,
                     )}
                   >
-                    {aiBusy && aiLabel === "Essay coaching" ? "…" : modelReady ? "🤖 Coach me — in panel" : "💬 AI coaching →"}
+                    {aiBusy && aiLabel === "Essay coaching" ? "…" : modelReady ? L("lnCoachPanel", "🤖 Coach me — in panel") : L("lnAiCoaching", "💬 AI coaching →")}
                   </button>
                   {!modelReady ? (
                     <Link href="/" onClick={sendEssayToChat} className="sidebar-btn small" style={{ width: "auto", textAlign: "center" }}>
-                      Open in chat
+                      {L("lnOpenInChat", "Open in chat")}
                     </Link>
                   ) : null}
                 </>
@@ -2113,7 +2130,7 @@ export default function TutorPanel({
                 <div style={{ textAlign: "center" }}>
                   <span style={{ fontSize: 30, fontWeight: 900 }}>{essayResult.total}<span style={{ fontSize: 14, opacity: 0.6 }}>/100</span></span>
                   <div style={{ fontSize: 13, fontWeight: 800, color: essayResult.pass ? "var(--green)" : "inherit" }}>
-                    {essayResult.pass ? "🎉 PASS!" : `💪 ${essayTopic.passMark ?? 80} to pass — retry!`}
+                    {essayResult.pass ? L("lnEssayPass", "🎉 PASS!") : t("lnEssayRetry", { n: essayTopic.passMark ?? 80 })}
                   </div>
                 </div>
                 {essayResult.axes.map((a) => (
@@ -2131,11 +2148,11 @@ export default function TutorPanel({
                   ))}
                 </div>
                 <div style={{ fontSize: 12, background: "var(--bg)", borderRadius: 6, padding: 8 }}>
-                  <b>🌟 What would 90+ look like?</b>
+                  <b>{L("lnModelShapeTitle", "🌟 What would 90+ look like?")}</b>
                   {essayModelShape(essayTopic).map((line, i) => (
                     <div key={i} style={{ marginTop: 3 }}>• {line}</div>
                   ))}
-                  <div style={{ marginTop: 4, opacity: 0.8 }}>Rewrite one paragraph using this shape, then hit Grade again 🔁</div>
+                  <div style={{ marginTop: 4, opacity: 0.8 }}>{L("lnModelShapeFoot", "Rewrite one paragraph using this shape, then hit Grade again 🔁")}</div>
                 </div>
               </div>
             ) : null}
@@ -2149,18 +2166,18 @@ export default function TutorPanel({
 
         {tab === "style" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 800 }}>✨ Style lab — tone + vocabulary at YOUR level</div>
-            <div style={{ fontSize: 12, opacity: 0.7 }}>Rule scan is instant and free; AI polish rewrites it keeping your ideas. Goal: <b>{pathByIdSafe(path).name}</b> · Level: <b>{state.level ?? "—"}</b></div>
+            <div style={{ fontSize: 13, fontWeight: 800 }}>{L("lnStyleTitle", "✨ Style lab — tone + vocabulary at YOUR level")}</div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>{L("lnStyleSub", "Rule scan is instant and free; AI polish rewrites it keeping your ideas.")} {L("lnStyleGoal", "Goal")}: <b>{pathByIdSafe(path).name}</b> · {L("lnStyleLevel", "Level")}: <b>{state.level ?? "—"}</b></div>
             <textarea
               value={styleText}
               onChange={(e) => { setStyleText(e.target.value); setStyleChecked(false); }}
-              placeholder="Paste a paragraph — email, essay, chat message…"
+              placeholder={L("lnStylePh", "Paste a paragraph — email, essay, chat message…")}
               rows={5}
               style={{ width: "100%", boxSizing: "border-box", padding: 10, borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", fontSize: 14, lineHeight: 1.6, resize: "vertical" }}
             />
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button className="sidebar-btn small primary" style={{ width: "auto" }} disabled={!styleText.trim()} onClick={() => { setStyleChecked(true); recordTextErrors(styleText, state.level); }}>
-                🔍 Analyze (free)
+                🔍 {L("lnAnalyzeFree", "Analyze (free)")}
               </button>
               <button
                 className="sidebar-btn small"
@@ -2172,7 +2189,7 @@ export default function TutorPanel({
                   void askAiDirect("Style polish", buildStyleCoachPrompt(styleText, state.level, path, m, tips));
                 }}
               >
-                {aiBusy && aiLabel === "Style polish" ? "…" : modelReady ? "🤖 AI polish" : "💬 Draft for chat"}
+                {aiBusy && aiLabel === "Style polish" ? "…" : modelReady ? L("lnAiPolish", "🤖 AI polish") : L("lnDraftChat", "💬 Draft for chat")}
               </button>
               <button
                 className="sidebar-btn small"
@@ -2182,18 +2199,20 @@ export default function TutorPanel({
                   persistFolio(addEntry(folio, "polish", styleText.slice(0, 40) + (styleText.length > 40 ? "…" : ""), styleText, `${state.level ?? "?"} · ${path}`));
                   const paid = gateBonus("folio:polish", 3);
                   try {
-                    toast(paid ? "Saved to portfolio 💼 +3 XP" : "Saved to portfolio 💼");
+                    toast(paid ? t("lnFolioSavedXp") : t("lnFolioSaved"));
                   } catch {
                     // best-effort
                   }
                 }}
               >
-                💼 Save
+                💼 {L("lnFolioSave", "Save")}
               </button>
             </div>
             {styleChecked ? (
               <div style={{ fontSize: 12, background: "var(--border)", borderRadius: 8, padding: 8, display: "flex", flexDirection: "column", gap: 3 }}>
-                <div>📊 {styleMetric.words} words · {styleMetric.sentences} sentences · avg {styleMetric.avgSentenceLen} · tone {styleMetric.tone}</div>
+                <div>
+                  📊 {styleMetric.words} {L("lnWordsUnit", "words")} · {t("lnStyleStats", { s: styleMetric.sentences, avg: styleMetric.avgSentenceLen, tone: styleMetric.tone })}
+                </div>
                 {styleTips.map((f, i) => (
                   <div key={i}>• {f.tip}</div>
                 ))}
@@ -2209,7 +2228,7 @@ export default function TutorPanel({
 
         {tab === "folio" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 800 }}>🎯 My path</div>
+            <div style={{ fontSize: 13, fontWeight: 800 }}>{L("lnMyPath", "🎯 My path")}</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {PATHS.map((p) => (
                 <button
@@ -2223,8 +2242,8 @@ export default function TutorPanel({
                 </button>
               ))}
             </div>
-            <div style={{ fontSize: 12, opacity: 0.7 }}>{pathByIdSafe(path).blurb} Weekly target: {weeklyTarget(path)} XP.</div>
-            <div style={{ fontSize: 13, fontWeight: 800 }}>🏁 This week's league</div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>{pathByIdSafe(path).blurb} {t("lnWeeklyTarget", { n: weeklyTarget(path) })}</div>
+            <div style={{ fontSize: 13, fontWeight: 800 }}>{L("lnLeague", "🏁 This week's league")}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               {leagueTable(weekXp, today.slice(0, 7)).map((r, i) => (
                 <div
@@ -2241,8 +2260,8 @@ export default function TutorPanel({
                 </div>
               ))}
             </div>
-            <div style={{ fontSize: 11, opacity: 0.6 }}>Your rivals are practice bots that pace you (they never improve) — your row is the real score. 🤖</div>
-            <div style={{ fontSize: 13, fontWeight: 800 }}>💼 Portfolio ({folio.length})</div>
+            <div style={{ fontSize: 11, opacity: 0.6 }}>{L("lnLeagueNote", "Your rivals are practice bots that pace you (they never improve) — your row is the real score. 🤖")}</div>
+            <div style={{ fontSize: 13, fontWeight: 800 }}>{t("lnPortfolio", { n: folio.length })}</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button
                 className="sidebar-btn small"
@@ -2250,7 +2269,7 @@ export default function TutorPanel({
                 disabled={folio.length === 0}
                 onClick={() => downloadMd(`english-portfolio-${today}.md`, exportPortfolioMd(folio, state.level, state.xp))}
               >
-                ⬇️ Export .md
+                ⬇️ {L("lnExportMd", "Export .md")}
               </button>
               <button
                 className="sidebar-btn small"
@@ -2259,57 +2278,61 @@ export default function TutorPanel({
                 onClick={() => {
                   try {
                     void navigator.clipboard?.writeText(exportPortfolioMd(folio, state.level, state.xp));
-                    toast("Portfolio copied 📋");
+                    toast(t("lnPortfolioCopied"));
                   } catch {
                     // clipboard unavailable
                   }
                 }}
               >
-                📋 Copy all
+                📋 {L("lnCopyAll", "Copy all")}
               </button>
               <button
                 className="sidebar-btn small"
                 style={{ width: "auto", fontSize: 12 }}
-                title="One-page summary of level, streak, accuracy and portfolio — not an official certificate"
+                title={L("lnProofTitle", "One-page summary of level, streak, accuracy and portfolio — not an official certificate")}
                 onClick={() => downloadMd(`english-proof-${today}.md`, proofMd())}
               >
-                🎓 Proof sheet .md
+                🎓 {L("lnProofSheet", "Proof sheet .md")}
               </button>
               <button
                 className="sidebar-btn small"
                 style={{ width: "auto", fontSize: 12 }}
-                title="Copy the proof sheet to send to a tutor or employer"
+                title={L("lnProofCopyTitle", "Copy the proof sheet to send to a tutor or employer")}
                 onClick={() => {
                   try {
                     void navigator.clipboard?.writeText(proofMd());
-                    toast("Proof sheet copied 🎓");
+                    toast(t("lnProofCopied"));
                   } catch {
                     // clipboard unavailable
                   }
                 }}
               >
-                📋 Copy proof
+                📋 {L("lnCopyProof", "Copy proof")}
               </button>
               <button
                 className="sidebar-btn small"
                 style={{ width: "auto", fontSize: 12 }}
                 onClick={() => {
-                  const card = buildShareCard("My English writing", styleText || essayText || "Hello! I am learning English.", state.level);
+                  const card = buildShareCard(
+                    t("lnShareTitle"),
+                    styleText || essayText || L("lnShareHello", "Hello! I am learning English."),
+                    state.level,
+                  );
                   try {
                     void navigator.clipboard?.writeText(card);
-                    toast("Share card copied — send it anywhere 🤝");
+                    toast(t("lnShareCopied"));
                   } catch {
                     // clipboard unavailable
                   }
                   downloadMd(`feedback-request-${today}.md`, card);
                 }}
               >
-                🤝 Peer review card
+                🤝 {L("lnPeerCard", "Peer review card")}
               </button>
             </div>
-            <div style={{ fontSize: 12, opacity: 0.7 }}>No accounts, no servers: copy the card or save the file and share it in any messenger for human feedback. 🤝</div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>{L("lnPeerNote", "No accounts, no servers: copy the card or save the file and share it in any messenger for human feedback. 🤝")}</div>
             {folio.length === 0 ? (
-              <p style={{ fontSize: 13, opacity: 0.75 }}>Empty shelf — grade an essay ✍️, polish a paragraph ✨, or save a sentence 💬 to start your story.</p>
+              <p style={{ fontSize: 13, opacity: 0.75 }}>{L("lnFolioEmpty", "Empty shelf — grade an essay ✍️, polish a paragraph ✨, or save a sentence 💬 to start your story.")}</p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {folio.slice(0, 20).map((e) => (
@@ -2336,7 +2359,7 @@ export default function TutorPanel({
                   onSave={(title, body, meta) => {
                     persistFolio(addEntry(folio, "ielts", title, body, meta));
                     const paid = gateBonus("ielts:submit", 3);
-                    toast(paid ? "IELTS practice saved 🎓 +3 XP" : "IELTS practice saved 🎓");
+                    toast(paid ? t("lnIeltsSavedXp") : t("lnIeltsSaved"));
                     return paid;
                   }}
                 />
@@ -2350,7 +2373,7 @@ export default function TutorPanel({
             onSendToChat={onSendToChat}
             onXP={(n, note) => {
               bonus(n);
-              toast(`+${n} XP — ${note} 💻`);
+              toast(t("lnDojoXp", { n, note }));
             }}
           />
         ) : null}
@@ -2370,7 +2393,7 @@ export default function TutorPanel({
               </div>
               <div>⚡ {state.xp} XP · 🔥 {state.lessons} {L("lnLessons", "lessons")}</div>
               <div style={{ fontSize: 11, opacity: 0.65 }}>
-                {member ? (cloudState === "synced" ? "☁️ saved to your account" : "☁️ syncing…") : "📱 saved on this device"}
+                {member ? (cloudState === "synced" ? L("lnCloudSaved", "☁️ saved to your account") : L("lnCloudSyncing", "☁️ syncing…")) : L("lnLocalSaved", "📱 saved on this device")}
               </div>
             </div>
             {(() => {
@@ -2388,33 +2411,33 @@ export default function TutorPanel({
               return (
                 <div style={{ background: "var(--green)", color: "#fff", borderRadius: 8, padding: 10, textAlign: "center" }}>
                   <div style={{ fontWeight: 800 }}>
-                    {dir === "up" ? `📈 ${pct}% over your last ${stats.n} — ready for ${next}?` : `🌱 ${pct}% lately — ${next} pace for comfort?`}
+                    {dir === "up" ? t("lnShiftUp", { pct, n: stats.n, next }) : t("lnShiftDown", { pct, next })}
                   </div>
                   <button className="sidebar-btn small" onClick={() => pickLevel(next)} style={{ marginTop: 6, width: "auto" }}>
-                    {dir === "up" ? `Level up to ${next} →` : `Switch to ${next} →`}
+                    {dir === "up" ? t("lnShiftUpBtn", { next }) : t("lnShiftDownBtn", { next })}
                   </button>
                 </div>
               );
             })()}
             {reviewItems.length > 0 ? (
               <button className="sidebar-btn small primary" onClick={() => setTab("review")} style={{ textAlign: "center" }}>
-                🔁 {reviewItems.length} due for review →
+                🔁 {t("lnDueForReview", { n: reviewItems.length })}
               </button>
             ) : null}
             {errorProfile.recent.length > 0 ? (
               <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
-                <div style={{ fontWeight: 800, fontSize: 13 }}>🧭 Error radar</div>
+                <div style={{ fontWeight: 800, fontSize: 13 }}>{L("lnErrorRadar", "🧭 Error radar")}</div>
                 <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>
-                  Slips caught in your own sentences — repeated ones come back as review drills.
+                  {L("lnErrorRadarHint", "Slips caught in your own sentences — repeated ones come back as review drills.")}
                 </div>
                 {topErrorKinds(errorProfile, 3).map(({ kind, count }) => (
                   <div key={kind} style={{ fontSize: 13 }}>
-                    • {ERROR_KIND_LABEL[kind]} — ×{count}
+                    • {ERROR_KIND_LABEL[kind]} ×{count}
                   </div>
                 ))}
                 {errorProfile.recent[0] ? (
                   <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
-                    Last: <i>&quot;{errorProfile.recent[0].found}&quot;</i> → {errorProfile.recent[0].fix}
+                    {t("lnErrorLast", { found: errorProfile.recent[0].found, fix: errorProfile.recent[0].fix })}
                   </div>
                 ) : null}
               </div>
@@ -2435,7 +2458,7 @@ export default function TutorPanel({
               </div>
             </div>
             <div>
-              <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>🔥 {weekXp} / {weeklyTarget(path)} XP {L("lnThisWeek", "this week")} · {pathByIdSafe(path).name}</div>
+              <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{t("lnWeekLine", { n: weekXp, target: weeklyTarget(path), path: pathByIdSafe(path).name })}</div>
               <div style={{ height: 10, borderRadius: 6, background: "var(--border)", overflow: "hidden" }}>
                 <div style={{ width: `${Math.min(100, Math.round((weekXp / weeklyTarget(path)) * 100))}%`, height: "100%", background: "var(--green)", transition: "width .5s" }} />
               </div>
@@ -2452,14 +2475,14 @@ export default function TutorPanel({
             </div>
             {(() => {
               const weak = weakestSkill(state);
-              if (!weak) return <div style={{ opacity: 0.75 }}>📊 Answer 5+ per skill to unlock your focus tip.</div>;
+              if (!weak) return <div style={{ opacity: 0.75 }}>{L("lnFocusLocked", "📊 Answer 5+ per skill to unlock your focus tip.")}</div>;
               const s = state.skills[weak];
               const acc = s.asked > 0 ? Math.round((s.correct / s.asked) * 100) : 0;
               return (
                 <div style={{ background: "var(--border)", borderRadius: 6, padding: 8 }}>
-                  🎯 <b>Focus: {weak}</b> ({acc}% over {s.asked}) —{" "}
+                  {t("lnFocusLine", { skill: weak, acc, n: s.asked })}{" "}
                   <button className="sidebar-btn small" style={{ width: "auto", fontSize: 12 }} onClick={() => { setTab("quiz"); setQuizMode("quick"); }}>
-                    Practice →
+                    {L("lnPracticeTab", "✍️ Practice →")}
                   </button>
                 </div>
               );
@@ -2487,12 +2510,12 @@ export default function TutorPanel({
               }
               return (
                 <div style={{ fontSize: 12, opacity: 0.8 }}>
-                  ❄️ Streak freeze: {left > 0 ? "1 ready — misses one day automatically" : "spent (renews monthly)"}
+                  ❄️ {left > 0 ? t("lnFreezeReady") : t("lnFreezeSpent")}
                 </div>
               );
             })()}
             <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 800 }}>🗞️ Weekly report card</div>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>{L("lnReportCard", "🗞️ Weekly report card")}</div>
               {(() => {
                 let streak = 1;
                 try {
@@ -2521,13 +2544,13 @@ export default function TutorPanel({
                         onClick={() => {
                           try {
                             void navigator.clipboard?.writeText(report);
-                            toast("Report copied 📋");
+                            toast(t("lnReportCopied"));
                           } catch {
                             // ignore
                           }
                         }}
                       >
-                        📋 Copy
+                        📋 {L("lnCopy", "Copy")}
                       </button>
                       <button
                         className="sidebar-btn small"
@@ -2536,17 +2559,17 @@ export default function TutorPanel({
                           try {
                             const nav = navigator as Navigator & { share?: (d: { title: string; text: string }) => Promise<void> };
                             if (nav.share) {
-                              void nav.share({ title: "My English week", text: report }).catch(() => {});
+                              void nav.share({ title: t("lnShareTitle"), text: report }).catch(() => {});
                             } else {
                               void navigator.clipboard?.writeText(report);
-                              toast("Report copied 📋");
+                              toast(t("lnReportCopied"));
                             }
                           } catch {
                             // ignore
                           }
                         }}
                       >
-                        📤 Share
+                        📤 {L("lnShare", "Share")}
                       </button>
                     </div>
                   </>

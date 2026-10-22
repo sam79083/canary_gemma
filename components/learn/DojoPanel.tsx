@@ -11,6 +11,7 @@ import {
   saveDojoDone,
 } from "@/lib/learn-dojo";
 import type { PracticeTarget } from "@/lib/learn-useit";
+import { useLanguage } from "@/hooks/useLanguage";
 
 /**
  * Code Dojo — learn React from zero with a CodePen-style live preview.
@@ -26,6 +27,15 @@ export default function DojoPanel({
   /** Award XP for freshly completed checks (TutorPanel owns the store). */
   onXP?: (n: number, note: string) => void;
 }) {
+  const { t } = useLanguage();
+  const L = (key: string, fallback: string) => {
+    try {
+      const s = t(key);
+      return s === key ? fallback : s;
+    } catch {
+      return fallback;
+    }
+  };
   const first = DOJO_LESSONS[0];
   const [lessonId, setLessonId] = useState<string>(first.id);
   const [langFilter, setLangFilter] = useState<"all" | "ts" | "react" | "next">("all");
@@ -86,7 +96,7 @@ export default function DojoPanel({
             onClick={() => setLangFilter(lg)}
             style={langFilter === lg ? { background: "var(--green)", color: "#fff" } : undefined}
           >
-            {lg === "all" ? "All" : lg === "ts" ? "TS" : lg === "react" ? "React" : "Next"}
+            {lg === "all" ? L("lnAll", "All") : lg === "ts" ? L("lnTS", "TS") : lg === "react" ? L("lnReact", "React") : L("lnNext", "Next")}
           </button>
         ))}
       </div>
@@ -152,22 +162,22 @@ export default function DojoPanel({
             }}
           />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <button className="send-btn secondary" style={{ width: "auto", padding: "4px 12px", height: "auto", fontSize: 12 }} onClick={run} title="Run your code in the preview">
-              ▶ Run{runs > 0 ? ` (${runs})` : ""}
+            <button className="send-btn secondary" style={{ width: "auto", padding: "4px 12px", height: "auto", fontSize: 12 }} onClick={run} title={L("lnRunCode", "Run your code in the preview")}>
+              ▶ {L("lnRun", "Run")}{runs > 0 ? ` (${runs})` : ""}
             </button>
-            <button className="task-chip" onClick={() => setCode(lesson.starter)} title="Back to the starting code">
-              ↺ Reset
+            <button className="task-chip" onClick={() => setCode(lesson.starter)} title={L("lnBackToStart", "Back to the starting code")}>
+              ↺ {L("lnReset", "Reset")}
             </button>
-            <button className="task-chip" onClick={() => setCode(lesson.solution)} title="Fill in one working answer">
-              👁 Solution
+            <button className="task-chip" onClick={() => setCode(lesson.solution)} title={L("lnFillAnswer", "Fill in one working answer")}>
+              👁 {L("lnSolution", "Solution")}
             </button>
             {onSendToChat ? (
               <button
                 className="task-chip"
                 onClick={() => onSendToChat(buildDojoHandoff(lesson, code))}
-                title="Ask Coco in main chat for feedback on this code"
+                title={L("lnAskCoco", "Ask Coco in main chat for feedback on this code")}
               >
-                💬 Ask Coco
+                💬 {L("lnAskCocoBtn", "Ask Coco")}
               </button>
             ) : null}
           </div>
@@ -184,18 +194,18 @@ export default function DojoPanel({
           </div>
           {allClear ? (
             <div style={{ fontSize: 12 }}>
-              🏆 Lesson cleared! 💡 Tip: {lesson.tip}
-              <div style={{ opacity: 0.7, marginTop: 2 }}>📖 In our app: {lesson.inApp}.</div>
+              {t("lnLessonCleared", { tip: lesson.tip })}
+              <div style={{ opacity: 0.7, marginTop: 2 }}>{t("lnInOurApp", { app: lesson.inApp })}</div>
             </div>
           ) : (
-            <div style={{ fontSize: 11, opacity: 0.7 }}>📖 In our app: {lesson.inApp}.</div>
+            <div style={{ fontSize: 11, opacity: 0.7 }}>{t("lnInOurApp", { app: lesson.inApp })}</div>
           )}
         </div>
 
         <div style={{ flex: "1 1 260px", minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
-          <div style={{ fontSize: 12, fontWeight: 700 }}>👁 Preview <span style={{ fontWeight: 400, opacity: 0.65 }}>(updates on ▶ Run)</span></div>
+          <div style={{ fontSize: 12, fontWeight: 700 }}>👁 {L("lnPreview", "Preview")} <span style={{ fontWeight: 400, opacity: 0.65 }}>({L("lnUpdatesOnRun", "updates on ▶ Run")})</span></div>
           <iframe
-            title={`Preview: ${lesson.title}`}
+            title={`${L("lnPreview", "Preview")}: ${lesson.title}`}
             sandbox="allow-scripts"
             srcDoc={doc}
             style={{
@@ -207,7 +217,7 @@ export default function DojoPanel({
             }}
           />
           <div style={{ fontSize: 11, opacity: 0.65 }}>
-            Sandboxed mini-browser (React 18 · JSX + TS). Red text = a compile or runtime error — read it, fix, Run again.
+            {L("lnSandboxNote", "Sandboxed mini-browser (React 18 · JSX + TS). Red text = a compile or runtime error — read it, fix, Run again.")}
           </div>
         </div>
       </div>

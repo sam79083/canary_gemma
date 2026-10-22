@@ -13,6 +13,7 @@ import { ALL_ITEMS, CEFR_ORDER, type BankItem, type CEFR } from "@/lib/learn-ban
 import { genWordList, lookupGenWord } from "@/lib/learn-gen";
 import { enDefSync, loadEnDef } from "@/lib/learn-endef";
 import type { FlashCard } from "@/lib/learn-flash";
+import { useLanguage } from "@/hooks/useLanguage";
 
 const ARTICLE_KEY = "canary-read-article-v1";
 const FONT_KEY = "canary-read-font";
@@ -99,6 +100,15 @@ export default function ReadBox({
   const [savedNow, setSavedNow] = useState<Record<string, 1>>({});
   const [finishMsg, setFinishMsg] = useState<string | null>(null);
   const [defVersion, setDefVersion] = useState(0);
+  const { t } = useLanguage();
+  const L = (key: string, fallback: string) => {
+    try {
+      const s = t(key);
+      return s === key ? fallback : s;
+    } catch {
+      return fallback;
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -198,12 +208,12 @@ export default function ReadBox({
       });
       const data = (await res.json().catch(() => ({}))) as { article?: Article; error?: string };
       if (!res.ok || !data.article) {
-        setError(ERRORS[data.error ?? ""] ?? "Couldn't load that page.");
+        setError(ERRORS[data.error ?? ""] ?? L("lnReadFail", "Couldn't load that page."));
         return;
       }
       show(data.article);
     } catch {
-      setError("Network error — check your connection and try again.");
+      setError(L("lnNetError", "Network error — check your connection and try again."));
     } finally {
       setBusy(false);
     }
@@ -212,11 +222,11 @@ export default function ReadBox({
   const loadPaste = () => {
     const raw = paste.trim();
     if (raw.length < 40) {
-      setError("Paste at least a paragraph (40+ characters).");
+      setError(L("lnPasteShort", "Paste at least a paragraph (40+ characters)."));
       return;
     }
     const first = raw.split(/\n/)[0].trim();
-    const title = first && first.length <= 80 && first.length < raw.length ? first : "Pasted text";
+    const title = first && first.length <= 80 && first.length < raw.length ? first : L("lnPastedText", "Pasted text");
     show(articleFromText(raw, title));
   };
 
@@ -225,7 +235,7 @@ export default function ReadBox({
     const e = picked.entry;
     const meaning = e?.meaning
       ? `${e.meaning}${e.ko ? ` (${e.ko})` : ""}`
-      : "look up & edit in Cards";
+      : L("lnLookupInCards", "look up & edit in Cards");
     onSaveWord(picked.term, meaning);
     setSavedNow((s) => ({ ...s, [picked.term]: 1 }));
   };
@@ -233,7 +243,7 @@ export default function ReadBox({
   const finish = () => {
     if (!article) return;
     const paid = onFinish(article);
-    setFinishMsg(paid ? "✅ Marked read · +3 XP" : "✅ Marked read · bonus already claimed today");
+    setFinishMsg(paid ? t("lnReadDone") : t("lnReadDoneAlready"));
   };
 
   const inputStyle = {
@@ -250,8 +260,7 @@ export default function ReadBox({
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <p style={{ margin: 0, fontSize: 13, opacity: 0.85 }}>
-          Real English from the web. Tap any word for a gloss, save the useful ones as
-          cards, and mark it read for XP. No AI, and the text stays on this device.
+          {L("lnReadIntro", "Real English from the web. Tap any word for a gloss, save the useful ones as cards, and mark it read for XP. No AI, and the text stays on this device.")}
         </p>
         <div style={{ display: "flex", gap: 6 }}>
           {(["url", "text"] as const).map((m) => (
@@ -264,7 +273,7 @@ export default function ReadBox({
                 setError(null);
               }}
             >
-              {m === "url" ? "🔗 From a link" : "📋 Paste text"}
+              {m === "url" ? L("lnFromLink", "🔗 From a link") : L("lnPasteMode", "📋 Paste text")}
             </button>
           ))}
         </div>
@@ -290,9 +299,9 @@ export default function ReadBox({
                 disabled={busy || !url.trim()}
                 onClick={() => void loadLink()}
               >
-                {busy ? "Extracting…" : "Read →"}
+                {busy ? L("lnExtracting", "Extracting…") : L("lnReadGo", "Read →")}
               </button>
-              <span style={{ fontSize: 11, opacity: 0.7 }}>Public article pages only.</span>
+              <span style={{ fontSize: 11, opacity: 0.7 }}>{L("lnPublicOnly", "Public article pages only.")}</span>
             </div>
           </>
         ) : (
@@ -300,7 +309,7 @@ export default function ReadBox({
             <textarea
               value={paste}
               onChange={(e) => setPaste(e.target.value)}
-              placeholder="Paste an article, newsletter, or any English text…"
+              placeholder={L("lnPasteAny", "Paste an article, newsletter, or any English text…")}
               rows={7}
               style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }}
             />
@@ -311,16 +320,15 @@ export default function ReadBox({
                 disabled={!paste.trim()}
                 onClick={loadPaste}
               >
-                Read pasted text →
+                {L("lnReadPasted", "Read pasted text →")}
               </button>
-              <span style={{ fontSize: 11, opacity: 0.7 }}>No network needed.</span>
+              <span style={{ fontSize: 11, opacity: 0.7 }}>{L("lnNoNet", "No network needed.")}</span>
             </div>
           </>
         )}
         {error ? <div style={{ fontSize: 12, color: "var(--danger, #c0392b)" }}>⚠️ {error}</div> : null}
         <p style={{ margin: 0, fontSize: 11, opacity: 0.6 }}>
-          Tip: if a link fails, open the article and use Paste — paywalls and login walls
-          can&apos;t be read for you.
+          {L("lnReadTip", "Tip: if a link fails, open the article and use Paste — paywalls and login walls can't be read for you.")}
         </p>
       </div>
     );
@@ -337,36 +345,36 @@ export default function ReadBox({
         <span>·</span>
         <span>~{article.minutes} min</span>
         <span>·</span>
-        <span title="Estimated from sentence length and word complexity">CEFR {article.level}</span>
+        <span title="Estimated from sentence length and word complexity">{L("lnCefrLabel", "CEFR")} {article.level}</span>
         <span style={{ flex: 1 }} />
         <button
           className="sidebar-btn small"
           style={{ width: "auto", fontSize: 11 }}
-          onClick={() => setFont((f) => Math.max(13, f - 1))}
-          title="Smaller text"
-        >
+onClick={() => setFont((f) => Math.max(13, f - 1))}
+            title={L("lnSmaller", "Smaller text")}
+          >
           A−
         </button>
         <button
           className="sidebar-btn small"
           style={{ width: "auto", fontSize: 11 }}
-          onClick={() => setFont((f) => Math.min(22, f + 1))}
-          title="Larger text"
-        >
+onClick={() => setFont((f) => Math.min(22, f + 1))}
+            title={L("lnLarger", "Larger text")}
+          >
           A+
         </button>
         <button
           className="sidebar-btn small"
           style={{ width: "auto", fontSize: 11 }}
-          onClick={() => {
+onClick={() => {
             setArticle(null);
             setPicked(null);
             setUrl("");
             setPaste("");
             setError(null);
           }}
-          title="Read something else"
-        >
+            title={L("lnNewArticle", "Read something else")}
+          >
           ✕ New
         </button>
       </div>
@@ -385,7 +393,7 @@ export default function ReadBox({
               className="sidebar-btn small"
               style={{ width: "auto", fontSize: 11 }}
               onClick={() => onSpeak(picked.term)}
-              title="Hear the word"
+              title={L("lnHearWord", "Hear the word")}
             >
               🔊
             </button>
@@ -393,7 +401,7 @@ export default function ReadBox({
               className="sidebar-btn small"
               style={{ width: "auto", fontSize: 11 }}
               onClick={() => setPicked(null)}
-              title="Close"
+              title={L("lnClose", "Close")}
             >
               ✕
             </button>
@@ -460,7 +468,7 @@ export default function ReadBox({
               className="sidebar-btn small"
               style={{ width: "auto", fontSize: 11, marginTop: 4 }}
               onClick={() => onSpeak(p)}
-              title="Listen to this paragraph"
+              title={L("lnListenPara", "Listen to this paragraph")}
             >
               🔊
             </button>
@@ -473,11 +481,11 @@ export default function ReadBox({
           <span style={{ fontSize: 12, opacity: 0.85 }}>{finishMsg}</span>
         ) : (
           <button className="sidebar-btn small primary" style={{ width: "auto" }} onClick={finish}>
-            ✅ Done reading
+            {L("lnDoneReading", "✅ Done reading")}
           </button>
         )}
         <span style={{ fontSize: 11, opacity: 0.7 }}>
-          Worth +3 XP the first time each day. Tap a word to save it as a card.
+          {L("lnReadXpNote", "Worth +3 XP the first time each day. Tap a word to save it as a card.")}
         </span>
       </div>
     </div>
