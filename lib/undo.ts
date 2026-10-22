@@ -286,18 +286,17 @@ export async function applyUndo(
         await ops.write(entry.path, entry.text);
         return;
       }
+      if (entry.existed && entry.text === null) {
+        // Existed but we have no backup (binary/tooLarge): deleting what is
+        // live now would destroy data. Refuse BEFORE touching anything.
+        throw new Error("no-backup");
+      }
       // New file (or unwritable backup shape): remove what was created.
       // Already gone => treat as undone.
       try {
         await ops.del(entry.path);
       } catch (e) {
         if (!isNotFound(e)) throw e;
-      }
-      if (entry.existed && entry.text === null) {
-        // Existed but we have no backup (binary/tooLarge): the delete
-        // above would destroy data — it already happened at write time,
-        // so warn loudly instead of pretending success.
-        throw new Error("no-backup");
       }
       return;
     }

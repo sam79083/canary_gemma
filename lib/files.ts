@@ -35,6 +35,18 @@ export function safePath(rel: string): string | null {
   return target;
 }
 
+/**
+ * Server fallback workspace is uploads/ only. Without a connected member
+ * workspace every path the client uses is jailed under uploads/ — this is
+ * the server-side enforcement of that documented behavior, so the file
+ * API can never read or mutate project source.
+ */
+export function inServerJail(rel: string): boolean {
+  const norm = (rel || "").replace(/\\/g, "/").replace(/^\.\/+/, "")
+    .replace(/^\/+|\/+$/g, "");
+  return norm === "uploads" || norm.startsWith("uploads/");
+}
+
 /** True if target is the project root itself (never deletable). */
 export function isRoot(target: string): boolean {
   return path.normalize(target) === ROOT;

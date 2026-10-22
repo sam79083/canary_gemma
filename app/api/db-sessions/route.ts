@@ -55,12 +55,30 @@ export async function POST(req: Request) {
       .update({ title, updated_at: new Date().toISOString() })
       .eq("id", id);
     if (upErr) return NextResponse.json({ error: "db-error" }, { status: 500 });
-    const { error: delErr } = await sb.from("messages").delete().eq("session_id", id);
-    if (delErr) return NextResponse.json({ error: "db-error" }, { status: 500 });
-    const { error: insErr } = await sb
+    // Insert FIRST, then prune. RLS rowids come back from .select(), so old
+    // rows are only ever deleted once the new set exists — a failure can
+    // leave history slightly longer, never silently empty.
+    const { data: saved, error: insErr } = await sb
       .from("messages")
-      .insert(messages.map((m) => ({ session_id: id, role: m.role, content: m.content })));
-    if (insErr) return NextResponse.json({ error: "db-error" }, { status: 500 });
+      .insert(
+        messages.map((m) => ({ session_id: id, role: m.role, content: m.content })),
+      )
+      .select("id");
+    if (insErr || !saved)
+      return NextResponse.json({ error: "db-error" }, { status: 500 });
+    const keep = new Set((saved as { id: number | string }[]).map((r) => r.id));
+    const { data: all, error: listErr } = await sb
+      .from("messages")
+      .select("id")
+      .eq("session_id", id);
+    if (listErr) return NextResponse.json({ error: "db-error" }, { status: 500 });
+    const stale = (all ?? [])
+      .map((r) => (r as { id: number | string }).id)
+      .filter((mid) => !keep.has(mid));
+    if (stale.length > 0) {
+      const { error: delErr } = await sb.from("messages").delete().in("id", stale);
+      if (delErr) return NextResponse.json({ error: "db-error" }, { status: 500 });
+    }
     return NextResponse.json({ id });
   }
 

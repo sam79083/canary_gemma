@@ -92,7 +92,22 @@ export default function MessageList({
   /** Ref to the context menu container. */
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // The scroll container: auto-scroll only while the user is already pinned
+  // to/near the bottom, so reading history isn't yanked down mid-stream.
+  const listRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef(true);
   useEffect(() => {
+    const list = listRef.current;
+    if (list) {
+      list.addEventListener("scroll", () => {
+        // Bottom reached (±48px) => repin; scrolled up => stay unpinned.
+        pinnedRef.current =
+          list.scrollHeight - list.scrollTop - list.clientHeight < 48;
+      });
+    }
+  }, []);
+  useEffect(() => {
+    if (!pinnedRef.current) return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, streamText]);
 
@@ -338,6 +353,7 @@ export default function MessageList({
 
   return (
     <div
+      ref={listRef}
       className={`messages${emptyChat ? " messages-empty" : ""}`}
       id="messages"
       onClick={onCodeCopy}

@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
-import { isRoot, safePath } from "@/lib/files";
+import { isRoot, safePath, inServerJail } from "@/lib/files";
 import { pruneUploads } from "@/lib/uploads-prune";
+
+// Uploads are small by design (chat attachments, drawings); the API refuses
+// oversized writes so one request can never fill the disk.
+const MAX_BODY_BYTES = 12 * 1024 * 1024;
 
 // GET /api/file?path=<rel> — read file content (?raw=1 returns bytes)
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const rel = searchParams.get("path") ?? "";
   const target = safePath(rel);
-  if (target === null)
-    return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+  if (target === null || !inServerJail(rel))
+    return NextResponse.json({ error: "Invalid path" }, { status: 403 });
   try {
     const stat = await fs.stat(target);
     if (!stat.isFile())
@@ -53,16 +57,23 @@ export async function GET(req: Request) {
 // POST /api/file {path, content} — create or overwrite file.
 // {path, contentBase64} writes binary (e.g. generated PNGs).
 export async function POST(req: Request) {
+  const declared = Number(req.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES)
+    return NextResponse.json({ error: "Payload too large" }, { status: 413 });
   let body: { path?: string; content?: string; contentBase64?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Empty body" }, { status: 400 });
   }
+  if (body.contentBase64 && body.contentBase64.length > (MAX_BODY_BYTES / 4) * 3 + 4)
+    return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+  if (typeof body.content === "string" && body.content.length > MAX_BODY_BYTES)
+    return NextResponse.json({ error: "Payload too large" }, { status: 413 });
   const rel = body.path ?? "";
   const target = safePath(rel);
-  if (target === null)
-    return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+  if (target === null || !inServerJail(rel))
+    return NextResponse.json({ error: "Invalid path" }, { status: 403 });
   try {
     await fs.mkdir(path.dirname(target), { recursive: true });
     if (typeof body.contentBase64 === "string" && body.contentBase64) {
@@ -91,10 +102,10 @@ export async function DELETE(req: Request) {
       { status: 400 },
     );
   const target = safePath(rel);
-  if (target === null || isRoot(target))
+  if (target === null || isRoot(target) || !inServerJail(rel))
     return NextResponse.json(
       { error: "Refusing to delete project root" },
-      { status: 400 },
+      { status: 403 },
     );
   try {
     const stat = await fs.stat(target);

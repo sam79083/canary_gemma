@@ -121,6 +121,7 @@ body {
     background: var(--bg);
     color: var(--text);
     height: 100vh;
+    height: 100dvh;
     display: flex;
     overflow: hidden;
     transition: background 0.2s, color 0.2s;
@@ -251,7 +252,13 @@ body {
     cursor: pointer;
     font-size: 14px;
     color: inherit;
-    padding: 0 2px;
+    padding: 6px;
+    min-height: 28px;
+    min-width: 28px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .quota-refresh:hover {
@@ -395,6 +402,7 @@ body {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    height: 100dvh;
 }
 
 .main .model-bar {
@@ -403,6 +411,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px 12px;
     font-size: 14px;
     font-weight: 500;
     background: var(--model-bar-bg);
@@ -496,7 +506,10 @@ body {
     cursor: pointer;
     font-size: 13px;
     opacity: 0.45;
-    padding: 2px 4px;
+    padding: 4px 8px;
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
     flex-shrink: 0;
 }
 

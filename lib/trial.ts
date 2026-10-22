@@ -93,10 +93,10 @@ export function resetTrialState(): void {
 }
 
 /**
- * Client IP for budget keying. Prefer headers only a trusted proxy can set
- * (x-real-ip, cf-connecting-ip); for x-forwarded-for take the LAST hop —
- * the address appended by the proxy nearest us — never the first, which a
- * client can spoof.
+ * Client IP for budget keying. Prefer the trusted-proxy-supplied address
+ * chain: LAST x-forwarded-for hop first (appended by the proxy nearest us),
+ * then cf-connecting-ip / x-real-ip. Never the first XFF hop — a client can
+ * spoof that by sending its own header.
  */
 export function clientIp(req: Request): string {
   const lastHop = (v: string | null): string => {
@@ -108,9 +108,9 @@ export function clientIp(req: Request): string {
     return parts.length > 0 ? parts[parts.length - 1] : "";
   };
   const ip =
-    req.headers.get("x-real-ip")?.trim() ||
-    req.headers.get("cf-connecting-ip")?.trim() ||
     lastHop(req.headers.get("x-forwarded-for")) ||
+    req.headers.get("cf-connecting-ip")?.trim() ||
+    req.headers.get("x-real-ip")?.trim() ||
     "unknown";
   return ip.slice(0, 64);
 }

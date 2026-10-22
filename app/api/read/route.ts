@@ -31,18 +31,30 @@ function allow(ip: string, now = Date.now()): boolean {
   return true;
 }
 
-/** Reject hostnames whose DNS answers land on a private network. */
-async function assertPublicHost(hostname: string): Promise<boolean> {
-  if (isPrivateHost(hostname)) return false;
+/**
+ * Resolve a hostname to its public addresses, or null when the host is
+ * private/unresolvable. Literal IPs are passed through.
+ */
+async function resolvePublic(hostname: string): Promise<string[] | null> {
+  if (isPrivateHost(hostname)) return null;
   const bare = hostname.replace(/^\[|\]$/g, "");
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(bare) || bare.includes(":")) return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(bare) || bare.includes(":")) return [bare];
   try {
     const answers = await lookup(bare, { all: true, verbatim: true });
-    if (answers.length === 0) return false;
-    return answers.every((a) => !isPrivateHost(a.address));
+    if (answers.length === 0) return null;
+    const addr = answers.map((a) => a.address);
+    return addr.every((a) => !isPrivateHost(a)) ? addr : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Address-set comparison that ignores DNS round-robin ordering. */
+function sameAddrs(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const A = [...a].sort();
+  const B = [...b].sort();
+  return A.every((x, i) => x === B[i]);
 }
 
 function decodeBody(buf: Uint8Array, contentType: string): string {
@@ -61,9 +73,15 @@ type FetchResult =
 async function fetchPage(start: URL): Promise<FetchResult> {
   let current = start;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    if (!(await assertPublicHost(current.hostname))) {
+    const first = await resolvePublic(current.hostname);
+    if (!first) return { ok: false, error: "bad-url", status: 400 };
+    // Double-resolve: DNS rebinding works by swapping the answer between
+    // our check and the real fetch's own lookup. Re-resolving immediately
+    // before the fetch and again after the body arrives keeps the address
+    // set stable across the whole request, or the page is dropped.
+    const second = await resolvePublic(current.hostname);
+    if (!second || !sameAddrs(first, second))
       return { ok: false, error: "bad-url", status: 400 };
-    }
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
     try {
@@ -116,6 +134,9 @@ async function fetchPage(start: URL): Promise<FetchResult> {
         offset += c.length;
       }
       const raw = decodeBody(merged, type);
+      const third = await resolvePublic(current.hostname);
+      if (!third || !sameAddrs(first, third))
+        return { ok: false, error: "bad-url", status: 400 };
       const html = type.includes("text/plain")
         ? `<html><head><title>${current.hostname}</title></head><body><p>${raw
             .replace(/&/g, "&amp;")

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "fs/promises";
-import { safePath } from "@/lib/files";
+import { safePath, inServerJail } from "@/lib/files";
 
 // POST /api/mkdir {path} — create directory
 export async function POST(req: Request) {
@@ -11,8 +11,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Empty body" }, { status: 400 });
   }
   const target = safePath(body.path ?? "");
-  if (target === null)
-    return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+  if (target === null || !inServerJail(body.path ?? ""))
+    return NextResponse.json({ error: "Invalid path" }, { status: 403 });
   try {
     await fs.mkdir(target, { recursive: true });
     return NextResponse.json({ success: true, path: body.path ?? "" });

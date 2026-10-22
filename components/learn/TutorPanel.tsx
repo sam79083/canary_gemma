@@ -322,6 +322,22 @@ export default function TutorPanel({
    */
   const [bulkIdioms, setBulkIdioms] = useState<Idiom[]>([]);
   const [bulkWords, setBulkWords] = useState<Record<CEFR, string[]> | null>(null);
+
+  // Esc closes the panel (slide-over mode only — /learn fullscreen keeps Esc
+  // free for form inputs, so it closes only via the header button).
+  useEffect(() => {
+    if (!onClose || fullScreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const el = document.activeElement as { tagName?: string } | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, fullScreen]);
+
   useEffect(() => {
     let dead = false;
     void Promise.all([import("@/lib/idioms-bulk"), import("@/lib/words-bulk")])

@@ -1207,7 +1207,7 @@ export default function Home() {
   const handleSaveChatAsFile = useCallback(async () => {
     const msgs = messagesRef.current;
     if (msgs.length === 0) {
-      alert(t("svEmpty"));
+      toast(t("svEmpty"));
       return;
     }
     const title = titleFor(msgs, t);
@@ -1232,9 +1232,9 @@ export default function Home() {
         await workspace.makeDir("chats");
         await workspace.writeFile(rel, body);
         setTreeVersion((v) => v + 1);
-        alert(t("svSaved", { name: rel }));
+        toast(t("svSaved", { name: rel }));
       } catch (e) {
-        alert(t("trActionFail", { msg: e instanceof Error ? e.message : String(e) }));
+        toast(t("trActionFail", { msg: e instanceof Error ? e.message : String(e) }));
       }
       return;
     }
@@ -1247,9 +1247,9 @@ export default function Home() {
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-      alert(t("svDownloaded", { name: filename }));
+      toast(t("svDownloaded", { name: filename }));
     } catch (e) {
-      alert(t("trActionFail", { msg: e instanceof Error ? e.message : String(e) }));
+      toast(t("trActionFail", { msg: e instanceof Error ? e.message : String(e) }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.connected, t]);
@@ -1489,8 +1489,9 @@ export default function Home() {
                     </span>
                     <button
                       className="sidebar-btn small"
-                      style={{ flex: "0 0 auto", width: "auto", padding: "2px 8px" }}
+                      style={{ flex: "0 0 auto", width: "auto", padding: "5px 10px", minHeight: 28 }}
                       title={t("ssRename")}
+                      aria-label={t("ssRename")}
                       onClick={(e) => {
                         e.stopPropagation();
                         e.preventDefault();
@@ -1502,8 +1503,9 @@ export default function Home() {
                     </button>
                     <button
                       className="sidebar-btn small"
-                      style={{ flex: "0 0 auto", width: "auto", padding: "2px 8px" }}
+                      style={{ flex: "0 0 auto", width: "auto", padding: "5px 10px", minHeight: 28 }}
                       title={t("trDelete")}
+                      aria-label={t("trDelete")}
                       onClick={(e) => {
                         e.stopPropagation();
                         e.preventDefault();
@@ -1712,7 +1714,7 @@ export default function Home() {
                     })
                     .catch(() => {
                       setFlagCopied(false);
-                      alert(text);
+                      toast(text);
                     });
                 }}
               >
@@ -1726,9 +1728,7 @@ export default function Home() {
                   // so just copy + tell the user to paste it manually.
                   const text = "chrome://flags/#prompt-api-for-gemini-nano";
                   void navigator.clipboard?.writeText(text).catch(() => {});
-                  alert(
-                    t("pgFlagNote") + "\n\n" + text,
-                  );
+                  toast(t("pgFlagNote") + "\n\n" + text);
                 }}
               >
                 {t("pgHowToOpen")}
@@ -2217,8 +2217,28 @@ export default function Home() {
       ) : null}
 
       {viewImage ? (
-        <div className="review-overlay" id="image-viewer">
-          <div className="review-card" style={{ textAlign: "center" }}>
+        <div
+          className="review-overlay"
+          id="image-viewer"
+          role="dialog"
+          aria-modal="true"
+          aria-label={viewImage.name}
+          tabIndex={-1}
+          ref={(el) => el?.focus()}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              URL.revokeObjectURL(viewImage.url);
+              setViewImage(null);
+              setTimeout(() => document.getElementById("prompt-input")?.focus(), 0);
+            }
+          }}
+          onClick={() => {
+            URL.revokeObjectURL(viewImage.url);
+            setViewImage(null);
+            setTimeout(() => document.getElementById("prompt-input")?.focus(), 0);
+          }}
+        >
+          <div className="review-card" style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
             <h3>🖼️ {viewImage.name}</h3>
             <img
               src={viewImage.url}

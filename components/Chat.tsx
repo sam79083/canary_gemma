@@ -189,14 +189,11 @@ export default function Chat({
 }: Props) {
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState<string | null>(null);
-  const [agentMode, setAgentMode] = useState<boolean>(() => {
-    try { return typeof localStorage !== "undefined" ? localStorage.getItem("canary-agent-mode") !== "0" : true; }
-    catch { return true; }
-  });
-  const [planMode, setPlanMode] = useState<boolean>(() => {
-    try { return typeof localStorage !== "undefined" && localStorage.getItem("canary-plan-mode") === "1"; }
-    catch { return false; }
-  });
+  // UserDefaults read INSIDE useState initializers would diverge between
+  // server HTML (no localStorage) and the first client render = hydration
+  // mismatch. Start from the sane default; sync from storage in an effect.
+  const [agentMode, setAgentMode] = useState<boolean>(true);
+  const [planMode, setPlanMode] = useState<boolean>(false);
   const [tokens, setTokens] = useState(0);
   /** Approved plan text consumed once by the next agent turn. */
   const planContextRef = useRef<string | null>(null);
@@ -216,20 +213,8 @@ export default function Chat({
   /** Fullscreen big-text reader open on this message (null = closed). */
   const [readerIdx, setReaderIdx] = useState<number | null>(null);
   // ---- Practice mode (C): chat as conversation partner for target words ----
-  const [practiceOn, setPracticeOn] = useState<boolean>(() => {
-    try {
-      return typeof localStorage !== "undefined" && localStorage.getItem("canary-practice-on") === "1";
-    } catch {
-      return false;
-    }
-  });
-  const [targets, setTargets] = useState<PracticeTarget[]>(() => {
-    try {
-      return loadTargets();
-    } catch {
-      return [];
-    }
-  });
+  const [practiceOn, setPracticeOn] = useState<boolean>(false);
+  const [targets, setTargets] = useState<PracticeTarget[]>([]);
   /** Lowercase terms already used (and XP-awarded) this session. */
   const [usedTerms, setUsedTerms] = useState<string[]>([]);
   const practiceScoredRef = useRef<string | null>(null);
@@ -240,6 +225,14 @@ export default function Chat({
   const [wrapUpPhrases, setWrapUpPhrases] = useState<string[]>([]);
   const [wrapUpNextId, setWrapUpNextId] = useState<string | null>(null);
   const [sceneStartIdx, setSceneStartIdx] = useState<number>(0);
+  useEffect(() => {
+    try {
+      setAgentMode(localStorage.getItem("canary-agent-mode") !== "0");
+      setPlanMode(localStorage.getItem("canary-plan-mode") === "1");
+      setPracticeOn(localStorage.getItem("canary-practice-on") === "1");
+      setTargets(loadTargets());
+    } catch {}
+  }, []);
   useEffect(() => {
     try { localStorage.setItem("canary-agent-mode", agentMode ? "1" : "0"); } catch {}
   }, [agentMode]);
@@ -1825,8 +1818,16 @@ export default function Chat({
         })()}
       />
       {wrapUpOpen && wrapUpScene ? (
-        <div className="review-overlay" role="dialog" aria-modal="true">
-          <div className="review-card" style={{ maxWidth: 420 }}>
+        <div className="review-overlay" role="dialog" aria-modal="true" aria-label="Scene complete">
+          <div
+            className="review-card"
+            style={{ maxWidth: 420 }}
+            tabIndex={-1}
+            ref={(el) => el?.focus()}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setWrapUpOpen(false);
+            }}
+          >
             <h3 style={{ marginTop: 0 }}>Scene complete</h3>
             <div style={{ fontSize: 13, margin: "8px 0" }}>
               {"Score: " + roleDone.filter(Boolean).length + "/" + Math.max(1, wrapUpScene.goals.length) + " goals"}

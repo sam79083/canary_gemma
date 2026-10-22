@@ -34,14 +34,22 @@ function isPublicIp(ip: string): boolean {
   return true;
 }
 
-async function hostIsPublic(host: string): Promise<boolean> {
+async function resolveHost(host: string): Promise<string[] | null> {
   try {
     const addrs = await dns.lookup(host, { all: true });
-    if (addrs.length === 0) return false;
-    return addrs.every((a) => isPublicIp(a.address));
+    if (addrs.length === 0) return null;
+    const list = addrs.map((a) => a.address);
+    return list.every((a) => isPublicIp(a)) ? list : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+function sameAddrs(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const A = [...a].sort();
+  const B = [...b].sort();
+  return A.every((x, i) => x === B[i]);
 }
 
 function decodeEntities(s: string): string {
@@ -104,7 +112,11 @@ export async function POST(req: Request) {
   }
   try {
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      if (!(await hostIsPublic(current.hostname))) {
+      const first = await resolveHost(current.hostname);
+      if (!first) return NextResponse.json({ error: "Blocked host" }, { status: 403 });
+      // Double-resolve to shrink the DNS-rebinding window (see /api/read).
+      const second = await resolveHost(current.hostname);
+      if (!second || !sameAddrs(first, second)) {
         return NextResponse.json({ error: "Blocked host" }, { status: 403 });
       }
       const ctl = new AbortController();
@@ -145,6 +157,10 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Page too large" }, { status: 502 });
       }
       const buf = Buffer.from(await res.arrayBuffer()).slice(0, MAX_BYTES);
+      const third = await resolveHost(current.hostname);
+      if (!third || !sameAddrs(first, third)) {
+        return NextResponse.json({ error: "Blocked host" }, { status: 403 });
+      }
       const ct = (res.headers.get("content-type") ?? "").toLowerCase();
       const raw = buf.toString("utf-8");
       if (ct.includes("text/plain")) {
