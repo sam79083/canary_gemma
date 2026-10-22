@@ -35,7 +35,16 @@ export default function ReviewCard({
       : summarizeDiff(review.oldText, edited).preview;
 
   return (
-    <div className="review-overlay" id="review-overlay">
+    <div
+      className="review-overlay"
+      id="review-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("rvTitle")}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onSettle(false);
+      }}
+    >
       <div className="review-card">
         <h3>{t("rvTitle")}</h3>
         <div className="review-path"><FileText size={14} aria-hidden="true" /> {review.path}</div>

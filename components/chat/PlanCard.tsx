@@ -32,7 +32,16 @@ export default function PlanCard({
   onSettle: (verdict: PlanVerdict) => void;
 }) {
   return (
-    <div className="review-overlay" id="plan-overlay">
+    <div
+      className="review-overlay"
+      id="plan-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("plTitle")}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onSettle("cancel");
+      }}
+    >
       <div className="review-card">
         <h3>{t("plTitle")}</h3>
         <div className="review-path">🎯 {plan.goal}</div>

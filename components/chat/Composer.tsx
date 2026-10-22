@@ -434,8 +434,8 @@ export default function Composer({
       ) : null}
       {emptyChat && modelReady && !streaming ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
-          <div className="task-row" title="English roleplay — the AI plays the scene partner and replies in character">
-            <span style={{ fontSize: 12, fontWeight: 700 }}>🎭 English roleplay:</span>
+          <div className="task-row" title={t("rpHint")}>
+            <span style={{ fontSize: 12, fontWeight: 700 }}>{t("rpEnglishRoleplay")}</span>
             {scenarios.map((s) => (
               <button
                 key={s.id}
@@ -460,9 +460,9 @@ export default function Composer({
                 inputRef.current?.focus();
               }}
               disabled={streaming}
-              title="Create your own scene — your situation, your goals"
+              title={t("rpNewSceneHint")}
             >
-              ＋ New scene
+              {t("rpNewScene")}
             </button>
           </div>
           {agentMode ? (

@@ -1668,7 +1668,7 @@ export default function Chat({
       {practiceOn && resolveScenario(roleId, customScenes) ? (
         <div style={{ display: "flex", justifyContent: "flex-end", padding: "6px 0" }}>
           <button className="editor-btn" onClick={() => endRoleplayScene()} disabled={streaming}>
-            ⏹ End scene
+            {t("rpEndScene")}
           </button>
         </div>
       ) : null}
@@ -1806,7 +1806,7 @@ export default function Chat({
         })()}
       />
       {wrapUpOpen && wrapUpScene ? (
-        <div className="review-overlay" role="dialog" aria-modal="true" aria-label="Scene complete">
+        <div className="review-overlay" role="dialog" aria-modal="true" aria-label={t("rpComplete")}>
           <div
             className="review-card"
             style={{ maxWidth: 420 }}
@@ -1818,19 +1818,19 @@ export default function Chat({
               if (e.key === "Escape") setWrapUpOpen(false);
             }}
           >
-            <h3 style={{ marginTop: 0 }}>Scene complete</h3>
+            <h3 style={{ marginTop: 0 }}>{t("rpComplete")}</h3>
             <div style={{ fontSize: 13, margin: "8px 0" }}>
-              {"Score: " + roleDone.filter(Boolean).length + "/" + Math.max(1, wrapUpScene.goals.length) + " goals"}
+              {t("rpScore", { a: roleDone.filter(Boolean).length, b: Math.max(1, wrapUpScene.goals.length) })}
             </div>
             <div style={{ fontSize: 13, margin: "8px 0", opacity: 0.85 }}>
               {wrapUpScene.tip}
             </div>
             <div style={{ fontSize: 13, margin: "4px 0", opacity: 0.85 }}>
-              {"Difficulty: " + "★".repeat(wrapUpScene.difficulty ?? 2) + "☆".repeat(Math.max(0, 5 - (wrapUpScene.difficulty ?? 2)))}
+              {t("rpDifficulty") + "★".repeat(wrapUpScene.difficulty ?? 2) + "☆".repeat(Math.max(0, 5 - (wrapUpScene.difficulty ?? 2)))}
             </div>
             {wrapUpPhrases.length > 0 ? (
               <div style={{ margin: "10px 0" }}>
-                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Add to vocab notes:</div>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{t("rpAddVocab")}</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {wrapUpPhrases.map((p) => (
                     <button
@@ -1840,7 +1840,7 @@ export default function Chat({
                         try {
                           const next = addCard(loadCards(), p, "roleplay vocab", "roleplay");
                           saveCards(next);
-                          toast(`Saved "${p}" to vocab notes`);
+                          toast(t("rpSavedVocab", { name: p }));
                         } catch {}
                       }}
                     >
@@ -1859,10 +1859,10 @@ export default function Chat({
                     pickScenario(wrapUpNextId, customScenes);
                   }}
                 >
-                  Try next: {resolveScenario(wrapUpNextId, customScenes)?.icon} {resolveScenario(wrapUpNextId, customScenes)?.name}
+                  {t("rpTryNext")} {resolveScenario(wrapUpNextId, customScenes)?.icon} {resolveScenario(wrapUpNextId, customScenes)?.name}
                 </button>
               ) : null}
-              <button className="editor-btn" onClick={() => setWrapUpOpen(false)}>Continue</button>
+              <button className="editor-btn" onClick={() => setWrapUpOpen(false)}>{t("rpContinue")}</button>
               <button
                 className="editor-btn primary"
                 onClick={() => {
@@ -1870,7 +1870,7 @@ export default function Chat({
                   pickScenario(null);
                 }}
               >
-                End scene
+                {t("rpEndScene")}
               </button>
             </div>
           </div>
@@ -1884,9 +1884,9 @@ export default function Chat({
             position: "fixed", bottom: 150, right: 14, zIndex: 1600, width: "auto",
             maxWidth: "70vw", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}
-          title="Ask AI to teach this + quiz you on it"
+          title={t("rpPracticeHint")}
         >
-          💬 Practice "{selText.length > 32 ? selText.slice(0, 32) + "…" : selText}"
+          {t("rpPractice", { sel: selText.length > 32 ? selText.slice(0, 32) + "…" : selText })}
         </button>
       ) : null}
     </div>

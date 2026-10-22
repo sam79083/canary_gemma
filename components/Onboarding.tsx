@@ -34,7 +34,18 @@ export default function Onboarding({
 
   if (fork === "ask") {
     return (
-      <div className="review-overlay" id="onboard-overlay">
+      <div
+        className="review-overlay"
+        id="onboard-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("obWelcome")}
+        tabIndex={-1}
+        autoFocus
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onSkip();
+        }}
+      >
         <div className="review-card" style={{ textAlign: "center" }}>
           <h3>👋 {t("obWelcome")}</h3>
           <div style={{ fontWeight: 600, margin: "10px 0 12px" }}>
@@ -72,7 +83,17 @@ export default function Onboarding({
 
   if (fork === "study") {
     return (
-      <div className="review-overlay" id="onboard-overlay">
+      <div
+        className="review-overlay"
+        id="onboard-overlay"
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
+        autoFocus
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onSkip();
+        }}
+      >
         <div className="review-card" style={{ textAlign: "center" }}>
           <div style={{ fontSize: 44 }}>🦜</div>
           <div style={{ fontWeight: 800, fontSize: 17, margin: "6px 0" }}>
@@ -105,7 +126,18 @@ export default function Onboarding({
   }
 
   return (
-    <div className="review-overlay" id="onboard-overlay">
+    <div
+      className="review-overlay"
+      id="onboard-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("obWelcome")}
+      tabIndex={-1}
+      autoFocus
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onSkip();
+      }}
+    >
       <div className="review-card">
         <h3>👋 {t("obWelcome")}</h3>
         <div style={{ fontWeight: 600, marginBottom: 8, marginTop: 10 }}>

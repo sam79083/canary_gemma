@@ -47,13 +47,13 @@ export default function LearnPage() {
   );
 
   return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--text)" }}>
+    <div style={{ height: "100dvh", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--text)" }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 16px", borderBottom: "1px solid var(--border)" }}>
         <Link href="/" className="sidebar-btn small" style={{ width: "auto" }}>
-          ← Shrink
+          {t("seBack")}
         </Link>
-        <span style={{ fontWeight: 800 }}>English Study</span>
-        <span style={{ fontSize: 12, opacity: 0.7 }}>{model.ready ? model.status : "AI starting…"}</span>
+        <span style={{ fontWeight: 800 }}>{t("lnStudyTitle")}</span>
+        <span style={{ fontSize: 12, opacity: 0.7 }}>{model.ready ? model.status : t("pgPreparing")}</span>
       </div>
       <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
         <div style={{ position: "absolute", inset: 0 }}>
