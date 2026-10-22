@@ -62,8 +62,8 @@ const vocabItems = items as PersonalVocab[];
   if (!open) return null;
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)", padding: 16 }} onClick={onClose}>
-      <div style={{ background: "var(--bg)", color: "var(--text)", borderRadius: 12, width: "100%", maxWidth: 720, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 40px rgba(0,0,0,0.2)" }} onClick={(e) => e.stopPropagation()}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)", padding: 16 }}>
+      <div style={{ background: "var(--bg)", color: "var(--text)", borderRadius: 12, width: "100%", maxWidth: 720, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 40px rgba(0,0,0,0.2)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "spaceBetween", padding: 16, borderBottom: "1px solid var(--border)" }}>
           <h2 style={{ fontSize: 20, fontWeight: 700 }}>📚 내 단어장</h2>
           <button onClick={onClose} style={{ padding: 8, borderRadius: 8, background: "transparent", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text)" }}>✕</button>
