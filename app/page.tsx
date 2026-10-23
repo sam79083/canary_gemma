@@ -42,6 +42,7 @@ import {
   writeFile as serverWriteFile,
   writeFileBinary as serverWriteFileBinary,
 } from "@/lib/api";
+import { clearRoleplayState } from "@/lib/learn-roleplay";
 import {
   applyUndo,
   loadUndoStack,
@@ -1089,6 +1090,7 @@ export default function Home() {
     if (!(await confirmCtl.confirm(t("ssDeleteAllConfirm"), "", t("ssDeleteAll")))) return;
     try {
       await sessionStore.clearAll();
+      clearRoleplayState();
     } catch (e) {
       console.error("Delete-all failed:", e);
     }

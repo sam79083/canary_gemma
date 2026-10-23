@@ -465,6 +465,19 @@ export function saveRoleDone(id: string | null | undefined, done: boolean[]): vo
   }
 }
 
+export function clearRoleplayState(): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.removeItem(ROLE_KEY);
+    localStorage.removeItem(ROLE_DONE_KEY);
+    localStorage.removeItem("canary-practice-on");
+    localStorage.removeItem("canary-roleplay");
+    localStorage.removeItem("canary-roleplay-done");
+  } catch {
+    // best-effort
+  }
+}
+
 /** Wrap-up recap pushed as an assistant message when a scene clears. */
 export function buildRoleWrapUp(sc: Scenario): string {
   const did = sc.goals.map((g) => g.label).join(" · ");
