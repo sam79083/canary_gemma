@@ -63,6 +63,8 @@ export default function LearnPage() {
                 modelStatus={model.status}
                 onAskAI={askAI}
                 fullScreen
+                lang={lang}
+                t={t}
               />
         </div>
       </div>

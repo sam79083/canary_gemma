@@ -753,12 +753,13 @@ export default function Chat({
                gained += 3 * freshIdx.length;
                notes.push(freshIdx.map((i) => sc.goals[i].label).join(", "));
              }
-             // Custom scenes may carry no goals: nothing to clear, no wrap-up.
-             if (sc.goals.length > 0 && (hits.every(Boolean) || endIntent)) {
-               notes.push(endIntent && !hits.every(Boolean) ? "Scene ended" : "🏆 Roleplay cleared!");
-               // Queue the wrap-up recap after the model's reply.
-               if (!roleDone.every(Boolean) || endIntent) roleClearPendingRef.current = sc.id;
-             }
+// Custom scenes may carry no goals: nothing to clear, no wrap-up.
+              if (sc.goals.length > 0 && (hits.every(Boolean) || endIntent)) {
+                notes.push(endIntent && !hits.every(Boolean) ? "Scene ended" : "🏆 Roleplay cleared!");
+                // Queue the wrap-up recap after the model's reply.
+                // Only trigger if practice mode is actually on.
+                if (practiceOn && (!roleDone.every(Boolean) || endIntent)) roleClearPendingRef.current = sc.id;
+              }
            }
       }
       if (gained > 0) {

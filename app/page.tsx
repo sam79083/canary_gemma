@@ -1846,6 +1846,8 @@ export default function Home() {
           modelStatus={model.status}
           onAskAI={askLearnAI}
           onSendToChat={sendToChat}
+          lang={lang}
+          t={t}
         />
       ) : null}
 

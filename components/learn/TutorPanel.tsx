@@ -8,6 +8,7 @@ import QuizCard from "@/components/learn/QuizCard";
 import DojoPanel from "@/components/learn/DojoPanel";
 import PersonalVocabManager from "@/components/learn/PersonalVocabManager";
 import { useLanguage } from "@/hooks/useLanguage";
+import { makeT } from "@/lib/i18n";
 import { useAuth } from "@/hooks/useAuth";
 import { useLearnCloudSync } from "@/hooks/useLearnCloudSync";
 import { upsertPersonalVocab } from "@/lib/personal-vocab";
@@ -280,6 +281,8 @@ export default function TutorPanel({
   onAskAI,
   onSendToChat,
   fullScreen = false,
+  lang: propLang,
+  t: propT,
 }: {
   onClose?: () => void;
   initialTab?: PTab;
@@ -291,8 +294,13 @@ export default function TutorPanel({
   /** Post text into the main chat composer (+ register a practice target).
    * Absent on /learn (UseItBox falls back to a chat draft). */
   onSendToChat?: (text: string, target?: PracticeTarget) => void;
+  /** Optional: parent-controlled language. If provided, uses this instead of internal useLanguage. */
+  lang?: import("@/lib/i18n").Lang;
+  t?: import("@/lib/i18n").TFn;
 }) {
-  const { lang, t } = useLanguage();
+  const { lang: internalLang, t: internalT } = useLanguage();
+  const lang = propLang ?? internalLang;
+  const t = propT ?? makeT(lang);
   const auth = useAuth();
   const member = auth.user !== null;
   const L = (key: string, fallback: string) => {
