@@ -1,0 +1,18 @@
+# Keeps the Render free-tier web service from sleeping: Render parks it after
+# ~15 minutes without traffic, and waking it can take up to a minute.
+# Runs every 10 minutes; GitHub may delay scheduled runs by a few minutes,
+# which is well inside the 15-minute window.
+name: keepalive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Wake the web service
+        run: curl -sf --max-time 90 https://canary.onrender.com/api/health
