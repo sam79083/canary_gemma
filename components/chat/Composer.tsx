@@ -24,10 +24,25 @@ function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
 }
 
-/** Icon choices for a user-created scene. */
 const SCENE_ICONS = ["🎭", "🛒", "🏦", "💇", "📦", "🍕", "🏥", "🎓", "💼", "☎️"];
 
-/** Prompt box + tool buttons + quota line. */
+type TemplateTab = "all" | "write" | "meeting" | "study" | "summarize";
+
+const TEMPLATE_TABS: { key: TemplateTab; label: string; icon: string }[] = [
+  { key: "all", label: "All", icon: "📋" },
+  { key: "write", label: "Write", icon: "✉️" },
+  { key: "meeting", label: "Meeting", icon: "📝" },
+  { key: "study", label: "Study", icon: "📚" },
+  { key: "summarize", label: "Summarize", icon: "🔗" },
+];
+
+const TASKS: { tab: TemplateTab; label: string; prompt: string; cursorBack?: number }[] = [
+  { tab: "write", label: "✉️ Write a letter", prompt: "Write a letter to…", cursorBack: 11 },
+  { tab: "meeting", label: "📝 Meeting notes", prompt: "Summarize this meeting:\n\nAgenda:\n\nDecisions:\n\nAction items:", cursorBack: 11 },
+  { tab: "study", label: "📚 Study help", prompt: "Explain this topic simply:\n\n", cursorBack: 11 },
+  { tab: "summarize", label: "🔗 Summarize link", prompt: "Summarize this article:\n\n[URL]\n\nKey points:\n\n", cursorBack: 11 },
+];
+
 export default function Composer({
   input,
   setInput,
@@ -122,11 +137,9 @@ export default function Composer({
   onPickScenario: (id: string | null) => void;
   onEndScene?: () => void;
   roleGoals: { label: string; done: boolean }[];
-  /** Built-in + user-created scenes (Chat merges them). */
   scenarios: Scenario[];
   onAddCustom: (d: CustomDraft) => void;
   onDeleteCustom: (id: string) => void;
-  /** Hands-free roleplay: AI speaks → mic opens → your words auto-send. */
   voiceLoop: boolean;
   voiceLoopAvailable: boolean;
   onToggleVoiceLoop: () => void;
@@ -135,18 +148,17 @@ export default function Composer({
   const [dragOver, setDragOver] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
-  /** "My situation" scene builder (collapsible, practice row + empty chat). */
   const [customOpen, setCustomOpen] = useState(false);
-  /** Scene & voice controls row — collapsed by default to reduce clutter. */
-  const [sceneOpen, setSceneOpen] = useState(false);
+  const [roleplayOpen, setRoleplayOpen] = useState(false);
+  const [templateTab, setTemplateTab] = useState<TemplateTab>("all");
   const [cName, setCName] = useState("");
   const [cIcon, setCIcon] = useState(SCENE_ICONS[0]);
   const [cSetting, setCSetting] = useState("");
   const [cOpener, setCOpener] = useState("");
   const [cGoals, setCGoals] = useState<string[]>(["", "", ""]);
   const customList = scenarios.filter((s) => isCustomId(s.id));
+  const filteredTasks = templateTab === "all" ? TASKS : TASKS.filter((t) => t.tab === templateTab);
 
-  /** Grow with the text up to ~6 rows, then scroll inside the box. */
   const autoGrow = useCallback(() => {
     const el = inputRef.current;
     if (!el) return;
@@ -170,13 +182,6 @@ export default function Composer({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [moreOpen]);
-
-  const TASKS: { label: string; prompt: string; cursorBack?: number }[] = [
-    { label: t("tk1L"), prompt: t("tk1P") },
-    { label: t("tk2L"), prompt: t("tk2P") },
-    { label: t("tk3L"), prompt: t("tk3P") },
-    { label: t("tk4L"), prompt: t("tk4P"), cursorBack: 11 },
-  ];
 
   const sendDisabled = !modelReady || streaming || !input.trim();
   const searchDisabled = streaming || !input.trim();
@@ -220,47 +225,64 @@ export default function Composer({
       ) : null}
       {!streaming ? (
         <div className="task-row">
-          {TASKS.map((s) => (
-            <button
-              key={s.label}
-              className="task-chip"
-              onClick={() => {
-                setInput(s.prompt);
-                inputRef.current?.focus();
-                // Put the caret inside the trailing "[…: ]" placeholder.
-                if (s.cursorBack) {
-                  const back = s.cursorBack;
-                  setTimeout(() => {
-                    const el = inputRef.current;
-                    if (el) {
-                      const pos = Math.max(0, el.value.length - back);
-                      try {
-                        el.setSelectionRange(pos, pos);
-                      } catch {
-                        // ignore
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {TEMPLATE_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                className={`task-chip ${templateTab === tab.key ? "active" : ""}`}
+                onClick={() => setTemplateTab(tab.key)}
+                disabled={streaming}
+                style={{ fontSize: 12 }}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="task-row">
+            {filteredTasks.map((s) => (
+              <button
+                key={s.label}
+                className="task-chip"
+                onClick={() => {
+                  setInput(s.prompt);
+                  inputRef.current?.focus();
+                  if (s.cursorBack) {
+                    const back = s.cursorBack;
+                    setTimeout(() => {
+                      const el = inputRef.current;
+                      if (el) {
+                        const pos = Math.max(0, el.value.length - back);
+                        try {
+                          el.setSelectionRange(pos, pos);
+                        } catch {
+                          // ignore
+                        }
                       }
-                    }
-                  }, 0);
-                }
-              }}
-              title={s.prompt}
-            >
-              {s.label}
-            </button>
-          ))}
+                    }, 0);
+                  }
+                }}
+                title={s.prompt}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
+
+      {/* Roleplay section - single toggle */}
       {practiceOn ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {/* Roleplay toggle + goals inline */}
           <div className="task-row" title="Roleplay a scene — the AI plays a character with goals">
             <button
               className="task-chip"
-              onClick={() => setSceneOpen((v) => !v)}
+              onClick={() => setRoleplayOpen((v) => !v)}
               disabled={streaming}
-              title="Scene & voice options"
-              style={sceneOpen ? { background: "var(--green)", color: "#fff" } : undefined}
+              title="Roleplay options"
+              style={roleplayOpen ? { background: "var(--green)", color: "#fff" } : undefined}
             >
-              ⚙ Scene & voice
+              🎭 Roleplay {roleplayOpen ? "▾" : "▸"}
             </button>
             {roleGoals.map((g) => (
               <span
@@ -272,23 +294,25 @@ export default function Composer({
               </span>
             ))}
           </div>
-          {sceneOpen ? (
-            <div className="task-row">
-              <select
-                className="theme-toggle"
-                value={roleId ?? ""}
-                onChange={(e) => onPickScenario(e.target.value || null)}
-                disabled={streaming}
-                style={{ cursor: "pointer", fontSize: 12 }}
-                title="Roleplay scenario (empty = free practice chat)"
-              >
-                <option value="">🎭 Free chat</option>
-                {scenarios.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.icon} {s.name} {"★".repeat(s.difficulty ?? 2)}
-                  </option>
-                ))}
-              </select>
+
+          {roleplayOpen ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div className="task-row">
+                <select
+                  className="theme-toggle"
+                  value={roleId ?? ""}
+                  onChange={(e) => onPickScenario(e.target.value || null)}
+                  disabled={streaming}
+                  style={{ cursor: "pointer", fontSize: 12 }}
+                  title="Roleplay scenario (empty = free practice chat)"
+                >
+                  <option value="">🎭 Free chat</option>
+                  {scenarios.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.icon} {s.name} {"★".repeat(s.difficulty ?? 2)}
+                    </option>
+                  ))}
+                </select>
               <button
                 className="task-chip"
                 onClick={() => setCustomOpen((v) => !v)}
@@ -312,126 +336,133 @@ export default function Composer({
                 </button>
               ) : null}
             </div>
-          ) : null}
-          {customOpen ? (
-            <div
-              className="task-row"
-              style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}
-              title="Create your own scene — saved on this device"
-            >
-              <div style={{ display: "flex", gap: 6 }}>
-                <select
-                  className="theme-toggle"
-                  value={cIcon}
-                  onChange={(e) => setCIcon(e.target.value)}
-                  disabled={streaming}
-                  style={{ cursor: "pointer", fontSize: 14 }}
-                  title="Scene icon"
-                >
-                  {SCENE_ICONS.map((ic) => (
-                    <option key={ic} value={ic}>{ic}</option>
-                  ))}
-                </select>
-                <input
-                  value={cName}
-                  onChange={(e) => setCName(e.target.value)}
-                  disabled={streaming}
-                  placeholder="Scene name — e.g. Bank visit"
-                  maxLength={30}
-                  style={{ flex: 1, fontSize: 12, padding: "4px 8px", borderRadius: 8 }}
-                />
-              </div>
-              <input
-                value={cSetting}
-                onChange={(e) => setCSetting(e.target.value)}
-                disabled={streaming}
-                placeholder="Role: who is the AI? e.g. helpful bank clerk helping me open an account"
-                maxLength={300}
-                style={{ fontSize: 12, padding: "4px 8px", borderRadius: 8 }}
-              />
-              <input
-                value={cOpener}
-                onChange={(e) => setCOpener(e.target.value)}
-                disabled={streaming}
-                placeholder="First line (optional) — e.g. Good morning! How can I help?"
-                maxLength={200}
-                style={{ fontSize: 12, padding: "4px 8px", borderRadius: 8 }}
-              />
-              {cGoals.map((g, gi) => (
-                <input
-                  key={gi}
-                  value={g}
-                  onChange={(e) =>
-                    setCGoals((prev) => prev.map((p, pi) => (pi === gi ? e.target.value : p)))
-                  }
-                  disabled={streaming}
-                  placeholder={`Goal ${gi + 1} (optional) — e.g. Ask about fees`}
-                  maxLength={60}
-                  style={{ fontSize: 12, padding: "4px 8px", borderRadius: 8 }}
-                />
-              ))}
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <button
-                  className="task-chip"
-                  disabled={streaming || !cName.trim() || !cSetting.trim()}
-                  title="Save and start this scene now"
-                  onClick={() => {
-                    onAddCustom({ name: cName, icon: cIcon, setting: cSetting, opener: cOpener, goals: cGoals });
-                    setCName("");
-                    setCSetting("");
-                    setCOpener("");
-                    setCGoals(["", "", ""]);
-                    setCustomOpen(false);
-                    inputRef.current?.focus();
-                  }}
-                >
-                  ＋ Start this scene
-                </button>
-                {customList.map((s) => (
-                  <span key={s.id} className="task-chip" title={s.name}>
-                    {s.icon} {s.name}{" "}
-                    <button
-                      className="quota-refresh"
-                      title="Delete scene"
-                      onClick={() => onDeleteCustom(s.id)}
-                    >
-                      <X size={12} aria-hidden="true" />
-                    </button>
-                  </span>
-                ))}
-              </div>
             </div>
           ) : null}
-          <div className="task-row" title="Words you are practicing — use one in chat for +5 XP">
-            {practiceTargets.length === 0 ? (
-              <span style={{ fontSize: 12, opacity: 0.7 }}>
-                Add words from Learn or select text in chat 💬 — or pick a 🎭 scene above
-              </span>
-            ) : (
-              practiceTargets.map((tg) => {
-                const used = practiceUsed.includes(tg.term.toLowerCase());
-                return (
-                <span
-                  key={tg.term}
-                  className="task-chip"
-                  title={tg.meaning ?? tg.term}
-                  style={used ? { opacity: 0.75, textDecoration: "line-through" } : undefined}
+        </div>
+      ) : null}
+
+      {/* Custom scene builder */}
+      {customOpen ? (
+        <div
+          className="task-row"
+          style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}
+          title="Create your own scene — saved on this device"
+        >
+          <div style={{ display: "flex", gap: 6 }}>
+            <select
+              className="theme-toggle"
+              value={cIcon}
+              onChange={(e) => setCIcon(e.target.value)}
+              disabled={streaming}
+              style={{ cursor: "pointer", fontSize: 14 }}
+              title="Scene icon"
+            >
+              {SCENE_ICONS.map((ic) => (
+                <option key={ic} value={ic}>{ic}</option>
+              ))}
+            </select>
+            <input
+              value={cName}
+              onChange={(e) => setCName(e.target.value)}
+              disabled={streaming}
+              placeholder="Scene name — e.g. Bank visit"
+              maxLength={30}
+              style={{ flex: 1, fontSize: 12, padding: "4px 8px", borderRadius: 8 }}
+            />
+          </div>
+          <input
+            value={cSetting}
+            onChange={(e) => setCSetting(e.target.value)}
+            disabled={streaming}
+            placeholder="Role: who is the AI? e.g. helpful bank clerk helping me open an account"
+            maxLength={300}
+            style={{ fontSize: 12, padding: "4px 8px", borderRadius: 8 }}
+          />
+          <input
+            value={cOpener}
+            onChange={(e) => setCOpener(e.target.value)}
+            disabled={streaming}
+            placeholder="First line (optional) — e.g. Good morning! How can I help?"
+            maxLength={200}
+            style={{ fontSize: 12, padding: "4px 8px", borderRadius: 8 }}
+          />
+          {cGoals.map((g, gi) => (
+            <input
+              key={gi}
+              value={g}
+              onChange={(e) =>
+                setCGoals((prev) => prev.map((p, pi) => (pi === gi ? e.target.value : p)))
+              }
+              disabled={streaming}
+              placeholder={`Goal ${gi + 1} (optional) — e.g. Ask about fees`}
+              maxLength={60}
+              style={{ fontSize: 12, padding: "4px 8px", borderRadius: 8 }}
+            />
+          ))}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button
+              className="task-chip"
+              disabled={streaming || !cName.trim() || !cSetting.trim()}
+              title="Save and start this scene now"
+              onClick={() => {
+                onAddCustom({ name: cName, icon: cIcon, setting: cSetting, opener: cOpener, goals: cGoals });
+                setCName("");
+                setCSetting("");
+                setCOpener("");
+                setCGoals(["", "", ""]);
+                setCustomOpen(false);
+                inputRef.current?.focus();
+              }}
+            >
+              ＋ Start this scene
+            </button>
+            {customList.map((s) => (
+              <span key={s.id} className="task-chip" title={s.name}>
+                {s.icon} {s.name}{" "}
+                <button
+                  className="quota-refresh"
+                  title="Delete scene"
+                  onClick={() => onDeleteCustom(s.id)}
                 >
-                  {used ? "✓ " : ""}{tg.term}{" "}
-                  <button
-                    className="quota-refresh"
-                    title="Remove target"
-                    onClick={() => onRemoveTarget(tg.term)}
-                  >
-                    <X size={12} aria-hidden="true" />
-                  </button>
-                </span>
-                );
-              })
-            )}
+                  <X size={12} aria-hidden="true" />
+                </button>
+              </span>
+            ))}
           </div>
         </div>
       ) : null}
+
+      {/* Practice targets */}
+      <div className="task-row" title="Words you are practicing — use one in chat for +5 XP">
+        {practiceTargets.length === 0 ? (
+          <span style={{ fontSize: 12, opacity: 0.7 }}>
+            Add words from Learn or select text in chat 💬 — or pick a 🎭 scene above
+          </span>
+        ) : (
+          practiceTargets.map((tg) => {
+            const used = practiceUsed.includes(tg.term.toLowerCase());
+            return (
+            <span
+              key={tg.term}
+              className="task-chip"
+              title={tg.meaning ?? tg.term}
+              style={used ? { opacity: 0.75, textDecoration: "line-through" } : undefined}
+            >
+              {used ? "✓ " : ""}{tg.term}{" "}
+              <button
+                className="quota-refresh"
+                title="Remove target"
+                onClick={() => onRemoveTarget(tg.term)}
+              >
+                <X size={12} aria-hidden="true" />
+              </button>
+            </span>
+            );
+          })
+        )}
+      </div>
+
+      {/* Empty chat scene picker */}
       {emptyChat && modelReady && !streaming ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
           <div className="task-row" title={t("rpHint")}>
@@ -479,6 +510,7 @@ export default function Composer({
           ) : null}
         </div>
       ) : null}
+
       <div className="input-container">
         <input
           ref={fileInputRef}
@@ -491,23 +523,23 @@ export default function Composer({
             e.target.value = "";
           }}
         />
-        <Tip label={t("upAttach")}>
+        <Tip label="Attach file">
           <button
             className="send-btn secondary"
             onClick={() => fileInputRef.current?.click()}
             disabled={streaming}
-            title={t("upAttach")}
+            title="Attach file"
           >
             <Paperclip size={16} aria-hidden="true" />
           </button>
         </Tip>
         {speechOK ? (
-          <Tip label={listening ? t("vcStop") : t("vcMic")}>
+          <Tip label={listening ? "Stop" : "Voice"}>
             <button
               className="send-btn secondary"
               onClick={() => toggleVoice()}
               disabled={streaming && !listening}
-              title={listening ? t("vcStop") : t("vcMic")}
+              title={listening ? "Stop" : "Voice"}
               style={listening ? { background: "#c62828" } : undefined}
             >
               {listening ? <Square size={16} aria-hidden="true" /> : <Mic size={16} aria-hidden="true" />}
@@ -520,20 +552,20 @@ export default function Composer({
           autoFocus
           placeholder={
             listening
-              ? t("vcListening")
+              ? "Listening…"
               : modelReady
-                ? agentMode
-                  ? t("chPhAgent")
-                  : t("chPhPlain")
-                : t("chSearchOnlyPh")
+              ? agentMode
+                ? "Agent mode — ask me to act"
+                : "Type your message…"
+              : "Search only"
           }
-            rows={1}
-            disabled={streaming}
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              autoGrow();
-            }}
+          rows={1}
+          disabled={streaming}
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+            autoGrow();
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -541,76 +573,76 @@ export default function Composer({
             }
           }}
         />
-          {streaming ? (
-            <button className="send-btn" onClick={() => onStop()} title={t("chStopped")}>
-              <Square size={18} aria-hidden="true" />
+        {streaming ? (
+          <button className="send-btn" onClick={() => onStop()} title="Stop">
+            <Square size={18} aria-hidden="true" />
+          </button>
+        ) : (
+          <button className="send-btn" onClick={() => void handleSend()} disabled={sendDisabled}>
+            <ArrowUp size={18} aria-hidden="true" />
+          </button>
+        )}
+        <div className="composer-more-wrap" ref={moreRef}>
+          <Tip label="More options">
+            <button
+              className="send-btn secondary"
+              onClick={() => setMoreOpen(!moreOpen)}
+              title="More options"
+              aria-haspopup="true"
+              aria-expanded={moreOpen}
+              aria-label="More options"
+            >
+              <Ellipsis size={16} aria-hidden="true" />
             </button>
-          ) : (
-            <button className="send-btn" onClick={() => void handleSend()} disabled={sendDisabled}>
-              <ArrowUp size={18} aria-hidden="true" />
-            </button>
-          )}
-          <div className="composer-more-wrap" ref={moreRef}>
-            <Tip label="More options">
+          </Tip>
+          {moreOpen ? (
+            <div
+              className="composer-more-menu"
+              role="menu"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setMoreOpen(false);
+                  moreRef.current?.querySelector("button")?.focus();
+                }
+              }}
+            >
               <button
-                className="send-btn secondary"
-                onClick={() => setMoreOpen(!moreOpen)}
-                title="More options"
-                aria-haspopup="true"
-                aria-expanded={moreOpen}
-                aria-label="More options"
-              >
-                <Ellipsis size={16} aria-hidden="true" />
-              </button>
-            </Tip>
-            {moreOpen ? (
-              <div
-                className="composer-more-menu"
-                role="menu"
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setMoreOpen(false);
-                    moreRef.current?.querySelector("button")?.focus();
-                  }
+                className="composer-more-item"
+                role="menuitem"
+                disabled={searchDisabled}
+                onClick={() => {
+                  setMoreOpen(false);
+                  void handleSearch();
                 }}
               >
-                <button
-                  className="composer-more-item"
-                  role="menuitem"
-                  disabled={searchDisabled}
-                  onClick={() => {
-                    setMoreOpen(false);
-                    void handleSearch();
-                  }}
-                >
-                  <Search size={14} aria-hidden="true" />
-                  {t("chLooking")}
-                </button>
-                <button
-                  className="composer-more-item"
-                  role="menuitem"
-                  disabled={streaming || !input.trim()}
-                  onClick={() => {
-                    setMoreOpen(false);
-                    void handleDraw();
-                  }}
-                >
-                  <ImagePlus size={14} aria-hidden="true" /> {t("cfHFDraw")}
-                </button>
-                <button
-                  className="composer-more-item"
-                  role="menuitem"
-                  disabled={streaming}
-                  onClick={() => {
-                    setMoreOpen(false);
-                    onHelp();
-                  }}
-                >
-                  <CircleHelp size={14} aria-hidden="true" /> {t("hpTitle")}
-                </button>
-              </div>
-            ) : null}
-          </div>
+                <Search size={14} aria-hidden="true" />
+                {t("chLooking")}
+              </button>
+              <button
+                className="composer-more-item"
+                role="menuitem"
+                disabled={streaming || !input.trim()}
+                onClick={() => {
+                  setMoreOpen(false);
+                  void handleDraw();
+                }}
+              >
+                <ImagePlus size={14} aria-hidden="true" /> {t("cfHFDraw")}
+              </button>
+              <button
+                className="composer-more-item"
+                role="menuitem"
+                disabled={streaming}
+                onClick={() => {
+                  setMoreOpen(false);
+                  onHelp();
+                }}
+              >
+                <CircleHelp size={14} aria-hidden="true" /> {t("hpTitle")}
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
         <button
@@ -623,17 +655,17 @@ export default function Composer({
           🎭 Roleplay {practiceOn ? "ON" : "OFF"}
         </button>
         {!workspaceConnected && workspaceSupported ? (
-          <span style={{ fontSize: 12, opacity: 0.7 }}>{t("chAgentHint")}</span>
+          <span style={{ fontSize: 12, opacity: 0.7 }}>Pick a folder so I can create and edit files for you. Everything stays on this computer.</span>
         ) : null}
         {undoCount > 0 ? (
           <button
             className="task-chip"
             onClick={() => onUndo()}
             disabled={streaming}
-            title={undoLabel ?? t("udUndo")}
+            title={undoLabel ?? "Undo"}
             style={{ marginLeft: "auto" }}
           >
-            {undoLabel ? t("udUndoFile", { name: undoLabel }) : t("udUndo")} ({undoCount})
+            {undoLabel ? `Undo ${undoLabel}` : "Undo"} ({undoCount})
           </button>
         ) : null}
       </div>
@@ -650,5 +682,3 @@ export default function Composer({
     </div>
   );
 }
-
-
