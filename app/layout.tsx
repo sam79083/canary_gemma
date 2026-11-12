@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import WakePing from "@/components/WakePing";
 
 export const metadata: Metadata = {
   title: "Gemma 4 Chat — Chrome Prompt API",
@@ -30,7 +31,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body>
+        <WakePing />
+        {children}
+      </body>
     </html>
   );
 }
