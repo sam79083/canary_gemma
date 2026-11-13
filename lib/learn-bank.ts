@@ -529,3 +529,43 @@ export function buildDailyLesson(
   }
   return taken;
 }
+
+/**
+ * 5-item "today's repair" drill: the learner's weakest skill, at their level,
+ * back-filled outward (nearest band first) when the pool is thin. `seed` items
+ * (e.g. error drills built from the learner's own slips) always lead the set —
+ * but only same-skill seeds count; a grammar slip is never padding for a
+ * reading drill. Deduped by id, level ladder swept by distance from the
+ * learner's band, seeded per (day, skill, salt) so the set is stable across
+ * re-renders but rotates on a new day. Skills with no bank (writing,
+ * listening) return []. Zero-token.
+ */
+export function buildWeakSkillDrill(
+  skill: Skill,
+  dateStr: string,
+  level: CEFR | null,
+  exclude: string[] = [],
+  salt: string | number = "",
+  seed: BankItem[] = [],
+): BankItem[] {
+  const lv = levelRank(level ?? "A1");
+  const top = CEFR_ORDER.length - 1;
+  const rng = mulberry32(hashStr(`${dateStr}|drill|${skill}|${level ?? "A1"}|${salt}`));
+  const taken: BankItem[] = [];
+  const seen = new Set<string>(exclude);
+  const add = (i: BankItem): void => {
+    if (taken.length >= 5 || seen.has(i.id)) return;
+    seen.add(i.id);
+    taken.push(i);
+  };
+  for (const i of seed) {
+    if (i.skill === skill) add(i);
+  }
+  const bands = [...Array(top + 1).keys()].sort((a, b) => Math.abs(a - lv) - Math.abs(b - lv) || a - b);
+  for (const b of bands) {
+    if (taken.length >= 5) break;
+    const band = ALL_ITEMS.filter((i) => i.skill === skill && levelRank(i.level) === b);
+    for (const i of shuffled(band, rng)) add(i);
+  }
+  return taken;
+}

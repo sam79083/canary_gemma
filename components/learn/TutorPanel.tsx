@@ -18,7 +18,7 @@ import {
   pushRemote,
   saveMetaSavedAt,
 } from "@/lib/learn-store";
-import { buildDailyLesson } from "@/lib/learn-bank";
+import { buildDailyLesson, buildWeakSkillDrill } from "@/lib/learn-bank";
 import type { BankItem, CEFR } from "@/lib/learn-bank";
 import { ALL_ITEMS } from "@/lib/learn-bank";
 import { CEFR_ORDER } from "@/lib/learn-bank";
@@ -326,6 +326,8 @@ export default function TutorPanel({
   const [hydrated, setHydrated] = useState(false);
   const [quizKey, setQuizKey] = useState(0);
   const [quizMode, setQuizMode] = useState<QuizMode>("quick");
+  const [drillOpen, setDrillOpen] = useState(false);
+  const [drillKey, setDrillKey] = useState(0);
   /** Fresh salt per panel open: reopening always deals a new set (the old
    * deterministic-daily slice showed the same 5 all day until finished). */
   const [openSalt] = useState(() => Math.floor(Math.random() * 1e9));
@@ -592,6 +594,24 @@ export default function TutorPanel({
   useEffect(() => {
     if (errorDrillItems.length > 0) rememberGenItems(errorDrillItems);
   }, [errorDrillItems]);
+  /** "Today's repair" — 5-item set targeting the weakest skill (grammar slips
+   *  lead when they're the target). Empty for writing/listening: no bank yet. */
+  const drillSkill = useMemo(() => weakestSkill(state), [state]);
+  const drillItems = useMemo(() => {
+    if (!drillSkill) return [] as BankItem[];
+    const seed = drillSkill === "grammar" ? errorDrillItems.slice(0, 2) : [];
+    return buildWeakSkillDrill(drillSkill, today, state.level, loadSeen(), drillKey, seed);
+  }, [drillSkill, today, state.level, drillKey, errorDrillItems]);
+  const finishDrill = (results: AnswerResult[]) => {
+    if (results.length === 0) {
+      setDrillOpen(false);
+      return;
+    }
+    markSeen(results.map((r) => r.item.id));
+    setState((prev) => commitAnswers(prev, results, today));
+    setDrillKey((k) => k + 1);
+    setDrillOpen(false);
+  };
   /** Record deterministic errors from learner text + queue drills for review. */
   const recordTextErrors = (text: string, level: CEFR | null) => {
     const found = detectErrors(text);
@@ -2102,6 +2122,27 @@ export default function TutorPanel({
             <p style={{ fontSize: 12, opacity: 0.75, margin: 0 }}>
               {L("lnReviewIntro", "Words you missed come back here. Fail 3× = 🐛 leech.")}
             </p>
+            {drillSkill ? (
+              <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ fontSize: 13, fontWeight: 800 }}>
+                  🎯 {L("lnRepairTitle", "Today's repair")}: {drillSkill}{" "}
+                  <span style={{ fontWeight: 400, opacity: 0.7 }}>
+                    · {state.skills[drillSkill].correct}/{state.skills[drillSkill].asked} ({Math.round((100 * state.skills[drillSkill].correct) / Math.max(1, state.skills[drillSkill].asked))}%)
+                  </span>
+                </div>
+                {!drillOpen ? (
+                  drillItems.length > 0 ? (
+                    <button className="sidebar-btn small primary" style={{ alignSelf: "flex-start" }} onClick={() => setDrillOpen(true)}>
+                      {t("lnRepairStart", { n: drillItems.length })}
+                    </button>
+                  ) : (
+                    <div style={{ fontSize: 12, opacity: 0.7 }}>{L("lnRepairEmpty", "No drill material for this skill yet — try the Essay or Listen lab.")}</div>
+                  )
+                ) : (
+                  <QuizCard key={`drill-${drillKey}`} items={drillItems} cta={L("lnRecord", "Record →")} onDone={finishDrill} useIt={{ onAskAI, modelReady, onSendToChat }} srsGrades />
+                )}
+              </div>
+            ) : null}
             {reviewItems.length === 0 ? (
               <p style={{ fontSize: 13 }}>✅ {L("lnReviewDone", "Nothing due — come back tomorrow!")}</p>
             ) : (
