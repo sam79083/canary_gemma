@@ -6,14 +6,24 @@ import {
   DOJO_LESSONS,
   lessonById,
   loadDojoDone,
+  loadDojoDraft,
+  saveDojoDraft,
 } from "../lib/learn-dojo.ts";
 import { buildPreviewDoc, escapeForScript } from "../lib/dojo-run.ts";
 
+// localStorage stub for draft roundtrip tests (node has none).
+const mem = new Map<string, string>();
+(globalThis as unknown as { localStorage: unknown }).localStorage = {
+  getItem: (k: string) => (mem.has(k) ? (mem.get(k) as string) : null),
+  setItem: (k: string, v: string) => void mem.set(k, String(v)),
+  removeItem: (k: string) => void mem.delete(k),
+};
+
 describe("code dojo lessons", () => {
-  it("ships eight lessons for backend devs", () => {
-    assert.equal(DOJO_LESSONS.length, 8);
+  it("ships eleven lessons for backend devs", () => {
+    assert.equal(DOJO_LESSONS.length, 11);
     const ids = new Set(DOJO_LESSONS.map((l) => l.id));
-    assert.equal(ids.size, 8);
+    assert.equal(ids.size, 11);
     for (const l of DOJO_LESSONS) {
       assert.ok(l.title.length > 2 && l.brief.length > 20);
       assert.ok(l.starter.includes("function App"), `${l.id} starter must define App`);
@@ -60,10 +70,25 @@ describe("code dojo lessons", () => {
     assert.deepEqual(loadDojoDone("state", 3), [false, false, false]);
     assert.deepEqual(loadDojoDone(null, 2), [false, false]);
   });
-  it("handoff posts code for AI feedback", () => {
-    const msg = buildDojoHandoff(lessonById("props")!, "<Greeting name=\"Mina\" />");
-    assert.ok(msg.includes("Code Dojo") && msg.includes("```tsx") && msg.includes("Mina"));
-    assert.ok(msg.length <= 1600);
+  it("drafts roundtrip and survive corrupt storage", () => {
+    mem.clear();
+    saveDojoDraft("state", "const draft = 1;");
+    assert.equal(loadDojoDraft("state", "starter"), "const draft = 1;");
+    assert.equal(loadDojoDraft("other", "starter"), "starter");
+    mem.set("canary-dojo-drafts", "{not json");
+    assert.equal(loadDojoDraft("state", "starter"), "starter");
+    mem.set("canary-dojo-drafts", JSON.stringify({ state: 42 }));
+    assert.equal(loadDojoDraft("state", "starter"), "starter");
+  });
+  it("handoff reports which checks pass, with pass/fail marks", () => {
+    const lesson = lessonById("props")!;
+    const msg = buildDojoHandoff(lesson, "<Greeting name=\"Mina\" />");
+    assert.ok(msg.includes("0/3 checks passing"), "shows the passing count");
+    assert.ok(msg.includes("✗"), "marks failing checks");
+    assert.ok(msg.length <= 2000);
+    const solved = buildDojoHandoff(lesson, lesson.solution);
+    assert.ok(solved.includes("3/3 checks passing"));
+    assert.ok(solved.includes("✓"));
   });
 });
 
@@ -83,6 +108,14 @@ describe("dojo preview doc", () => {
     assert.ok(doc.includes("createElement(App)"), "renders App without JSX in template");
     assert.ok(doc.includes("showError"), "transform AND runtime errors display");
     assert.ok(doc.includes('sandbox') === false, "sandbox belongs on the iframe, not the doc");
+  });
+  it("pins CDN assets with SRI and shows an offline notice on failure", () => {
+    const doc = buildPreviewDoc("function App(){return <h1>hi</h1>}");
+    assert.equal((doc.match(/integrity="sha384-/g) ?? []).length, 3, "all three CDN scripts carry SRI");
+    assert.ok(doc.includes('crossorigin="anonymous"'));
+    assert.ok(doc.includes("onerror="), "failing scripts swap to the offline notice");
+    assert.ok(doc.includes('id="offline"'), "offline notice element exists");
+    assert.ok(doc.includes("needs the network"));
   });
   it("neutralizes injected script closes", () => {
     const evil = "var x = '</script><script>alert(1)</script>';";

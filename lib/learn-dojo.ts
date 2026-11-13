@@ -372,6 +372,159 @@ export const DOJO_LESSONS: DojoLesson[] = [
     tip: "This repo's full route map lives in PROJECT_GUIDE.md §4 — every URL traced to its file.",
     inApp: "app/api/trial-status/route.ts: 9 lines, one GET export, pure JsonResponse energy",
   },
+  {
+    id: "fetch",
+    title: "useEffect + then() is fetch",
+    icon: "🌐",
+    lang: "react",
+    brief: [
+      "Fetching data in React has ONE shape: render a loading state first, kick off the request in useEffect, then store the result in state.",
+      "Never fetch during render — it would re-fire on every redraw (and stale-cli queries would pile up).",
+      "YOUR TURN: make fakeApi's result land in the foods list via setFoods, then click ▶ Run and wait a moment.",
+    ].join("\n"),
+    starter: [
+      "function App() {",
+      "  const [foods, setFoods] = React.useState([]);",
+      "",
+      "  React.useEffect(() => {",
+      "    // TODO: resolve fakeApi() into the foods state — type it, don't paste it",
+      "    fakeApi();",
+      "  }, []);",
+      "",
+      "  return <ul>{foods.map((f) => <li key={f}>{f}</li>)}</ul>;",
+      "}",
+      "",
+      "// Stands in for a real /api/* endpoint — no network needed.",
+      "function fakeApi() {",
+      "  return new Promise((res) =>",
+      "    setTimeout(() => res([\"tteokbokki\", \"kimbap\", \"bibimbap\"]), 300),",
+      "  );",
+      "}",
+    ].join("\n"),
+    solution: [
+      "function App() {",
+      "  const [foods, setFoods] = React.useState([]);",
+      "",
+      "  React.useEffect(() => {",
+      "    fakeApi().then((data) => setFoods(data));",
+      "  }, []);",
+      "",
+      "  return <ul>{foods.map((f) => <li key={f}>{f}</li>)}</ul>;",
+      "}",
+      "",
+      "function fakeApi() {",
+      "  return new Promise((res) =>",
+      "    setTimeout(() => res([\"tteokbokki\", \"kimbap\", \"bibimbap\"]), 300),",
+      "  );",
+      "}",
+    ].join("\n"),
+    checks: [
+      { label: "useEffect on mount", patterns: ["useeffect"] },
+      { label: "Resolves the promise", patterns: [".then("] },
+      { label: "Stores it in state", patterns: ["setfoods"] },
+    ],
+    tip: "In this app the real fetch is against our own API routes (GET /api/learn-state, /api/quota). Same shape — useEffect on mount → .then → setState → render.",
+    inApp: "hooks/useQuota.ts loads /api/quota on mount — the same useEffect + .then pattern",
+  },
+  {
+    id: "forms",
+    title: "Controlled inputs, no drift",
+    icon: "⌨️",
+    lang: "react",
+    brief: [
+      "A 'controlled' input gets its text from state via value={x}, and writes every keystroke back via onChange.",
+      "State IS the field — they can never disagree. An uncontrolled input just… is a DOM node, and React is guessing.",
+      "YOUR TURN: wire the textarea to a new msg state (value + onChange) so the ✍️ line echoes as you type.",
+    ].join("\n"),
+    starter: [
+      "function App() {",
+      "  return (",
+      "    <div>",
+      "      <textarea placeholder=\"Message…\" />",
+      "      <button>Send</button>",
+      "      <p>✍️ nothing yet</p>",
+      "    </div>",
+      "  );",
+      "}",
+    ].join("\n"),
+    solution: [
+      "function App() {",
+      "  const [msg, setMsg] = React.useState(\"\");",
+      "  return (",
+      "    <div>",
+      "      <textarea",
+      "        placeholder=\"Message…\"",
+      "        value={msg}",
+      "        onChange={(e) => setMsg(e.target.value)}",
+      "      />",
+      "      <button>Send</button>",
+      "      <p>✍️ {msg}</p>",
+      "    </div>",
+      "  );",
+      "}",
+    ].join("\n"),
+    checks: [
+      { label: "Creates msg state", patterns: ["usestate"] },
+      { label: "Binds value", patterns: ["value="] },
+      { label: "Reads e.target.value", patterns: ["target.value"] },
+    ],
+    tip: "value + onChange is ALL controlled means. Chat's composer — useState, bound value, one source of truth — is exactly this.",
+    inApp: "components/chat/Composer.tsx: the chat box is a controlled useState field",
+  },
+  {
+    id: "loading-error",
+    title: "Load, fail, or show — never blank",
+    icon: "⏳",
+    lang: "react",
+    brief: [
+      "Async data has THREE phases: loading, error, ready. Rendering the list unconditionally crashes the moment state starts as null.",
+      "The starter dies on foods.map with foods === null. That red error you'll see is a FEATURE — now render the loading phase instead.",
+      "YOUR TURN: add an early return showing ⏳ Loading… while foods is null, then click ▶ Run — wait ~½s for the kimbap list.",
+    ].join("\n"),
+    starter: [
+      "function App() {",
+      "  const [foods, setFoods] = React.useState(null);",
+      "",
+      "  React.useEffect(() => {",
+      "    fakeApi().then((data) => setFoods(data));",
+      "  }, []);",
+      "",
+      "  return <ul>{foods.map((f) => <li key={f}>{f}</li>)}</ul>;",
+      "}",
+      "",
+      "function fakeApi() {",
+      "  return new Promise((res) =>",
+      "    setTimeout(() => res([\"tteokbokki\", \"kimbap\"]), 500),",
+      "  );",
+      "}",
+    ].join("\n"),
+    solution: [
+      "function App() {",
+      "  const [foods, setFoods] = React.useState(null);",
+      "",
+      "  React.useEffect(() => {",
+      "    fakeApi().then((data) => setFoods(data));",
+      "  }, []);",
+      "",
+      "  if (foods === null) return <p>⏳ Loading…</p>;",
+      "",
+      "  return <ul>{foods.map((f) => <li key={f}>{f}</li>)}</ul>;",
+      "}",
+      "",
+      "function fakeApi() {",
+      "  return new Promise((res) =>",
+      "    setTimeout(() => res([\"tteokbokki\", \"kimbap\"]), 500),",
+      "  );",
+      "}",
+    ].join("\n"),
+    checks: [
+      { label: "Guards null first", patterns: ["foods === null", "foods??[]", "foods?.map"] },
+      { label: "Shows loading text", patterns: ["loading", "⏳"] },
+      { label: "Renders the list", patterns: ["<ul>"] },
+    ],
+    tip: "Every Canary screen obeys this: load → fail loudly → show data. Silent blanks hide bugs; a visible spinner points at them.",
+    inApp: "components/Chat.tsx renders a turn-error card; anywhere data matters, there's a loading branch before the happy path",
+  },
 ];
 
 export function lessonById(id: string | null | undefined): DojoLesson | null {
@@ -421,14 +574,53 @@ export function saveDojoDone(id: string | null | undefined, done: boolean[]): vo
   }
 }
 
-/** Handoff text posting the learner's code into main chat for AI feedback. */
+const DOJO_DRAFT_KEY = "canary-dojo-drafts";
+
+/** Per-lesson drafts so switching lessons or reloading never eats typed code. */
+export function loadDojoDraft(id: string | null | undefined, fallback: string): string {
+  try {
+    if (typeof localStorage === "undefined" || !id) return fallback;
+    const raw = localStorage.getItem(DOJO_DRAFT_KEY);
+    if (!raw) return fallback;
+    const code = (JSON.parse(raw) as Record<string, unknown>)?.[id];
+    return typeof code === "string" && code.length > 0 ? code : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function saveDojoDraft(id: string | null | undefined, code: string): void {
+  try {
+    if (typeof localStorage === "undefined" || !id) return;
+    const raw = localStorage.getItem(DOJO_DRAFT_KEY);
+    let obj: Record<string, string> = {};
+    try {
+      const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+      if (parsed && typeof parsed === "object") obj = parsed as Record<string, string>;
+    } catch {
+      obj = {};
+    }
+    obj[id] = code.slice(0, 20000);
+    localStorage.setItem(DOJO_DRAFT_KEY, JSON.stringify(obj));
+  } catch {
+    // best-effort
+  }
+}
+
+/** Handoff text posting the learner's code into main chat for AI feedback.
+ * Includes which checks pass/fail so the reply can be targeted. */
 export function buildDojoHandoff(lesson: DojoLesson, code: string): string {
   const snippet = code.trim().slice(0, 1200);
+  const hits = checkDojo(code, lesson.checks);
+  const passing = hits.filter(Boolean).length;
+  const checkLines = lesson.checks.map((c, i) => `${hits[i] ? "✓" : "✗"} ${c.label}`);
   return [
-    `I'm learning ${lesson.title} in the Code Dojo. Here's my code:`,
+    `I'm learning "${lesson.title}" in the Code Dojo (${passing}/${lesson.checks.length} checks passing). Here's my code:`,
     "```tsx",
     snippet,
     "```",
+    "Checks:",
+    ...checkLines,
     "Please give quick feedback: 1) does it work, 2) one fix if needed, 3) one tiny challenge to try next. Under 120 words.",
   ].join("\n");
 }

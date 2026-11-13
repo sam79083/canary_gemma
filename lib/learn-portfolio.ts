@@ -130,6 +130,44 @@ export function buildShareCard(title: string, body: string, level: string | null
   ].join("\n");
 }
 
+const DOJO_GRAD_KEY = "canary-dojo-grad";
+
+/** True once the Code Dojo certificate has been claimed on this device. */
+export function dojoGraduationClaimed(): boolean {
+  try {
+    if (typeof localStorage === "undefined") return false;
+    return typeof localStorage.getItem(DOJO_GRAD_KEY) === "string";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * One-time "Code Dojo graduate" milestone: writes a 🏆 entry into the
+ * portfolio (which flows into the proof sheet automatically). Returns the
+ * updated entries on first claim, or null when already claimed. Pure-ish:
+ * callers gate the UI on dojoGraduationClaimed().
+ */
+export function recordDojoGraduation(lessonTitles: string[]): PortfolioEntry[] | null {
+  const list = lessonTitles.slice(0, 30).map((t) => `• ${t}`).join("\n");
+  const body = [
+    "Cleared every Code Dojo lesson — React, TypeScript and Next.js, built through a live in-editor preview. From your first component to data fetching and loading/error states.",
+    "",
+    list,
+  ].join("\n");
+  try {
+    if (typeof localStorage !== "undefined" && localStorage.getItem(DOJO_GRAD_KEY)) return null;
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(DOJO_GRAD_KEY, new Date().toISOString().slice(0, 10));
+    }
+  } catch {
+    // flag is best-effort — the milestone itself still gets written
+  }
+  const next = addEntry(loadPortfolio(), "milestone", "🎓 Code Dojo graduate", body, "code dojo");
+  savePortfolio(next);
+  return next;
+}
+
 // --- local league ------------------------------------------------------------
 
 export interface LeagueRow {

@@ -9,20 +9,32 @@
 //
 // Sandboxing: the host renders this via <iframe sandbox="allow-scripts"
 // srcDoc={...}> — scripts run, but the frame has no access to the parent.
-// CDN scripts are required (the app itself stays zero-dep and offline;
-// the dojo preview is the only part that needs the network).
+// CDN scripts carry Subresource Integrity hashes (pinned react/babel the
+// dojo already pinned by version); if the CDN is unreachable (offline,
+// corporate proxy), the preview swaps the spinner for a clear "needs the
+// network" notice instead of hanging on "Running your code…" forever.
 //
 // Self-contained (no runtime cross-imports) so plain `node --test` covers it.
 
 const REACT_URL = "https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js";
+const REACT_SHA384 =
+  "sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z";
 const REACT_DOM_URL =
   "https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js";
-const BABEL_URL = "https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.4/babel.min.js";
+const REACT_DOM_SHA384 =
+  "sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1";
+const BABEL_URL =
+  "https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.4/babel.min.js";
+const BABEL_SHA384 =
+  "sha384-x/ilTFv/u/eu6YSmkFDZl5V5Mm/pkxxcVv2cVJOrr1J0rvILhMvRBCy6yA75wYBj";
 
 /** Escape the one sequence that would break out of the wrapping <script>. */
 export function escapeForScript(code: string): string {
   return (code || "").replace(/<\/script/gi, "<\\/script");
 }
+
+const ONERROR =
+  "var r=document.getElementById('root'),o=document.getElementById('offline');if(o)o.style.display='block';if(r)r.style.display='none';";
 
 /** Full HTML document for iframe srcDoc. Appends the App render call. */
 export function buildPreviewDoc(code: string): string {
@@ -30,12 +42,13 @@ export function buildPreviewDoc(code: string): string {
   return [
     "<!doctype html>",
     '<html><head><meta charset="utf-8">',
-    "<style>body{font-family:system-ui,sans-serif;padding:16px;color:#111}button{font-size:14px;padding:6px 14px;border-radius:8px;border:1px solid #999;background:#fff;cursor:pointer}pre{white-space:pre-wrap;font-size:12px}</style>",
+    "<style>body{font-family:system-ui,sans-serif;padding:16px;color:#111}button{font-size:14px;padding:6px 14px;border-radius:8px;border:1px solid #999;background:#fff;cursor:pointer}pre{white-space:pre-wrap;font-size:12px}#offline{display:none;color:#b3261e;padding:12px;border:1px solid #b3261e;border-radius:8px}</style>",
     "</head><body>",
     '<div id="root"><p style="opacity:.55">⏳ Running your code… (stuck here = still compiling)</p></div>',
-    `<script src="${REACT_URL}"></script>`,
-    `<script src="${REACT_DOM_URL}"></script>`,
-    `<script src="${BABEL_URL}"></script>`,
+    '<div id="offline">⚠️ Live preview needs the network — React &amp; Babel load from the jsdelivr CDN. Check your connection or proxy, then press ▶ Run again.</div>',
+    `<script src="${REACT_URL}" integrity="${REACT_SHA384}" crossorigin="anonymous" onerror="${ONERROR}"></script>`,
+    `<script src="${REACT_DOM_URL}" integrity="${REACT_DOM_SHA384}" crossorigin="anonymous" onerror="${ONERROR}"></script>`,
+    `<script src="${BABEL_URL}" integrity="${BABEL_SHA384}" crossorigin="anonymous" onerror="${ONERROR}"></script>`,
     '<script id="usersrc" type="text/plain">',
     safe,
     "</script>",
@@ -47,12 +60,15 @@ export function buildPreviewDoc(code: string): string {
     "window.addEventListener('error',function(e){",
     "var m=(e&&(e.message||(e.error&&e.error.message)))||e;showError(m);",
     "});",
+    "if(typeof React==='undefined'||typeof ReactDOM==='undefined'||typeof Babel==='undefined'){/* offline: #offline notice is already shown by the failing script's onerror */}",
+    "else{",
     "try{",
     "var src=document.getElementById('usersrc').textContent;",
     "var out=Babel.transform(src,{filename:'app.tsx',presets:[['typescript',{isTSX:true,allExtensions:true}],'react']}).code;",
     "out+='\\n;ReactDOM.createRoot(document.getElementById(\\'root\\')).render(React.createElement(App));';",
     "new Function(out)();",
     "}catch(err){showError((err&&err.message)||err);}",
+    "}",
     "</script>",
     "</body></html>",
   ].join("\n");
